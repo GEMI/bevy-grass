@@ -31,6 +31,7 @@ mod render;
 
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::asset::{AssetApp, embedded_asset, load_embedded_asset};
+use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::reflect::Reflect;
 use bevy::shader::load_shader_library;
@@ -118,12 +119,28 @@ impl GrassQuality {
 
 /// Which blades cast shadows from directional lights. Grass always
 /// receives shadows; casting is the expensive part.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+///
+/// Also a resource: change it at any time, from a settings menu for
+/// instance, and the next frame draws with the new mode.
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// fn toggle_grass_shadows(mut shadows: ResMut<GrassShadows>) {
+///     *shadows = if *shadows == GrassShadows::Off {
+///         GrassShadows::Near
+///     } else {
+///         GrassShadows::Off
+///     };
+/// }
+/// ```
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum GrassShadows {
     /// No grass shadows.
     Off,
     /// Full-detail blades (LOD 0) into the first shadow cascade only: the
     /// shadows a viewer can resolve, at a fraction of the cost.
+    #[default]
     Near,
     /// LOD 0 and LOD 1 blades into the first two cascades.
     Full,
@@ -137,7 +154,8 @@ pub struct GrassPlugin {
     /// Overrides the tier's per-camera instance capacity. Blades beyond it
     /// are dropped with a warning.
     pub instance_capacity: Option<u32>,
-    /// Overrides the tier's shadow mode.
+    /// Overrides the tier's shadow mode at startup. The mode is the
+    /// [`GrassShadows`] resource afterwards.
     pub shadows: Option<GrassShadows>,
     /// Most [`GrassInteractor`]s a camera stamps a frame, nearest to the
     /// camera first. 64 when not set; a game with a horde wants more, and 512
@@ -174,7 +192,6 @@ impl Plugin for GrassPlugin {
             density_scale: self.quality.density_scale(),
             orthographic_lod: self.quality.orthographic_lod(),
             max_visible_chunks: MAX_VISIBLE_CHUNKS,
-            shadows: self.shadows.unwrap_or(self.quality.shadows()),
             max_interactors: self.max_interactors.unwrap_or(DEFAULT_MAX_INTERACTORS),
         };
 
@@ -184,6 +201,8 @@ impl Plugin for GrassPlugin {
             .register_type::<NoGrass>()
             .register_type::<Wind>()
             .init_resource::<Wind>()
+            .insert_resource(self.shadows.unwrap_or(self.quality.shadows()))
+            .register_type::<GrassShadows>()
             .init_resource::<fields::FieldTables>()
             .init_resource::<fields::TablesDirty>()
             .add_systems(

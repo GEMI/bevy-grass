@@ -294,6 +294,8 @@ The crate ships six grass styles and four wind presets, each tuned against the r
 | `Wind::GUSTY` | 0.6 | 15 m | Fast, uneven gusts |
 | `Wind::STORM` | 1.0 | 8 m | Heavy bending, fast flutter |
 
+**Added 2026-10-14, at the developer's request:** two tall-grass themes for DEMO ARPG GAME, each with a main look and three variants, all sharing one blade shape (0.7–1.5 m, 4 cm wide, 40 per m², about 16 cm apart) so they mix in one scene. `GrassStyle::SUMMER` is `SUMMER_TALL` (green), `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`; `GrassStyle::AUTUMN` is `AUTUMN_TALL` (brown), `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`. The `styles` example shows all eight. Density and the distance between blades are one setting seen two ways (`density` in blades per m², or `spacing()` / `with_spacing(metres)`, where spacing is `1 / sqrt(density)`). The shadow mode (`GrassShadows`) is now also a resource, so a game can turn grass shadows on and off at runtime.
+
 Presets are `const` values in Rust and also ship as `.ron` files, so users can copy one, edit it and hot-reload it. The example browser shows every style under every wind preset side by side.
 
 ## Platform support and Bevy versions

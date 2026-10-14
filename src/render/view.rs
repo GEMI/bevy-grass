@@ -42,16 +42,14 @@ pub(crate) struct GrassSettings {
     pub orthographic_lod: u32,
     /// Chunks one view can draw at once.
     pub max_visible_chunks: u32,
-    /// Which blades cast directional shadows.
-    pub shadows: crate::GrassShadows,
     /// Interactors each view stamps a frame.
     pub max_interactors: u32,
 }
 
-impl GrassSettings {
+impl crate::GrassShadows {
     /// Directional cascades grass is drawn into, counted from the nearest.
-    pub(crate) fn shadow_cascades(&self) -> usize {
-        match self.shadows {
+    pub(crate) fn cascades(self) -> usize {
+        match self {
             crate::GrassShadows::Off => 0,
             crate::GrassShadows::Near => 1,
             crate::GrassShadows::Full => 2,
@@ -60,8 +58,8 @@ impl GrassSettings {
 
     /// Buckets drawn into shadow maps, counted from LOD 0. Orthographic views
     /// put every blade in bucket 0, so they always cast all of them.
-    pub(crate) fn shadow_buckets(&self) -> u64 {
-        match self.shadows {
+    pub(crate) fn buckets(self) -> u64 {
+        match self {
             crate::GrassShadows::Off | crate::GrassShadows::Near => 1,
             crate::GrassShadows::Full => 2,
         }
@@ -272,7 +270,14 @@ pub(crate) fn prepare_views(
             ));
             continue;
         };
-        let mut data = view_uniform(view, &settings, &buffers.capacities, extracted.shadow_light);
+        let mut data = view_uniform(
+            view,
+            &settings,
+            &buffers.capacities,
+            extracted
+                .shadow_light
+                .filter(|_| extracted.shadows.cascades() > 0),
+        );
         update_trample(&mut buffers, &mut data, view, &settings, &extracted, &queue);
         buffers.uniform.set(data);
         buffers.uniform.write_buffer(&device, &queue);
@@ -309,8 +314,7 @@ fn view_uniform(
     let snap = step * 128.0;
     let origin = (position / snap).round() * snap;
 
-    let casting = shadow_light.filter(|_| settings.shadow_cascades() > 0);
-    let shadow_offset = casting.map_or(Vec4::ZERO, |light| {
+    let shadow_offset = shadow_light.map_or(Vec4::ZERO, |light| {
         let down = (-light.y).max(0.2);
         Vec4::new(light.x / down, 0.0, light.z / down, 1.0)
     });

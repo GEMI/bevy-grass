@@ -44,8 +44,10 @@ use bevy::render::sync_world::MainEntity;
 use bevy::render::view::{ExtractedView, ViewUniformOffset};
 use bevy::shader::Shader;
 
-use super::resources::{GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups};
-use super::view::{DRAW_ARGS_SIZE, GrassSettings, GrassViewBindGroups, GrassViewBuffers};
+use super::resources::{
+    ExtractedGrass, GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups,
+};
+use super::view::{DRAW_ARGS_SIZE, GrassViewBindGroups, GrassViewBuffers};
 use crate::api::NoGrass;
 
 /// The main-pass pipeline: Bevy's mesh pipeline, so the view bindings and
@@ -164,7 +166,7 @@ pub(crate) fn init_pipelines(
 pub(crate) struct DrawGrassBuckets<const SHADOW: bool>;
 
 impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHADOW> {
-    type Param = (SRes<GrassShared>, SRes<GrassSettings>);
+    type Param = (SRes<GrassShared>, SRes<ExtractedGrass>);
     type ViewQuery = ();
     /// The camera whose blades these are (the phase item is the camera).
     type ItemQuery = (Read<GrassViewBuffers>, Read<GrassViewBindGroups>);
@@ -173,7 +175,7 @@ impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHA
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         camera: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (shared, settings): SystemParamItem<'w, '_, Self::Param>,
+        (shared, extracted): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let Some((buffers, groups)) = camera else {
@@ -184,7 +186,11 @@ impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHA
         };
         pass.set_bind_group(2, draw, &[]);
         pass.set_index_buffer(shared.into_inner().indices.slice(..), IndexFormat::Uint32);
-        let buckets = if SHADOW { settings.shadow_buckets() } else { 3 };
+        let buckets = if SHADOW {
+            extracted.into_inner().shadows.buckets()
+        } else {
+            3
+        };
         for bucket in 0..buckets {
             pass.draw_indexed_indirect(&buffers.draw_args, bucket * DRAW_ARGS_SIZE);
         }
@@ -256,7 +262,7 @@ pub(crate) fn queue_grass(
     views: Query<CameraItems>,
     light_views: Query<(&ExtractedView, &LightEntity)>,
     shared: Res<GrassShared>,
-    settings: Res<GrassSettings>,
+    extracted: Res<ExtractedGrass>,
 ) {
     let draw_main = opaque_draw_functions.read().id::<DrawGrassMain>();
     let draw_shadow = shadow_draw_functions.read().id::<DrawGrassShadow>();
@@ -306,7 +312,7 @@ pub(crate) fn queue_grass(
             };
             shadow.remove(main_entity);
             let casts = matches!(light, LightEntity::Directional { cascade_index, .. }
-                if *cascade_index < settings.shadow_cascades());
+                if *cascade_index < extracted.shadows.cascades());
             if let (true, true, Some(pipeline)) = (draws, casts, shadow_pipeline.0) {
                 shadow.add(
                     ShadowBatchSetKey {

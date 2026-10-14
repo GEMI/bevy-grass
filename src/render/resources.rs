@@ -26,6 +26,7 @@ use bevy::time::Time;
 use bevy::transform::components::GlobalTransform;
 
 use super::view::ViewUniformData;
+use crate::GrassShadows;
 use crate::api::{GrassInteractor, Wind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
 use crate::mirror::{self, LOD_ROWS};
@@ -73,10 +74,12 @@ pub(crate) struct ExtractedGrass {
     pub shadow_light: Option<Vec3>,
     /// Every interactor, as `(x, z, radius, strength)`.
     pub interactors: Vec<Vec4>,
+    /// This frame's shadow mode.
+    pub shadows: GrassShadows,
 }
 
 /// Copies the tables (only when rebuilt, by reference), the wind, the clock,
-/// the shadow-casting light and the interactors.
+/// the shadow-casting light and mode, and the interactors.
 pub(crate) fn extract_grass(
     mut extracted: ResMut<ExtractedGrass>,
     tables: Extract<Res<FieldTables>>,
@@ -84,7 +87,9 @@ pub(crate) fn extract_grass(
     time: Extract<Res<Time>>,
     lights: Extract<Query<(&DirectionalLight, &GlobalTransform)>>,
     interactors: Extract<Query<(&GrassInteractor, &GlobalTransform)>>,
+    shadows: Extract<Res<GrassShadows>>,
 ) {
+    extracted.shadows = **shadows;
     if tables.version != extracted.tables.version {
         extracted.tables = tables.clone();
     }

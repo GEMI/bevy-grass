@@ -41,6 +41,7 @@ fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
 | --- | --- |
 | `meadow` | Perspective flying camera, a density-mask clearing, two styles |
 | `arpg_camera` | DEMO ARPG GAME's orthographic camera (30° pitch, 45° yaw, 14.64 m frame), a walking hero and six monsters trampling the grass |
+| `styles` | Every summer and autumn preset side by side; S turns grass shadows off and on at runtime |
 | `bench` | The reference benchmark: 2 × 2 km heightmap, fixed flythrough or DEMO ARPG GAME's camera (`--ortho`), `--interactors N`, CSV per frame |
 
 Every example takes the same measurement flags:

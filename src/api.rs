@@ -57,7 +57,10 @@ pub struct GrassStyle {
     pub height: Vec2,
     /// Blade width at the root, in metres. Each blade varies ±25% around it.
     pub width: f32,
-    /// Blades per square metre at full density.
+    /// Blades per square metre at full density. Blades are spread evenly
+    /// (blue noise), so this also sets the distance between neighbouring
+    /// blades: about `1 / sqrt(density)` metres. [`GrassStyle::spacing`] and
+    /// [`GrassStyle::with_spacing`] work in that distance instead.
     pub density: f32,
     /// How far the tip leans at rest, as a fraction of the height.
     pub lean: f32,
@@ -108,6 +111,143 @@ impl GrassStyle {
         translucency: 0.5,
         min_width_px: 1.0,
     };
+
+    // Tall summer and autumn grass. Each theme has a main look and variants;
+    // all of them share the blade shape (4 cm wide, 40 per m², about 16 cm
+    // apart), so they can be mixed in one scene and retuned together with
+    // `with_density`, `with_spacing` or plain field updates.
+
+    /// Tall green summer grass: the main summer look.
+    pub const SUMMER_TALL: Self = Self {
+        height: Vec2::new(0.7, 1.3),
+        width: 0.04,
+        density: 40.0,
+        lean: 0.2,
+        stiffness: 0.25,
+        root_color: Color::srgb(0.05, 0.11, 0.03),
+        tip_color: Color::srgb(0.34, 0.56, 0.14),
+        root_occlusion: 0.65,
+        translucency: 0.6,
+        min_width_px: 1.0,
+    };
+
+    /// Summer variant: deep green, denser and taller, as along a ditch or
+    /// a stream.
+    pub const SUMMER_LUSH: Self = Self {
+        height: Vec2::new(0.9, 1.5),
+        density: 50.0,
+        lean: 0.15,
+        root_color: Color::srgb(0.03, 0.08, 0.02),
+        tip_color: Color::srgb(0.22, 0.44, 0.10),
+        root_occlusion: 0.7,
+        ..Self::SUMMER_TALL
+    };
+
+    /// Summer variant: bright yellow-green and the shortest of the summer
+    /// set, a sunny meadow.
+    pub const SUMMER_MEADOW: Self = Self {
+        height: Vec2::new(0.5, 1.0),
+        lean: 0.18,
+        stiffness: 0.3,
+        root_color: Color::srgb(0.07, 0.13, 0.03),
+        tip_color: Color::srgb(0.48, 0.62, 0.18),
+        ..Self::SUMMER_TALL
+    };
+
+    /// Summer variant: high summer gone to seed, green stems with pale,
+    /// sun-bleached tips.
+    pub const SUMMER_SEEDING: Self = Self {
+        height: Vec2::new(0.8, 1.4),
+        lean: 0.28,
+        stiffness: 0.18,
+        root_color: Color::srgb(0.06, 0.12, 0.03),
+        tip_color: Color::srgb(0.66, 0.64, 0.38),
+        ..Self::SUMMER_TALL
+    };
+
+    /// Tall brown autumn grass: the main autumn look. Drier, so stiffer and
+    /// less translucent than summer grass.
+    pub const AUTUMN_TALL: Self = Self {
+        height: Vec2::new(0.7, 1.3),
+        width: 0.04,
+        density: 40.0,
+        lean: 0.25,
+        stiffness: 0.35,
+        root_color: Color::srgb(0.13, 0.09, 0.04),
+        tip_color: Color::srgb(0.52, 0.36, 0.17),
+        root_occlusion: 0.65,
+        translucency: 0.4,
+        min_width_px: 1.0,
+    };
+
+    /// Autumn variant: rust-red, like dying bracken.
+    pub const AUTUMN_RUST: Self = Self {
+        root_color: Color::srgb(0.16, 0.07, 0.03),
+        tip_color: Color::srgb(0.54, 0.29, 0.13),
+        ..Self::AUTUMN_TALL
+    };
+
+    /// Autumn variant: pale dry straw, a field nobody cut.
+    pub const AUTUMN_STRAW: Self = Self {
+        height: Vec2::new(0.6, 1.1),
+        stiffness: 0.45,
+        root_color: Color::srgb(0.24, 0.19, 0.10),
+        tip_color: Color::srgb(0.72, 0.62, 0.38),
+        translucency: 0.5,
+        ..Self::AUTUMN_TALL
+    };
+
+    /// Autumn variant: late autumn, grey-brown and beaten down by rain.
+    pub const AUTUMN_FADED: Self = Self {
+        height: Vec2::new(0.5, 1.1),
+        lean: 0.4,
+        stiffness: 0.15,
+        root_color: Color::srgb(0.11, 0.10, 0.07),
+        tip_color: Color::srgb(0.44, 0.39, 0.30),
+        translucency: 0.3,
+        ..Self::AUTUMN_TALL
+    };
+
+    /// The summer theme: the main look first, then its variants.
+    pub const SUMMER: [Self; 4] = [
+        Self::SUMMER_TALL,
+        Self::SUMMER_LUSH,
+        Self::SUMMER_MEADOW,
+        Self::SUMMER_SEEDING,
+    ];
+
+    /// The autumn theme: the main look first, then its variants.
+    pub const AUTUMN: [Self; 4] = [
+        Self::AUTUMN_TALL,
+        Self::AUTUMN_RUST,
+        Self::AUTUMN_STRAW,
+        Self::AUTUMN_FADED,
+    ];
+
+    /// Average distance between neighbouring blades at full density, in
+    /// metres: `1 / sqrt(density)`.
+    pub fn spacing(&self) -> f32 {
+        1.0 / self.density.max(f32::MIN_POSITIVE).sqrt()
+    }
+
+    /// The same style with blades about `metres` apart: sets the density to
+    /// `1 / metres²`.
+    #[must_use]
+    pub fn with_spacing(self, metres: f32) -> Self {
+        Self {
+            density: 1.0 / (metres * metres).max(f32::MIN_POSITIVE),
+            ..self
+        }
+    }
+
+    /// The same style with `blades_per_m2` blades per square metre.
+    #[must_use]
+    pub fn with_density(self, blades_per_m2: f32) -> Self {
+        Self {
+            density: blades_per_m2.max(0.0),
+            ..self
+        }
+    }
 }
 
 impl Default for GrassStyle {
@@ -194,6 +334,43 @@ impl Default for GrassInteractor {
         Self {
             radius: 0.6,
             strength: 1.0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GrassStyle;
+
+    #[test]
+    fn spacing_and_density_describe_the_same_field() {
+        let style = GrassStyle::SUMMER_TALL.with_spacing(0.2);
+        assert!((style.density - 25.0).abs() < 1e-3);
+        assert!((style.spacing() - 0.2).abs() < 1e-6);
+        let style = style.with_density(100.0);
+        assert!((style.spacing() - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_theme_preset_is_tall_and_valid() {
+        for style in GrassStyle::SUMMER.iter().chain(&GrassStyle::AUTUMN) {
+            assert!(style.height.x > 0.0 && style.height.x < style.height.y);
+            assert!(style.height.y >= 1.0, "tall grass reaches at least 1 m");
+            assert!(style.density > 0.0 && style.width > 0.0);
+            assert!((0.0..=1.0).contains(&style.translucency));
+        }
+    }
+
+    #[test]
+    fn summer_is_green_and_autumn_is_brown() {
+        let rgb = |style: &GrassStyle| style.tip_color.to_srgba();
+        for style in &GrassStyle::SUMMER[..3] {
+            let tip = rgb(style);
+            assert!(tip.green > tip.red && tip.green > tip.blue, "{tip:?}");
+        }
+        for style in &GrassStyle::AUTUMN {
+            let tip = rgb(style);
+            assert!(tip.red > tip.green && tip.green > tip.blue, "{tip:?}");
         }
     }
 }
