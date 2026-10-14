@@ -1,0 +1,67 @@
+[package]
+name = "bevy_grass"
+description = "GPU-driven, wind-animated tall grass for Bevy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
+categories = ["game-development", "rendering"]
+
+# Bevy is pinned to the exact version DEMO ARPG GAME pins. The feature list is a strict
+# subset of DEMO ARPG GAME's, so adding this crate never changes how Bevy is compiled
+# for the game (a Bevy feature change costs DEMO ARPG GAME a full Bevy rebuild).
+[dependencies]
+bevy = { version = "=0.20.0", default-features = false, features = [
+  "std",
+  "bevy_asset",
+  "bevy_log",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+] }
+# Already in Bevy's dependency tree; used only through its safe API
+# (`cast_slice`), so the crate stays `forbid(unsafe_code)`.
+bytemuck = "1"
+
+[dev-dependencies]
+bevy = { version = "=0.20.0", default-features = false, features = [
+  "3d",
+  "tonemapping_luts",
+  "free_camera",
+] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+missing_docs = "warn"
+
+# DEMO ARPG GAME's workspace lint table, so the crate can be read and reviewed with
+# the same rules as the game that uses it.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+return_self_not_must_use = "allow"
+float_cmp = "allow"
+needless_pass_by_value = "allow"
+struct_excessive_bools = "allow"
+trivially_copy_pass_by_ref = "allow"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
