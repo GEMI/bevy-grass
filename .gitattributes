@@ -1,0 +1,2 @@
+# Rust, WESL, Markdown and TOML are LF everywhere, whatever core.autocrlf says.
+* text=auto eol=lf
