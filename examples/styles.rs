@@ -1,11 +1,15 @@
-//! Every summer and autumn preset side by side, to pick a look from.
+//! The style browser: every preset side by side, loaded from its
+//! `.grass.ron` file in `assets/grass_styles`, so editing a file and saving it
+//! changes the running example.
 //!
-//! The near row is summer, the far row autumn, each left to right in the order
-//! of `GrassStyle::SUMMER` and `GrassStyle::AUTUMN`: the main look, then its
-//! variants. A 1.8 m figure stands in front for scale.
+//! The near row is the six general presets (`GrassStyle::GENERAL`: meadow,
+//! tall prairie, wheat, dry savanna, lawn, stylized), the middle row summer
+//! and the far row autumn (`GrassStyle::SUMMER`, `GrassStyle::AUTUMN`: the
+//! main look, then its variants), each left to right. A 1.8 m figure stands in
+//! front for scale.
 //!
-//! WASD and the mouse fly the camera (hold the left button to look). S turns
-//! grass shadows off and on, at runtime.
+//! WASD and the mouse fly the camera (hold the left button to look). 1–4 pick
+//! the wind (calm, breeze, gusty, storm); S turns grass shadows off and on.
 //!
 //! ```text
 //! cargo run --example styles
@@ -20,15 +24,41 @@ use bevy::prelude::*;
 use bevy_grass::prelude::*;
 
 /// Side of each preset's patch, and the gap between patches, in metres.
-const PATCH: f32 = 9.0;
+const PATCH: f32 = 7.0;
 const GAP: f32 = 1.5;
+
+/// The rows, near to far: the file names of their presets.
+const ROWS: [&[&str]; 3] = [
+    &[
+        "meadow",
+        "tall_prairie",
+        "wheat",
+        "dry_savanna",
+        "lawn",
+        "stylized",
+    ],
+    &[
+        "summer_tall",
+        "summer_lush",
+        "summer_meadow",
+        "summer_seeding",
+    ],
+    &["autumn_tall", "autumn_rust", "autumn_straw", "autumn_faded"],
+];
+
+const WINDS: [(&str, Wind); 4] = [
+    ("calm", Wind::CALM),
+    ("breeze", Wind::BREEZE),
+    ("gusty", Wind::GUSTY),
+    ("storm", Wind::STORM),
+];
 
 fn main() {
     let mut app = App::new();
-    common::ExampleArgs::parse().install(&mut app, "bevy_grass: styles");
+    common::ExampleArgs::parse().install(&mut app, "bevy_grass: styles (wind: breeze)");
     app.add_plugins((GrassPlugin::default(), FreeCameraPlugin))
         .add_systems(Startup, setup)
-        .add_systems(Update, toggle_shadows)
+        .add_systems(Update, (toggle_shadows, pick_wind))
         .run();
 }
 
@@ -43,16 +73,38 @@ fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut shadows: ResMut<GrassShad
     }
 }
 
+fn pick_wind(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut wind: ResMut<Wind>,
+    mut windows: Query<&mut Window>,
+) {
+    let picked = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+    ]
+    .iter()
+    .position(|key| keys.just_pressed(*key));
+    if let Some(index) = picked {
+        let (name, preset) = &WINDS[index];
+        *wind = preset.clone();
+        for mut window in &mut windows {
+            window.title = format!("bevy_grass: styles (wind: {name})");
+        }
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
+    assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut styles: ResMut<Assets<GrassStyle>>,
 ) {
-    let width = 4.0 * PATCH + 3.0 * GAP;
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 13.0, 30.0).looking_at(Vec3::new(0.0, 0.0, -3.0), Vec3::Y),
+        Transform::from_xyz(0.0, 17.0, 30.0).looking_at(Vec3::new(0.0, 0.0, -5.0), Vec3::Y),
         FreeCamera::default(),
     ));
     commands.spawn((
@@ -65,7 +117,7 @@ fn setup(
         // into the first cascade only, so every patch shows its shadows.
         CascadeShadowConfigBuilder {
             num_cascades: 1,
-            maximum_distance: 70.0,
+            maximum_distance: 80.0,
             ..default()
         }
         .build(),
@@ -85,17 +137,15 @@ fn setup(
         Vec3::new(0.0, 0.0, PATCH * 0.5 + 2.5),
     );
 
-    for (row, theme) in [GrassStyle::SUMMER, GrassStyle::AUTUMN]
-        .into_iter()
-        .enumerate()
-    {
+    for (row, names) in ROWS.iter().enumerate() {
         let z = -(row as f32) * (PATCH + GAP);
-        for (column, style) in theme.into_iter().enumerate() {
+        let width = names.len() as f32 * (PATCH + GAP) - GAP;
+        for (column, name) in names.iter().enumerate() {
             let x = -width * 0.5 + PATCH * 0.5 + column as f32 * (PATCH + GAP);
             commands.spawn((
                 GrassField {
                     size: Vec2::splat(PATCH),
-                    style: styles.add(style),
+                    style: assets.load(format!("grass_styles/{name}.grass.ron")),
                     ..default()
                 },
                 Transform::from_xyz(x, 0.0, z),

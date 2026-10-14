@@ -60,6 +60,8 @@ struct View {
     trample_origin: vec4<i32>,
     /// x: cell size in metres; y: flattening recovered this frame (0–1).
     trample_step: vec4<f32>,
+    /// xyz: direction to the first directional light; w: 1 when there is one.
+    sun: vec4<f32>,
 }
 
 /// One field. Mirrors `FieldGpu`.
@@ -76,6 +78,10 @@ struct Field {
     /// x: seed, y: tiles per chunk side, z: mask offset, w: height offset.
     placement: vec4<u32>,
     map_sizes: vec4<u32>,
+    /// rgb: the ground's colour; w: how far roots blend toward it.
+    ground: vec4<f32>,
+    /// x: specular, y: toon bands (0: physically based).
+    look: vec4<f32>,
 }
 
 /// One chunk. Mirrors `ChunkGpu`.

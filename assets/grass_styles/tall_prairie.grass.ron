@@ -1,0 +1,19 @@
+// GrassStyle::TALL_PRAIRIE, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.grass.ron")`. Every field is
+// optional: a missing one comes from `base`, a preset name.
+(
+    height: (0.8, 1.4),
+    width: 0.025,
+    density: 40.0,
+    lean: 0.25,
+    stiffness: 0.15,
+    root_color: (0.05, 0.1, 0.03),
+    tip_color: (0.62, 0.58, 0.3),
+    root_occlusion: 0.7,
+    translucency: 0.5,
+    min_width_px: 1.0,
+    specular: 0.3,
+    ground_color: (0.2, 0.15, 0.09),
+    ground_tint: 0.2,
+    toon_bands: 0,
+)

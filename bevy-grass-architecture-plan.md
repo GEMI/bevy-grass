@@ -351,13 +351,13 @@ flowchart TB
     M6 --> G6{{"Gate: API frozen<br/>public items reviewed"}}
     classDef done fill:#d8f0dc,stroke:#2e7d32,color:#14301a
     classDef partial fill:#fdf1c8,stroke:#a77b00,color:#3a2b00
-    class M0,M1,G1 done
-    class G0,M2 partial
+    class M0,M1,G1,M4 done
+    class G0,M2,M3,G3,G4 partial
     style G2 stroke-width:3px
     style G3 stroke-width:3px
 ```
 
-**Progress (October 13, 2026):** green is done, yellow is built but not fully checked, white is not started. M0 and M1 are done and G1 passed; G0 is missing only the DX12 run and one image-diff. M2 is built, and G2 waits for a run on target hardware. Details are under Status, and each milestone table below has a State column.
+**Progress (October 14, 2026):** green is done, yellow is built but not fully checked, white is not started. M0 and M1 are done and G1 passed; G0 is missing only one image-diff. M2 is built, and G2 waits for a run on target hardware. M3 is in DEMO ARPG GAME and waits for the developer's readability sign-off. M4 is done; G4 waits for the developer to approve the golden images. Details are under Status, and each milestone table below has a State column.
 
 M2 carries the performance gate on purpose: everything after it is built on a pipeline already proven to fit the budget. M3 carries the second gate: the plugin is only done for v1 when it holds its budget inside the real game, next to a 300-monster horde.
 
@@ -409,8 +409,8 @@ v1 covers what DEMO ARPG GAME needs plus what the reference scene needs to prove
 | --- | --- | --- | --- |
 | Ground | `Flat`, `Heightmap` with slope normals | `Mesh` bake (M5) | 🟡 `Flat` and `Heightmap` built; slope normals not yet |
 | Culling | Chunk and per-blade frustum culling | Hi-Z occlusion (M5) | ✅ Built |
-| Bevy phases | `Opaque3d`, `Shadow`, MSAA | Depth prepass, motion vectors, deferred G-buffer (M4) | ✅ Built |
-| Look | Bézier blades, PBR lighting, three-layer wind, rounded normals, root gradient and fake AO, clump colour, translucency | Specular, ground tint, toon path, six presets as `.ron` with hot reload, `grass_far_color` (M4) | ✅ Built: clump colour and translucency in M3 (slope normals, under Ground, are not) |
+| Bevy phases | `Opaque3d`, `Shadow`, MSAA | Depth prepass, motion vectors, deferred G-buffer (M4) | ✅ Built; the M4 phases too |
+| Look | Bézier blades, PBR lighting, three-layer wind, rounded normals, root gradient and fake AO, clump colour, translucency | Specular, ground tint, toon path, six presets as `.ron` with hot reload, `grass_far_color` (M4) | ✅ Built: clump colour and translucency in M3 (slope normals, under Ground, are not); the later column in M4 |
 | Interaction | Trample texture with a configurable interactor cap | `GrassEdits` paint, cut, regrow and sample (M5) | ✅ Built in M3 |
 
 ### Decisions
@@ -420,10 +420,10 @@ Design questions belong to DEMO ARPG GAME's developer. Following DEMO ARPG GAME'
 | # | Question for the developer | Needed by | Recommendation |
 | --- | --- | --- | --- |
 | D1 | May grass taller than about 0.5 m grow on walkable ground, given C9's "walkable space carries low cover"? | Gate G1 | **Answered October 13, 2026: yes**, with interactors flattening it around the hero, monsters and loot. Tall grass in some areas is part of the Baltic look; C9 was written for the earlier Nordic version and is to be updated in DEMO ARPG GAME's art bible. |
-| D2 | Grass's share of DEMO ARPG GAME's frame budget | M3 | ≤ 1.0 ms GPU at p95, 1080p on the development machine, shadow casting included |
-| D3 | Grass colours and heights for zone 1 | M3 | Placeholders taken from the art bible's zone-1 anchors (moss green `#6B8A3A`, rust bracken `#8A4A22`), marked `TODO(art-bible, owner: developer)` |
-| D4 | Do monsters trample grass, or only the hero? | M3 | Everyone. The horde leaves visible trails, at no extra cost. |
-| D5 | Does grass cast shadows in DEMO ARPG GAME? | Gate G3 | Decide on screenshots, with step 3.3's measured cost beside them |
+| D2 | Grass's share of DEMO ARPG GAME's frame budget | M3 | **Answered October 14, 2026:** about 1 ms GPU at p95 at most, 1080p on the development machine, shadow casting included. |
+| D3 | Grass colours and heights for zone 1 | M3 | **Partly answered October 14, 2026:** tall green summer and tall brown autumn grass with variants (the `SUMMER` and `AUTUMN` presets); the developer called the look perfect. Which look grows where on a map is still open (one map may mix several). |
+| D4 | Do monsters trample grass, or only the hero? | M3 | **Answered October 14, 2026: everyone**, as built; the developer played the demo and likes the interactions. |
+| D5 | Does grass cast shadows in DEMO ARPG GAME? | Gate G3 | **Answered October 14, 2026: yes by default**, switchable (`--no-grass-shadows`, and the `GrassShadows` resource at runtime). |
 
 Technical decisions are made here and can be revised by whoever implements the step.
 
@@ -439,15 +439,16 @@ Technical decisions are made here and can be revised by whoever implements the s
 
 Estimates are rough, for one developer working with agents: about 12 weeks to the first release, and about 7 weeks until DEMO ARPG GAME has grass (end of M3).
 
-### Status (October 13, 2026)
+### Status (October 14, 2026)
 
 | Milestone | State | Gate |
 | --- | --- | --- |
-| M0 Foundations | ✅ Done, except the DX12 run and Spike B's image-diff | G0 🟡 partly passed |
+| M0 Foundations | ✅ Done, except Spike B's image-diff. DX12 runs (M4: the goldens on WARP, and the examples on the T1200, matching Vulkan) | G0 🟡 partly passed |
 | M1 Prototype | ✅ Done | G1 ✅ passed |
 | M2 GPU-driven core | 🟡 Built; five steps still have a "Done when" check not run (2.1, 2.2, 2.4, 2.5, 2.6) | G2 ⬜ needs RTX 3060 class hardware |
-| M3 DEMO ARPG GAME v1 | 🟡 3.1–3.3, 3.5 and 3.6 done; 3.4 drafted (not mergeable until bevy-grass has a repository); 3.7 measured; 3.8 waits for the developer | G3 ⬜ needs D2–D5 and the readability sign-off |
-| M4–M6 | ⬜ Not started | ⬜ |
+| M3 DEMO ARPG GAME v1 | 🟡 3.1–3.3, 3.5 and 3.6 done; 3.4 drafted (DEMO ARPG GAME builds bevy-grass from the local disk until it is hosted); 3.7 measured; 3.8 waits for the developer | G3 🟡 D2, D4 and D5 answered; the readability sign-off and a Tracy capture remain |
+| M4 Complete look and Bevy passes | ✅ Done: all six steps meet their "Done when" | G4 🟡 the goldens wait for the developer's approval; the M2 budget is still unproven (G2) |
+| M5–M6 | ⬜ Not started | ⬜ |
 
 #### Performance pass after M2
 
@@ -567,7 +568,7 @@ M0 proves the four Bevy 0.20 integration points the design rests on before any g
 
 **Gate G0:** all four spikes work on Vulkan and DX12, and Spike A also runs with DEMO ARPG GAME's exact Bevy feature list. If a spike fails, the fallback is recorded before M1 starts (for Spike B, copying the needed PBR functions into the crate).
 
-**State: 🟡 Partly passed.** All four spikes work on this machine's default backend, and bevy-grass leaves DEMO ARPG GAME's resolved Bevy features unchanged. Not yet done: the DX12 and Vulkan comparison, and Spike B's image-diff.
+**State: 🟡 Partly passed.** All four spikes work on this machine's default backend, and bevy-grass leaves DEMO ARPG GAME's resolved Bevy features unchanged. DX12 was run in M4: every preset on WARP (DX12's software rasterizer) came within 0.1 of 255 of the T1200's Vulkan images on average, and `arpg_camera` on the T1200 under DX12 within 0.06 of its Vulkan image. DX12 compiles pipelines far more slowly: at frame 600 nothing was drawn yet. Not yet done: Spike B's image-diff.
 
 #### M1 Prototype the look (about 1.5 weeks)
 
@@ -629,16 +630,16 @@ M4 adds the rest of the architecture's look and its integration with Bevy's othe
 
 | Step | Work | Done when | State |
 | --- | --- | --- | --- |
-| 4.1 Depth prepass and motion vectors | Prepass phase items. The vertex shader computes positions from both the current and previous bend. | SSAO sees grass, and a TAA example shows no smearing on moving blades. | ⬜ Not started |
-| 4.2 Deferred G-buffer | Deferred output from the same fragment code | The deferred example matches the forward one within the image-diff threshold. | ⬜ Not started |
-| 4.3 Remaining shading | Rough specular on the upper half of the blade, ground tint, the toon path for `STYLIZED` | Each term is toggleable and measured. | ⬜ Not started |
-| 4.4 Presets | The six styles as constants and as `.ron` files loaded by an asset loader with hot reload; the example browser | Editing a `.ron` updates a running example. | ⬜ Not started |
-| 4.5 Far field | The WESL function `grass_far_color(world_pos)` for terrain materials | The perspective example shows no colour seam at the grass radius. | ⬜ Not started |
-| 4.6 Golden images | Every preset at a fixed camera and wind time, rendered headless in CI on Linux with lavapipe, diffed against a threshold | CI fails on a deliberate shader change and passes on a clean one. | ⬜ Not started |
+| 4.1 Depth prepass and motion vectors | Prepass phase items. The vertex shader computes positions from both the current and previous bend. | SSAO sees grass, and a TAA example shows no smearing on moving blades. | ✅ Done. Grass is queued into `Opaque3dPrepass` whenever a camera has one, with Bevy's prepass view bindings, and writes depth, normals and motion vectors as the view asks. The previous position is the blade rebuilt with last frame's bend, clock and camera (`previous_eye`, no matrix inverse). The `passes` example shows each prepass texture with grass in it (`--show depth`, `normals`, `motion`), SSAO (`--ssao`) and TAA (`--taa`). Motion vectors measured exact: reprojecting the previous frame with them halves the error on moving pixels, and scaling them by 0.8 or 1.25 makes it worse, both for wind alone and with the camera moving. With storm wind, TAA's result is 6% closer to the un-antialiased frame than with grass's motion vectors zeroed; Bevy's TAA clamps history hard, so the visible difference is small. Not in the motion vectors: a blade's trample push changing between frames (it recovers over 1.5 s). |
+| 4.2 Deferred G-buffer | Deferred output from the same fragment code | The deferred example matches the forward one within the image-diff threshold. | ✅ Done. The colour and material come from one module (`look.wesl`) used by both paths. A camera with `DeferredPrepass`, when `DefaultOpaqueRendererMethod` is deferred, draws grass into `Opaque3dDeferred` and nowhere else; Bevy's lighting pass lights it. Against forward without MSAA: mean difference 0.36 of 255, 2% of pixels off by more than 8, all on blade edges (24-bit normals and 8-bit material in the G-buffer round the specular there). Translucency is approximated in the G-buffer by storing a backlit face as its sunward side with a dimmed colour (the sun direction is in the grass view uniform); toon bands are forward-only. |
+| 4.3 Remaining shading | Rough specular on the upper half of the blade, ground tint, the toon path for `STYLIZED` | Each term is toggleable and measured. | ✅ Done: `GrassStyle::specular`, `ground_tint` with `ground_color`, and `toon_bands`. Each is compiled into the shaders only when some field's style uses it, so unused terms cost nothing. Measured with the bench's `--sheen`, `--tint` and `--toon` (four paired rounds, T1200, perspective / DEMO ARPG GAME camera): M4 without the terms +0.06 / +0.02 ms against M3 (noise level); ground tint the same as without; toon +0.13 / +0.03 ms; sheen +0.19 / +0.05 ms after moving it to the vertex shader (per fragment it cost 20–30% more). Sheen and toon are over step 3.2's 0.05 ms target in perspective; every DEMO ARPG GAME preset has both off. |
+| 4.4 Presets | The six styles as constants and as `.ron` files loaded by an asset loader with hot reload; the example browser | Editing a `.ron` updates a running example. | ✅ Done. `WHEAT`, `DRY_SAVANNA`, `LAWN` and `STYLIZED` join `MEADOW` and `TALL_PRAIRIE` (`GrassStyle::GENERAL`). `GrassStyleLoader` reads `.grass.ron` files: every field optional, missing ones from a `base` preset, colours in sRGB. All 14 presets ship in `assets/grass_styles`, and a test keeps the files equal to the constants. The `styles` example is the browser: every preset from its file, 1–4 for the wind presets. Editing `summer_tall.grass.ron` while it ran turned that patch magenta within a second. `serde` and `ron` were already in Bevy's tree. |
+| 4.5 Far field | The WESL function `grass_far_color(world_pos)` for terrain materials | The perspective example shows no colour seam at the grass radius. | ✅ Done: `bevy_grass::shaders::far::grass_far_color`, and `FarGrassMaterial`, a `StandardMaterial` extension that calls it (forward and deferred). The tint fades in from 50% to 95% of the radius, with the blades' gusts and an optional area. In `meadow` (a 400 m field, fog off) the brown band past the radius becomes grass of the same colour. The last drawn grass was half as bright as ground in the grass's colour, in every channel, and the default colour carries that factor. A change of texture remains where the blades end, as with any far field. |
+| 4.6 Golden images | Every preset at a fixed camera and wind time, rendered headless in CI on Linux with lavapipe, diffed against a threshold | CI fails on a deliberate shader change and passes on a clean one. | ✅ Done: the `golden` example renders the 14 presets headless, with synchronous pipeline compilation and the clock stopped, and compares them with `tests/golden/<renderer>/`. Clean runs are bit-exact on the T1200 and on WARP. A deliberate shader change (ambient light on the roots 10% darker, a mean change of 0.02–0.09) fails all 14 with exit code 1, and the clean build passes. Goldens are committed for the T1200 and WARP. CI runs the check on WARP (Windows) and lavapipe (Linux); lavapipe's goldens come from the first CI run's artifact, because lavapipe does not run on this machine. On WARP the app never finished shutting down, so the check exits the process itself once its result is written. |
 
 **Gate G4:** golden images approved, and the M2 budget still holds.
 
-**State: ⬜ Not started.**
+**State: 🟡 Partly passed.** The golden images are in `tests/golden/` for the developer to approve. A game that uses none of the new terms pays what it paid at M3 (DEMO ARPG GAME's camera: +0.02 ms, noise level), so the M2 budget is no worse; G2 itself still needs a run on target hardware.
 
 #### M5 Editing and ground (about 2 weeks)
 

@@ -1,54 +1,74 @@
 //! Every touch point with Bevy's render internals: pipeline specialization,
-//! phase items in `Opaque3d` and `Shadow`, and the render commands that draw
-//! them. A Bevy upgrade should need changes here and little else.
+//! phase items in `Opaque3d`, `Opaque3dPrepass`, `Opaque3dDeferred` and
+//! `Shadow`, and the render commands that draw them. A Bevy upgrade should
+//! need changes here and little else.
 //!
 //! Grass is one `NonMesh` binned phase item per camera, drawn with three
 //! `draw_indexed_indirect` calls (one per bucket) whatever the number of
 //! fields. The item *is* the camera's render entity, which carries that
 //! camera's instance buffers, so the same item queued into the camera's
-//! shadow views draws the camera's blades into its shadow maps.
+//! prepass and shadow views draws the camera's blades there too.
 //!
 //! Binned phases keep items between frames, so each frame the item is
 //! removed and re-added: that keeps it correct when a camera gains `NoGrass`,
-//! its MSAA changes, or the grass goes away, at the cost of two map operations.
+//! its MSAA or prepasses change, or the grass goes away, at the cost of a few
+//! map operations.
 
-use bevy::asset::{AssetId, RenderAssetUsages};
+use bevy::asset::{AssetId, Handle, RenderAssetUsages};
 use bevy::core_pipeline::core_3d::{
     CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey,
 };
+use bevy::core_pipeline::deferred::Opaque3dDeferred;
+use bevy::core_pipeline::prepass::{
+    DeferredPrepass, Opaque3dPrepass, OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey,
+    prepass_target_descriptors,
+};
 use bevy::ecs::prelude::*;
 use bevy::ecs::query::ROQueryItem;
-use bevy::ecs::system::SystemParamItem;
 use bevy::ecs::system::lifetimeless::{Read, SRes};
+use bevy::ecs::system::{SystemParam, SystemParamItem};
+use bevy::material::OpaqueRendererMethod;
 use bevy::mesh::{Mesh, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
-    LightEntity, MeshPipeline, MeshPipelineKey, SetMeshViewBindGroup,
-    SetMeshViewBindingArrayBindGroup, Shadow, ShadowBatchSetKey, ShadowBinKey, ViewKeyCache,
-    ViewLightEntities,
+    DefaultOpaqueRendererMethod, LightEntity, MeshPipeline, MeshPipelineKey, PrepassPipeline,
+    SetMeshViewBindGroup, SetMeshViewBindingArrayBindGroup, SetPrepassViewBindGroup,
+    SetPrepassViewEmptyBindGroup, Shadow, ShadowBatchSetKey, ShadowBinKey, ViewKeyCache,
+    ViewKeyPrepassCache, ViewLightEntities,
 };
+use bevy::reflect::{PartialReflect, ReflectRef};
 use bevy::render::mesh::MeshVertexBufferLayouts;
 use bevy::render::mesh::allocator::MeshSlabs;
 use bevy::render::render_phase::{
-    BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem, RenderCommand,
-    RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
+    BinnedPhaseItem, BinnedRenderPhase, BinnedRenderPhaseType, DrawFunctionId, DrawFunctions,
+    InputUniformIndex, PhaseItem, RenderCommand, RenderCommandResult, SetItemPipeline,
+    TrackedRenderPass, ViewBinnedRenderPhases,
 };
 use bevy::render::render_resource::{
-    CachedRenderPipelineId, CompareFunction, DepthBiasState, DepthStencilState, IndexFormat,
-    MultisampleState, PipelineCache, PrimitiveState, RenderPipelineDescriptor,
-    SpecializedMeshPipeline, SpecializedRenderPipeline, SpecializedRenderPipelines, StencilState,
-    VertexState,
+    BindGroupLayoutDescriptor, CachedRenderPipelineId, CompareFunction, DepthBiasState,
+    DepthStencilState, FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState,
+    RenderPipelineDescriptor, SpecializedMeshPipeline, SpecializedRenderPipeline,
+    SpecializedRenderPipelines, StencilState, VertexState,
 };
 use bevy::render::renderer::RenderDevice;
 use bevy::render::settings::WgpuFeatures;
 use bevy::render::sync_world::MainEntity;
 use bevy::render::view::{ExtractedView, ViewUniformOffset};
-use bevy::shader::Shader;
+use bevy::shader::{Shader, ShaderDefVal};
 
 use super::resources::{
     ExtractedGrass, GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups,
 };
 use super::view::{DRAW_ARGS_SIZE, GrassViewBindGroups, GrassViewBuffers};
 use crate::api::NoGrass;
+use crate::fields::LookFeatures;
+
+/// A grass draw pipeline's key: the view's, plus the optional look terms
+/// some field uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct GrassPipelineKey {
+    pub mesh: MeshPipelineKey,
+    pub features: LookFeatures,
+}
 
 /// The main-pass pipeline: Bevy's mesh pipeline, so the view bindings and
 /// shader definitions match what its PBR functions expect, with the vertex
@@ -56,8 +76,8 @@ use crate::api::NoGrass;
 #[derive(Resource, Clone)]
 pub(crate) struct GrassMainPipeline {
     mesh_pipeline: MeshPipeline,
-    shader: bevy::asset::Handle<Shader>,
-    grass_layout: bevy::render::render_resource::BindGroupLayoutDescriptor,
+    shader: Handle<Shader>,
+    grass_layout: BindGroupLayoutDescriptor,
     /// The layout of a mesh with positions and normals, which is what
     /// `MeshPipeline::specialize` needs to produce a lit pipeline. No vertex
     /// buffer is bound; the grass shader builds vertices from indices.
@@ -67,28 +87,36 @@ pub(crate) struct GrassMainPipeline {
 // Not a `SpecializedMeshPipeline`: Bevy's cache for those assumes a vertex
 // buffer, and grass has none.
 impl SpecializedRenderPipeline for GrassMainPipeline {
-    type Key = MeshPipelineKey;
+    type Key = GrassPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         let mut descriptor = self
             .mesh_pipeline
-            .specialize(key, &self.vertex_layout)
+            .specialize(key.mesh, &self.vertex_layout)
             .expect("the template layout has every attribute the mesh pipeline requires");
         descriptor.label = Some("grass_main".into());
         descriptor.vertex.shader = self.shader.clone();
         descriptor.vertex.buffers.clear();
+        descriptor
+            .vertex
+            .shader_defs
+            .extend(key.features.shader_defs().map(ShaderDefVal::from));
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader = self.shader.clone();
             fragment.entry_point = Some("fragment".into());
+            fragment
+                .shader_defs
+                .extend(key.features.shader_defs().map(ShaderDefVal::from));
         }
         // Keep the view (0) and binding-array (1) groups; grass data is 2.
         descriptor.layout.truncate(2);
         descriptor.layout.push(self.grass_layout.clone());
         descriptor.primitive.cull_mode = None;
-        // Grass is not drawn in Bevy's depth prepass yet (M4), so it writes
-        // and tests depth itself even when the view has a prepass. A
-        // depth-only grass pass ahead of the lit one was measured and made
-        // the frame slower (see the plan's status section).
+        // Grass writes and tests depth itself, also when the view has a
+        // prepass that already drew it: the depths are equal, so the lit pass
+        // still draws. Without a prepass, a depth-only grass pass ahead of the
+        // lit one was measured and made the frame slower (see the plan's
+        // status section), so grass never asks for one.
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
             depth.depth_write_enabled = Some(true);
             depth.depth_compare = Some(CompareFunction::GreaterEqual);
@@ -97,13 +125,127 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
     }
 }
 
+/// The prepass and deferred pipeline: depth, and normals, motion vectors and
+/// the G-buffer when the view has them. Specialized by the view's prepass
+/// key, as Bevy's own prepass pipeline is.
+#[derive(Resource, Clone)]
+pub(crate) struct GrassPrepassPipeline {
+    view_layout_motion_vectors: BindGroupLayoutDescriptor,
+    view_layout_no_motion_vectors: BindGroupLayoutDescriptor,
+    empty_layout: BindGroupLayoutDescriptor,
+    grass_layout: BindGroupLayoutDescriptor,
+    shader: Handle<Shader>,
+}
+
+impl SpecializedRenderPipeline for GrassPrepassPipeline {
+    type Key = GrassPipelineKey;
+
+    fn specialize(
+        &self,
+        GrassPipelineKey {
+            mesh: key,
+            features,
+        }: Self::Key,
+    ) -> RenderPipelineDescriptor {
+        let normals = key.contains(MeshPipelineKey::NORMAL_PREPASS);
+        let motion = key.contains(MeshPipelineKey::MOTION_VECTOR_PREPASS);
+        let deferred = key.contains(MeshPipelineKey::DEFERRED_PREPASS);
+        let mut defs: Vec<ShaderDefVal> = vec![
+            "PREPASS_PIPELINE".into(),
+            // Bevy's PBR modules name a material group; grass has none.
+            ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3),
+        ];
+        // Toon shading needs the lights, which a G-buffer pass has not got.
+        defs.extend(
+            features
+                .shader_defs()
+                .filter(|def| *def != "GRASS_TOON")
+                .map(ShaderDefVal::from),
+        );
+        for (on, name) in [
+            (
+                key.contains(MeshPipelineKey::DEPTH_PREPASS),
+                "DEPTH_PREPASS",
+            ),
+            (normals, "NORMAL_PREPASS"),
+            (motion, "MOTION_VECTOR_PREPASS"),
+            (deferred, "DEFERRED_PREPASS"),
+            (normals || deferred, "NORMAL_PREPASS_OR_DEFERRED_PREPASS"),
+            (
+                motion || deferred,
+                "MOTION_VECTOR_PREPASS_OR_DEFERRED_PREPASS",
+            ),
+        ] {
+            if on {
+                defs.push(name.into());
+            }
+        }
+        let mut targets = prepass_target_descriptors(normals, motion, deferred);
+        if targets.iter().all(Option::is_none) {
+            // Depth only: no fragment shader at all.
+            targets.clear();
+        } else {
+            defs.push("PREPASS_FRAGMENT".into());
+        }
+        let fragment = (!targets.is_empty()).then(|| FragmentState {
+            shader: self.shader.clone(),
+            shader_defs: defs.clone(),
+            targets,
+            ..Default::default()
+        });
+        RenderPipelineDescriptor {
+            label: Some(
+                if deferred {
+                    "grass_deferred"
+                } else {
+                    "grass_prepass"
+                }
+                .into(),
+            ),
+            layout: vec![
+                if motion {
+                    self.view_layout_motion_vectors.clone()
+                } else {
+                    self.view_layout_no_motion_vectors.clone()
+                },
+                self.empty_layout.clone(),
+                self.grass_layout.clone(),
+            ],
+            vertex: VertexState {
+                shader: self.shader.clone(),
+                shader_defs: defs,
+                ..Default::default()
+            },
+            fragment,
+            primitive: PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+            multisample: MultisampleState {
+                count: key.msaa_samples(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// The shadow pipeline: depth only, for directional-light views.
 #[derive(Resource, Debug, Clone, Copy)]
 pub(crate) struct GrassShadowPipeline(Option<CachedRenderPipelineId>);
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn init_pipelines(
     mut commands: Commands,
     mesh_pipeline: Res<MeshPipeline>,
+    prepass_pipeline: Res<PrepassPipeline>,
     shaders: Res<GrassShaders>,
     layouts: Res<GrassLayouts>,
     mut vertex_layouts: ResMut<MeshVertexBufferLayouts>,
@@ -121,6 +263,14 @@ pub(crate) fn init_pipelines(
         shader: shaders.main.clone(),
         grass_layout: layouts.draw.clone(),
         vertex_layout: template.get_mesh_vertex_buffer_layout(&mut vertex_layouts),
+    });
+    // Bevy's own prepass layouts, so its prepass view bind groups fit.
+    commands.insert_resource(GrassPrepassPipeline {
+        view_layout_motion_vectors: prepass_pipeline.view_layout_motion_vectors.clone(),
+        view_layout_no_motion_vectors: prepass_pipeline.view_layout_no_motion_vectors.clone(),
+        empty_layout: prepass_pipeline.empty_layout.clone(),
+        grass_layout: layouts.draw.clone(),
+        shader: shaders.prepass.clone(),
     });
 
     // Directional shadow maps need geometry behind the near plane clamped
@@ -161,8 +311,8 @@ pub(crate) fn init_pipelines(
     commands.insert_resource(GrassShadowPipeline(shadow));
 }
 
-/// Draws a camera's LOD buckets: all three in the main pass, as many as the
-/// shadow mode allows in shadow passes.
+/// Draws a camera's LOD buckets: all three in the main pass and prepasses,
+/// as many as the shadow mode allows in shadow passes.
 pub(crate) struct DrawGrassBuckets<const SHADOW: bool>;
 
 impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHADOW> {
@@ -230,6 +380,15 @@ pub(crate) type DrawGrassMain = (
     DrawGrassBuckets<false>,
 );
 
+/// Draws grass into the prepass and the deferred G-buffer, with Bevy's
+/// prepass view bindings.
+pub(crate) type DrawGrassPrepass = (
+    SetItemPipeline,
+    SetPrepassViewBindGroup<0>,
+    SetPrepassViewEmptyBindGroup<1>,
+    DrawGrassBuckets<false>,
+);
+
 pub(crate) type DrawGrassShadow = (
     SetItemPipeline,
     SetGrassShadowView<0>,
@@ -243,46 +402,156 @@ type CameraItems = (
     &'static ExtractedView,
     Option<&'static ViewLightEntities>,
     Has<NoGrass>,
+    Has<DeferredPrepass>,
     Option<&'static GrassViewBindGroups>,
 );
 
-/// Puts the grass item into the opaque phase of every camera and into the
-/// shadow phase of every directional-light view those cameras own.
-#[allow(clippy::too_many_arguments)]
+/// Whether opaque materials render deferred by default. Grass follows the
+/// default, like a `StandardMaterial` left at `OpaqueRendererMethod::Auto`.
+fn deferred_by_default(method: &DefaultOpaqueRendererMethod) -> bool {
+    // The method is private to Bevy; reflection reads it.
+    match method.reflect_ref() {
+        ReflectRef::TupleStruct(method) => method
+            .field(0)
+            .and_then(<dyn PartialReflect>::try_downcast_ref::<OpaqueRendererMethod>)
+            .is_some_and(|method| *method == OpaqueRendererMethod::Deferred),
+        _ => false,
+    }
+}
+
+/// The pipelines `queue_grass` specializes.
+#[derive(SystemParam)]
+pub(crate) struct GrassPipelines<'w> {
+    cache: Res<'w, PipelineCache>,
+    main: Res<'w, GrassMainPipeline>,
+    main_specialized: ResMut<'w, SpecializedRenderPipelines<GrassMainPipeline>>,
+    prepass: Res<'w, GrassPrepassPipeline>,
+    prepass_specialized: ResMut<'w, SpecializedRenderPipelines<GrassPrepassPipeline>>,
+    shadow: Res<'w, GrassShadowPipeline>,
+    view_keys: Res<'w, ViewKeyCache>,
+    prepass_view_keys: Res<'w, ViewKeyPrepassCache>,
+    renderer_method: Res<'w, DefaultOpaqueRendererMethod>,
+}
+
+/// The phases `queue_grass` fills, and their draw functions.
+#[derive(SystemParam)]
+pub(crate) struct GrassPhases<'w> {
+    opaque: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
+    prepass: ResMut<'w, ViewBinnedRenderPhases<Opaque3dPrepass>>,
+    deferred: ResMut<'w, ViewBinnedRenderPhases<Opaque3dDeferred>>,
+    shadow: ResMut<'w, ViewBinnedRenderPhases<Shadow>>,
+    opaque_draws: Res<'w, DrawFunctions<Opaque3d>>,
+    prepass_draws: Res<'w, DrawFunctions<Opaque3dPrepass>>,
+    deferred_draws: Res<'w, DrawFunctions<Opaque3dDeferred>>,
+    shadow_draws: Res<'w, DrawFunctions<Shadow>>,
+}
+
+/// Adds the grass item to a prepass or deferred phase.
+fn add_prepass_item<P>(
+    phase: &mut BinnedRenderPhase<P>,
+    pipeline: CachedRenderPipelineId,
+    draw_function: DrawFunctionId,
+    item: (Entity, MainEntity),
+) where
+    P: BinnedPhaseItem<
+            BatchSetKey = OpaqueNoLightmap3dBatchSetKey,
+            BinKey = OpaqueNoLightmap3dBinKey,
+        >,
+{
+    phase.add(
+        OpaqueNoLightmap3dBatchSetKey {
+            pipeline,
+            draw_function,
+            material_bind_group_index: None,
+            slabs: MeshSlabs::default(),
+        },
+        OpaqueNoLightmap3dBinKey {
+            asset_id: AssetId::<Mesh>::default().untyped(),
+        },
+        item,
+        InputUniformIndex::default(),
+        BinnedRenderPhaseType::NonMesh,
+    );
+}
+
+/// Puts the grass item into the opaque phase of every camera (or, for a
+/// deferred camera, its deferred phase), into its prepass when it has one,
+/// and into the shadow phase of every directional-light view it owns.
 pub(crate) fn queue_grass(
-    pipeline_cache: Res<PipelineCache>,
-    main_pipeline: Res<GrassMainPipeline>,
-    mut main_pipelines: ResMut<SpecializedRenderPipelines<GrassMainPipeline>>,
-    shadow_pipeline: Res<GrassShadowPipeline>,
-    opaque_draw_functions: Res<DrawFunctions<Opaque3d>>,
-    shadow_draw_functions: Res<DrawFunctions<Shadow>>,
-    mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    mut shadow_phases: ResMut<ViewBinnedRenderPhases<Shadow>>,
-    view_key_cache: Res<ViewKeyCache>,
+    mut pipelines: GrassPipelines,
+    mut phases: GrassPhases,
     views: Query<CameraItems>,
     light_views: Query<(&ExtractedView, &LightEntity)>,
     shared: Res<GrassShared>,
     extracted: Res<ExtractedGrass>,
 ) {
-    let draw_main = opaque_draw_functions.read().id::<DrawGrassMain>();
-    let draw_shadow = shadow_draw_functions.read().id::<DrawGrassShadow>();
+    let draw_main = phases.opaque_draws.read().id::<DrawGrassMain>();
+    let draw_prepass = phases.prepass_draws.read().id::<DrawGrassPrepass>();
+    let draw_deferred = phases.deferred_draws.read().id::<DrawGrassPrepass>();
+    let draw_shadow = phases.shadow_draws.read().id::<DrawGrassShadow>();
     let has_grass = shared.chunk_count > 0;
+    let features = extracted.tables.features;
+    let with_features = |mesh| GrassPipelineKey { mesh, features };
+    let deferred_default = deferred_by_default(&pipelines.renderer_method);
+    let triangles = MeshPipelineKey::from_primitive_topology_and_strip_index(
+        PrimitiveTopology::TriangleList,
+        None,
+    );
 
-    for (entity, &main_entity, view, lights, no_grass, groups) in &views {
-        let Some(opaque) = opaque_phases.get_mut(&view.retained_view_entity) else {
+    for (entity, &main_entity, view, lights, no_grass, deferred_prepass, groups) in &views {
+        let retained = view.retained_view_entity;
+        let item = (entity, main_entity);
+        let ready = groups.is_some_and(|groups| groups.draw.is_some());
+        let draws = has_grass && ready && !no_grass;
+        let prepass_key = pipelines
+            .prepass_view_keys
+            .get(&retained)
+            .map(|key| *key | triangles);
+
+        // A deferred camera draws grass into its G-buffer and nowhere else.
+        let mut deferred = false;
+        if let Some(phase) = phases.deferred.get_mut(&retained) {
+            phase.remove(main_entity);
+            if let (true, true, true, Some(mesh_key)) =
+                (draws, deferred_prepass, deferred_default, prepass_key)
+            {
+                let pipeline = pipelines.prepass_specialized.specialize(
+                    &pipelines.cache,
+                    &pipelines.prepass,
+                    with_features(mesh_key | MeshPipelineKey::DEFERRED_PREPASS),
+                );
+                add_prepass_item(phase, pipeline, draw_deferred, item);
+                deferred = true;
+            }
+        }
+
+        // A forward camera with a prepass draws grass there too, so SSAO,
+        // TAA and anything else reading the prepass sees it.
+        if let Some(phase) = phases.prepass.get_mut(&retained) {
+            phase.remove(main_entity);
+            if let (true, false, Some(mesh_key)) = (draws, deferred, prepass_key) {
+                let pipeline = pipelines.prepass_specialized.specialize(
+                    &pipelines.cache,
+                    &pipelines.prepass,
+                    with_features(mesh_key),
+                );
+                add_prepass_item(phase, pipeline, draw_prepass, item);
+            }
+        }
+
+        let Some(opaque) = phases.opaque.get_mut(&retained) else {
             continue;
         };
         opaque.remove(main_entity);
-        let ready = groups.is_some_and(|groups| groups.draw.is_some());
-        let draws = has_grass && ready && !no_grass;
-
-        if draws && let Some(&view_key) = view_key_cache.get(&view.retained_view_entity) {
-            let key = view_key
-                | MeshPipelineKey::from_primitive_topology_and_strip_index(
-                    PrimitiveTopology::TriangleList,
-                    None,
-                );
-            let pipeline = main_pipelines.specialize(&pipeline_cache, &main_pipeline, key);
+        if draws
+            && !deferred
+            && let Some(&view_key) = pipelines.view_keys.get(&retained)
+        {
+            let pipeline = pipelines.main_specialized.specialize(
+                &pipelines.cache,
+                &pipelines.main,
+                with_features(view_key | triangles),
+            );
             opaque.add(
                 Opaque3dBatchSetKey {
                     draw_function: draw_main,
@@ -294,41 +563,64 @@ pub(crate) fn queue_grass(
                 Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::default().untyped(),
                 },
-                (entity, main_entity),
+                item,
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
             );
         }
 
-        let Some(lights) = lights else {
+        if let Some(lights) = lights {
+            let pipeline = pipelines.shadow.0.filter(|_| draws);
+            queue_shadows(
+                &mut phases.shadow,
+                lights,
+                &light_views,
+                item,
+                pipeline,
+                draw_shadow,
+                extracted.shadows.cascades(),
+            );
+        }
+    }
+}
+
+/// Puts the grass item into the shadow phase of every directional-light
+/// cascade the shadow mode draws, and takes it out of the others. `pipeline`
+/// is `None` when the camera draws no grass.
+fn queue_shadows(
+    phases: &mut ViewBinnedRenderPhases<Shadow>,
+    lights: &ViewLightEntities,
+    light_views: &Query<(&ExtractedView, &LightEntity)>,
+    item: (Entity, MainEntity),
+    pipeline: Option<CachedRenderPipelineId>,
+    draw_function: DrawFunctionId,
+    cascades: usize,
+) {
+    for &light_view in &lights.lights {
+        let Ok((light_view, light)) = light_views.get(light_view) else {
             continue;
         };
-        for &light_view in &lights.lights {
-            let Ok((light_view, light)) = light_views.get(light_view) else {
-                continue;
-            };
-            let Some(shadow) = shadow_phases.get_mut(&light_view.retained_view_entity) else {
-                continue;
-            };
-            shadow.remove(main_entity);
-            let casts = matches!(light, LightEntity::Directional { cascade_index, .. }
-                if *cascade_index < extracted.shadows.cascades());
-            if let (true, true, Some(pipeline)) = (draws, casts, shadow_pipeline.0) {
-                shadow.add(
-                    ShadowBatchSetKey {
-                        pipeline,
-                        draw_function: draw_shadow,
-                        material_bind_group_index: None,
-                        slabs: MeshSlabs::default(),
-                    },
-                    ShadowBinKey {
-                        asset_id: AssetId::<Mesh>::default().untyped(),
-                    },
-                    (entity, main_entity),
-                    InputUniformIndex::default(),
-                    BinnedRenderPhaseType::NonMesh,
-                );
-            }
+        let Some(shadow) = phases.get_mut(&light_view.retained_view_entity) else {
+            continue;
+        };
+        shadow.remove(item.1);
+        let casts = matches!(light, LightEntity::Directional { cascade_index, .. }
+            if *cascade_index < cascades);
+        if let (true, Some(pipeline)) = (casts, pipeline) {
+            shadow.add(
+                ShadowBatchSetKey {
+                    pipeline,
+                    draw_function,
+                    material_bind_group_index: None,
+                    slabs: MeshSlabs::default(),
+                },
+                ShadowBinKey {
+                    asset_id: AssetId::<Mesh>::default().untyped(),
+                },
+                item,
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+            );
         }
     }
 }

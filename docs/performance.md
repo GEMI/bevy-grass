@@ -133,6 +133,24 @@ Lessons for the next feature in the generation pass:
 - **Signed integer division and modulo are expensive on GPUs.** Keep sizes powers of two and use masks.
 - **A precomputed table beats a per-blade search** whenever the pattern can tile.
 
+## M4: the rest of the look, and Bevy's other passes (October 14, 2026)
+
+Paired runs against the M3 build, four rounds each, T1200. The bench's styles keep the M3 look; `--sheen`, `--tint` and `--toon` add one optional term each.
+
+| Change | Perspective | DEMO ARPG GAME | Notes |
+| --- | --- | --- | --- |
+| First version: shared look module, new terms always compiled in, bench styles inheriting sheen and tint from `MEADOW` and `TALL_PRAIRIE` | +0.29 ms | +0.22 ms | 8–9% of grass cost. |
+| **Optional terms compiled in only when a style uses them** (shader definitions, part of the pipeline key) | **+0.06 ms** | **+0.02 ms** | **Kept.** Noise level: a game using none of the terms, DEMO ARPG GAME included, pays what it paid at M3. |
+| Ground tint on | +0.05 ms | +0.02 ms | Free: a few vertex instructions. |
+| Toon bands on | +0.19 ms | +0.06 ms | |
+| Sheen on, per fragment (height and style passed down) | +0.31 ms | +0.17 ms | |
+| Sheen on, roughness left constant | about the same | about the same | Not kept: losing constant roughness was not the cost. |
+| **Sheen on, amount computed per vertex** (one varying) | **+0.19 ms** | **+0.05 ms** | **Kept:** 20–30% less than per fragment in a paired run, and simpler. |
+
+The prepass and deferred paths cost nothing unless a camera has a prepass or is deferred; DEMO ARPG GAME's has neither. With a prepass, grass is drawn twice (prepass and lit pass), as every opaque mesh is; with motion vectors its vertex shader builds each blade twice.
+
+Lesson: **put optional look terms behind shader definitions from the start.** Even a term set to zero costs fragment time when it is compiled in, because the compiler cannot fold it.
+
 ## Levers not yet tried
 
 In expected order of effect:

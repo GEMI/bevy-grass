@@ -1,0 +1,57 @@
+//! bevy_grass::shaders::far — the colour of grass seen from too far away to
+//! draw blades, for terrain materials. Beyond the grass radius there are no
+//! blades; `grass_far_color` tints the ground toward the grass's colour as
+//! the blades thin out, with the same gusts rolling across it, so there is no
+//! seam where the blades end.
+//!
+//! `FarGrassMaterial` (Rust) is a ready-made terrain material that calls it.
+//! A custom terrain shader can import it:
+//!
+//! ```wgsl
+//! import bevy_grass::shaders::far::{FarGrass, grass_far_color};
+//! ```
+
+/// Mirrors `FarGrassUniform` in Rust.
+struct FarGrass {
+    /// rgb: the grass's colour from afar, linear; w: how far the ground
+    /// takes it on (0–1).
+    color: vec4<f32>,
+    /// x: distance where the tint starts; y: where it is full; z: how much
+    /// gusts brighten it; w: 1 if `area` applies.
+    fade: vec4<f32>,
+    /// The rectangle with grass, world XZ: min x, min z, max x, max z. The
+    /// tint fades out over `fade.y * 0.02` metres at its edge.
+    area: vec4<f32>,
+    /// xy: wind direction; z: gust size in metres; w: gust speed in m/s.
+    wind: vec4<f32>,
+    /// x: wind strength.
+    strength: vec4<f32>,
+}
+
+/// The ground's colour `ground` at `world_position`, tinted toward the far
+/// grass seen from `eye` at `time` (Bevy's `globals.time`, which the grass's
+/// wind also runs on). `gusts` is the grass's gust texture.
+fn grass_far_color(
+    world_position: vec3<f32>,
+    eye: vec3<f32>,
+    ground: vec3<f32>,
+    far: FarGrass,
+    time: f32,
+    gusts: texture_2d<f32>,
+    gust_sampler: sampler,
+) -> vec3<f32> {
+    var amount = smoothstep(far.fade.x, far.fade.y, distance(world_position, eye)) * far.color.w;
+    if far.fade.w > 0.5 {
+        let soft = max(far.fade.y * 0.02, 0.01);
+        let inside = min(world_position.xz - far.area.xy, far.area.zw - world_position.xz);
+        amount *= smoothstep(0.0, soft, min(inside.x, inside.y));
+    }
+    // The gust texture the blades bend by, scrolled the same way: where a
+    // gust presses the grass down its paler, sunlit side shows.
+    let raw = far.wind.xy;
+    let direction = select(vec2<f32>(1.0, 0.0), normalize(raw), dot(raw, raw) > 1e-8);
+    let uv = (world_position.xz - direction * time * far.wind.w) / max(far.wind.z, 0.01);
+    let gust = textureSampleLevel(gusts, gust_sampler, uv, 0.0).r;
+    let sheen = 1.0 + far.fade.z * far.strength.x * (1.4 * gust * gust - 0.35);
+    return mix(ground, far.color.rgb * sheen, amount);
+}

@@ -1,12 +1,19 @@
-//! A perspective meadow with a free-flying camera: a field of `MEADOW` with a
-//! round clearing cut by a density mask, and a patch of `TALL_PRAIRIE`. A low
-//! sun makes the grass shadows on the clearing's bare ground easy to see.
+//! A perspective meadow with a free-flying camera: a field of `MEADOW` larger
+//! than the grass radius, with a round clearing cut by a density mask, and a
+//! patch of `TALL_PRAIRIE`. A low sun makes the grass shadows on the
+//! clearing's bare ground easy to see.
+//!
+//! The ground is a `FarGrassMaterial`: beyond the grass radius, where no
+//! blades are drawn, it takes on the meadow's colour and its gusts, so there
+//! is no seam where the blades end. `--no-far` uses a plain ground to compare
+//! with, and `--no-fog` clears the mist that would otherwise hide the seam.
 //!
 //! WASD and the mouse fly the camera (hold the left button to look).
 //!
 //! ```text
 //! cargo run --example meadow
 //! cargo run --example meadow -- --fixed-time --screenshot shots/meadow.png
+//! cargo run --example meadow -- --no-fog --no-far
 //! ```
 
 mod common;
@@ -27,13 +34,17 @@ fn main() {
         .run();
 }
 
+/// Side of the meadow, in metres: beyond the High tier's 100 m radius.
+const MEADOW: f32 = 400.0;
+
 /// A mask with full density everywhere except a soft-edged round clearing.
 fn clearing_mask(size: u32, center: Vec2, radius: f32) -> Image {
     let mut data = Vec::with_capacity((size * size * 4) as usize);
     for y in 0..size {
         for x in 0..size {
             let uv = (Vec2::new(x as f32, y as f32) + 0.5) / size as f32;
-            let density = ((uv.distance(center) - radius) / 0.04).clamp(0.0, 1.0);
+            // A soft edge about 3 m wide.
+            let density = ((uv.distance(center) - radius) / (3.2 / MEADOW)).clamp(0.0, 1.0);
             data.extend_from_slice(&[(density * 255.0) as u8, 255, 0, 255]);
         }
     }
@@ -50,26 +61,31 @@ fn clearing_mask(size: u32, center: Vec2, radius: f32) -> Image {
     )
 }
 
+#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
+    args: Res<common::ExampleArgs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut far_materials: ResMut<Assets<FarGrassMaterial>>,
     mut styles: ResMut<Assets<GrassStyle>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-6.0, 2.2, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
+        Transform::from_xyz(-6.0, 3.0, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
         FreeCamera::default(),
-        DistanceFog {
+    ));
+    if !args.has("--no-fog") {
+        camera.insert(DistanceFog {
             color: Color::srgb(0.62, 0.70, 0.78),
             falloff: FogFalloff::Linear {
-                start: 30.0,
-                end: 90.0,
+                start: 40.0,
+                end: 220.0,
             },
             ..default()
-        },
-    ));
+        });
+    }
 
     commands.spawn((
         DirectionalLight {
@@ -86,14 +102,27 @@ fn setup(
         .build(),
     ));
 
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(300.0, 300.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.20, 0.15, 0.09),
-            perceptual_roughness: 0.95,
-            ..default()
-        })),
-    ));
+    let soil = StandardMaterial {
+        base_color: Color::srgb(0.20, 0.15, 0.09),
+        perceptual_roughness: 0.95,
+        ..default()
+    };
+    let ground = Mesh3d(meshes.add(Plane3d::default().mesh().size(2000.0, 2000.0)));
+    if args.has("--no-far") {
+        commands.spawn((ground, MeshMaterial3d(materials.add(soil))));
+    } else {
+        let half = MEADOW * 0.5;
+        commands.spawn((
+            ground,
+            MeshMaterial3d(
+                far_materials.add(FarGrassMaterial {
+                    base: soil,
+                    extension: FarGrass::new(&GrassStyle::MEADOW, GrassQuality::High)
+                        .with_area(Rect::new(-half, -half, half, half)),
+                }),
+            ),
+        ));
+    }
     let _ = common::spawn_person(
         &mut commands,
         &mut meshes,
@@ -101,11 +130,11 @@ fn setup(
         Vec3::new(2.0, 0.0, 2.0),
     );
 
-    // 80 × 80 m of meadow with a clearing 12 m across at its centre.
+    // The meadow, with a clearing 12 m across at its centre.
     commands.spawn(GrassField {
-        size: Vec2::splat(80.0),
+        size: Vec2::splat(MEADOW),
         style: styles.add(GrassStyle::MEADOW),
-        density: Some(images.add(clearing_mask(256, Vec2::splat(0.5), 6.0 / 80.0))),
+        density: Some(images.add(clearing_mask(1024, Vec2::splat(0.5), 6.0 / MEADOW))),
         ..default()
     });
     // A patch of tall prairie beyond the clearing.

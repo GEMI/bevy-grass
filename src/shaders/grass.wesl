@@ -4,11 +4,12 @@
 
 import bevy_pbr::render::{
     mesh_view_bindings::{view, lights},
-    pbr_types::{pbr_input_new, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
-    pbr_functions::{apply_pbr_lighting, calculate_view, main_pass_post_lighting_processing},
-    mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
+    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
 };
-import package::shaders::blade::{blade_vertex, fields};
+import package::shaders::blade::{blade_ref, blade_vertex, current_eye, fields};
+import package::shaders::look::{
+    blade_color, blade_occlusion, blade_style, blade_sheen, blade_pbr_input, transmitted, toon,
+};
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -17,6 +18,12 @@ struct VertexOutput {
     /// rgb: base colour; a: the style's translucency.
     @location(2) color: vec4<f32>,
     @location(3) occlusion: f32,
+    /// How much sheen shows here (`blade_sheen`).
+    @if(GRASS_SHEEN)
+    @location(4) sheen: f32,
+    /// Toon bands.
+    @if(GRASS_TOON)
+    @location(5) @interpolate(flat) bands: f32,
 }
 
 fn is_orthographic() -> bool {
@@ -28,48 +35,28 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let forward = -view.world_from_view[2].xyz;
-    let pixel_scale = 2.0 / (view.clip_from_view[0][0] * view.viewport.z);
+    let blade_at = blade_ref(vertex_index, instance_index);
     let blade = blade_vertex(
-        vertex_index,
-        instance_index,
-        view.world_position,
-        forward,
-        is_orthographic(),
-        view.clip_from_world,
-        pixel_scale,
+        blade_at,
+        current_eye(view.world_from_view, view.clip_from_view, view.clip_from_world, view.viewport.z),
     );
-    let field = fields[blade.instance.field];
+    let field = fields[blade_at.instance.field];
 
     var out: VertexOutput;
     out.world_position = vec4<f32>(blade.world_position, 1.0);
     out.position = view.clip_from_world * out.world_position;
     out.world_normal = blade.normal;
-    // Dark roots to bright tips. Brightness varies mostly per clump and a
-    // little per blade, and one clump in five is drier, toward straw: patches
-    // read as natural where per-blade noise reads as static.
-    let clump = blade.instance.clump;
-    let shade = mix(0.82, 1.12, clump) * (0.94 + 0.12 * blade.instance.seed);
-    let green = mix(field.root_color.rgb, field.tip_color.rgb, pow(blade.t, 0.7)) * shade;
-    let straw = vec3<f32>(dot(green, vec3<f32>(0.3, 0.59, 0.11))) * vec3<f32>(1.25, 1.1, 0.6);
-    out.color = vec4<f32>(mix(green, straw, 0.4 * step(0.8, fract(clump * 5.3))), field.tip_color.w);
-    // Fake ambient occlusion: the surrounding blades shade the roots.
-    out.occlusion = mix(1.0 - field.motion.w, 1.0, smoothstep(0.0, 0.6, blade.t));
+    out.color = blade_color(blade_at.instance, field, blade.t);
+    out.occlusion = blade_occlusion(field, blade.t);
+@if(GRASS_SHEEN)
+    out.sheen = blade_sheen(blade_style(field).x, blade.t);
+@if(GRASS_TOON)
+    out.bands = blade_style(field).y;
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location(0) vec4<f32> {
-    var pbr_input = pbr_input_new();
-    pbr_input.material.base_color = vec4<f32>(in.color.rgb, 1.0);
-    pbr_input.material.perceptual_roughness = 0.7;
-    pbr_input.material.metallic = 0.0;
-    pbr_input.material.reflectance = vec3<f32>(0.25);
-    // Bevy fogs only materials that ask for it; without this grass stood out,
-    // unfogged, in front of everything the mist had faded.
-    pbr_input.material.flags |= STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
-    pbr_input.diffuse_occlusion = vec3<f32>(in.occlusion);
-
     // Blades are two-sided: the back face is lit with the flipped normal.
     let normal = normalize(in.world_normal) * select(-1.0, 1.0, is_front);
 
@@ -83,17 +70,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @locatio
     let backlit = lights.n_directional_lights > 0u
         && dot(normal, lights.directional_lights[0].direction_to_light) < 0.0;
     let lit_side = select(normal, -normal, backlit);
-    pbr_input.world_normal = lit_side;
-    pbr_input.N = lit_side;
-    pbr_input.frag_coord = in.position;
-    pbr_input.world_position = in.world_position;
-    pbr_input.is_orthographic = is_orthographic();
-    pbr_input.V = calculate_view(in.world_position, pbr_input.is_orthographic);
-    pbr_input.flags = MESH_FLAGS_SHADOW_RECEIVER_BIT;
+    var sheen = 0.0;
+@if(GRASS_SHEEN)
+    sheen = in.sheen;
+    let pbr_input = blade_pbr_input(
+        in.color.rgb,
+        in.occlusion,
+        sheen,
+        lit_side,
+        in.position,
+        in.world_position,
+        is_orthographic(),
+    );
 
     let lit = apply_pbr_lighting(pbr_input);
     let ambient = view.exposure * lights.ambient_color.rgb * in.color.rgb * in.occlusion;
-    let through = select(vec3<f32>(1.0), in.color.a * min(in.color.rgb * 2.0, vec3<f32>(1.0)), backlit);
-    let color = min(ambient, lit.rgb) + max(lit.rgb - ambient, vec3<f32>(0.0)) * through;
+    let through = select(vec3<f32>(1.0), transmitted(in.color), backlit);
+    var color = min(ambient, lit.rgb) + max(lit.rgb - ambient, vec3<f32>(0.0)) * through;
+@if(GRASS_TOON)
+    // Toon styles round the light to flat bands.
+    color = select(color, toon(color, in.color.rgb, in.bands), in.bands > 0.5);
     return main_pass_post_lighting_processing(pbr_input, vec4<f32>(color, lit.a));
 }

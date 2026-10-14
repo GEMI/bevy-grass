@@ -1,0 +1,19 @@
+// GrassStyle::DRY_SAVANNA, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.grass.ron")`. Every field is
+// optional: a missing one comes from `base`, a preset name.
+(
+    height: (0.5, 1.0),
+    width: 0.02,
+    density: 25.0,
+    lean: 0.2,
+    stiffness: 0.6,
+    root_color: (0.25, 0.2, 0.1),
+    tip_color: (0.74, 0.62, 0.36),
+    root_occlusion: 0.5,
+    translucency: 0.35,
+    min_width_px: 1.0,
+    specular: 0.2,
+    ground_color: (0.42, 0.33, 0.2),
+    ground_tint: 0.3,
+    toon_bands: 0,
+)

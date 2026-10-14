@@ -89,6 +89,8 @@ pub(crate) struct ViewUniformData {
     pub trample_origin: IVec4,
     /// Cell size in metres, and how much flattening recovers this frame.
     pub trample_step: Vec4,
+    /// Direction to the first directional light, w 1 when there is one.
+    pub sun: Vec4,
 }
 
 /// Where the overflow check is in its cycle.
@@ -278,6 +280,7 @@ pub(crate) fn prepare_views(
                 .shadow_light
                 .filter(|_| extracted.shadows.cascades() > 0),
         );
+        data.sun = extracted.sun.map_or(Vec4::ZERO, |sun| sun.extend(1.0));
         update_trample(&mut buffers, &mut data, view, &settings, &extracted, &queue);
         buffers.uniform.set(data);
         buffers.uniform.write_buffer(&device, &queue);
@@ -346,6 +349,7 @@ fn view_uniform(
         bucket_lod,
         trample_origin: IVec4::ZERO,
         trample_step: Vec4::ZERO,
+        sun: Vec4::ZERO,
     }
 }
 

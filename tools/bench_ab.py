@@ -7,7 +7,8 @@
     python tools/bench_ab.py run ROUNDS NAME [NAME ...]
         Run every named variant in both scenes, interleaved, ROUNDS times.
         Add the variant `nograss` to measure the grass-free baseline (it runs
-        the first named variant's exe with --no-grass).
+        the first named variant's exe with --no-grass). `NAME+flag` runs NAME
+        with `--flag` added, e.g. `m4+sheen` for the bench's `--sheen`.
     python tools/bench_ab.py report REFERENCE
         For each variant, the median paired difference against the REFERENCE
         run of the same round and scene, in ms and as a share of the
@@ -49,8 +50,10 @@ def snapshot(name):
 
 
 def run_one(name, scene, grass_exe):
-    exe = os.path.join(OUT, (grass_exe if name == "nograss" else name) + EXE)
-    args = [exe, *SCENES[scene], "--csv", os.path.join(OUT, "last.csv")]
+    # `NAME+flag+flag` runs NAME's exe with `--flag --flag`.
+    base, *flags = (grass_exe if name == "nograss" else name).split("+")
+    exe = os.path.join(OUT, base + EXE)
+    args = [exe, *SCENES[scene], *("--" + f for f in flags), "--csv", os.path.join(OUT, "last.csv")]
     if name == "nograss":
         args.append("--no-grass")
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=900)

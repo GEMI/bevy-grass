@@ -20,16 +20,29 @@
 //! }
 //! ```
 //!
-//! Every camera draws grass unless it carries [`NoGrass`].
+//! Every camera draws grass unless it carries [`NoGrass`]. A camera with a
+//! depth, normal or motion-vector prepass gets grass in it too, so SSAO, TAA
+//! and anything else reading the prepass see it; a deferred camera (with
+//! `DefaultOpaqueRendererMethod::deferred()`) draws grass into its G-buffer.
+//!
+//! Styles are assets: build one in code from a preset, or load a
+//! `.grass.ron` file ([`GrassStyleLoader`]). [`FarGrassMaterial`] carries the
+//! grass's colour onto the ground beyond the last blade.
+//!
 //! The design, and what each milestone adds, is in
 //! `bevy-grass-architecture-plan.md` at the repository root.
 
 pub mod api;
+mod far;
 mod fields;
 mod mirror;
 mod render;
+mod style_file;
 
-use bevy::app::{App, Plugin, PostUpdate};
+pub use far::{FarGrass, FarGrassMaterial, FarGrassUniform};
+pub use style_file::{GrassStyleFileError, GrassStyleLoader};
+
+use bevy::app::{App, Plugin, PostUpdate, PreStartup, Update};
 use bevy::asset::{AssetApp, embedded_asset, load_embedded_asset};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -45,6 +58,7 @@ pub mod prelude {
     pub use crate::GrassQuality;
     pub use crate::GrassShadows;
     pub use crate::api::{GrassField, GrassGround, GrassInteractor, GrassStyle, NoGrass, Wind};
+    pub use crate::far::{FarGrass, FarGrassMaterial};
 }
 
 /// Quality tier: sets the grass radius, density, LOD distances and how many
@@ -174,12 +188,17 @@ impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/blade.wesl");
         load_shader_library!(app, "shaders/common.wesl");
+        load_shader_library!(app, "shaders/look.wesl");
+        load_shader_library!(app, "shaders/far.wesl");
+        embedded_asset!(app, "shaders/far_ground.wesl");
         embedded_asset!(app, "shaders/grass.wesl");
+        embedded_asset!(app, "shaders/grass_prepass.wesl");
         embedded_asset!(app, "shaders/grass_shadow.wesl");
         embedded_asset!(app, "shaders/generate.wesl");
         embedded_asset!(app, "shaders/trample.wesl");
         let shaders = render::resources::GrassShaders {
             main: load_embedded_asset!(app, "shaders/grass.wesl"),
+            prepass: load_embedded_asset!(app, "shaders/grass_prepass.wesl"),
             shadow: load_embedded_asset!(app, "shaders/grass_shadow.wesl"),
             generate: load_embedded_asset!(app, "shaders/generate.wesl"),
             trample: load_embedded_asset!(app, "shaders/trample.wesl"),
@@ -196,6 +215,7 @@ impl Plugin for GrassPlugin {
         };
 
         app.init_asset::<GrassStyle>()
+            .init_asset_loader::<GrassStyleLoader>()
             .register_type::<GrassField>()
             .register_type::<GrassInteractor>()
             .register_type::<NoGrass>()
@@ -211,6 +231,9 @@ impl Plugin for GrassPlugin {
                     .chain()
                     .after(TransformSystems::Propagate),
             )
+            .add_plugins(bevy::pbr::MaterialPlugin::<FarGrassMaterial>::default())
+            .add_systems(PreStartup, far::add_gust_texture)
+            .add_systems(Update, far::sync_wind)
             .add_plugins(render::GrassRenderPlugin { settings, shaders });
     }
 }

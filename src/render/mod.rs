@@ -10,6 +10,8 @@ pub(crate) mod view;
 
 use bevy::app::{App, Plugin};
 use bevy::core_pipeline::core_3d::Opaque3d;
+use bevy::core_pipeline::deferred::Opaque3dDeferred;
+use bevy::core_pipeline::prepass::Opaque3dPrepass;
 use bevy::core_pipeline::schedule::camera_driver;
 use bevy::ecs::prelude::*;
 use bevy::pbr::Shadow;
@@ -39,14 +41,19 @@ impl Plugin for GrassRenderPlugin {
             .init_resource::<resources::ExtractedGrass>()
             .init_resource::<resources::GrassSharedBindGroups>()
             .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassMainPipeline>>()
+            .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassPrepassPipeline>>()
             .add_render_command::<Opaque3d, bevy_glue::DrawGrassMain>()
+            .add_render_command::<Opaque3dPrepass, bevy_glue::DrawGrassPrepass>()
+            .add_render_command::<Opaque3dDeferred, bevy_glue::DrawGrassPrepass>()
             .add_render_command::<Shadow, bevy_glue::DrawGrassShadow>()
             .add_systems(
                 RenderStartup,
                 (
                     resources::init_shared,
                     (
-                        bevy_glue::init_pipelines.after(bevy::pbr::MeshPipelineSystems),
+                        bevy_glue::init_pipelines
+                            .after(bevy::pbr::MeshPipelineSystems)
+                            .after(bevy::pbr::init_prepass_pipeline),
                         compute::init_generate_pipelines,
                     ),
                 )

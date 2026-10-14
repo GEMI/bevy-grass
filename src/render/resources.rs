@@ -32,12 +32,13 @@ use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
 use crate::mirror::{self, LOD_ROWS};
 
 /// Side of the gust texture, in texels.
-const GUST_SIZE: u32 = 256;
+pub(crate) const GUST_SIZE: u32 = 256;
 
 /// The embedded shaders, loaded in the main app and handed to the render app.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct GrassShaders {
     pub main: Handle<Shader>,
+    pub prepass: Handle<Shader>,
     pub shadow: Handle<Shader>,
     pub generate: Handle<Shader>,
     pub trample: Handle<Shader>,
@@ -72,6 +73,9 @@ pub(crate) struct ExtractedGrass {
     pub frame: FrameUniform,
     /// Direction the first shadow-casting directional light shines, if any.
     pub shadow_light: Option<Vec3>,
+    /// Direction to the light the deferred G-buffer treats as the sun: the
+    /// first shadow-casting directional light, or else the first one.
+    pub sun: Option<Vec3>,
     /// Every interactor, as `(x, z, radius, strength)`.
     pub interactors: Vec<Vec4>,
     /// This frame's shadow mode.
@@ -109,6 +113,15 @@ pub(crate) fn extract_grass(
         .iter()
         .find(|(light, _)| light.shadow_maps_enabled)
         .map(|(_, transform)| transform.forward().as_vec3());
+    extracted.sun = extracted
+        .shadow_light
+        .or_else(|| {
+            lights
+                .iter()
+                .next()
+                .map(|(_, transform)| transform.forward().as_vec3())
+        })
+        .map(|shines| -shines);
     extracted.interactors.clear();
     extracted
         .interactors

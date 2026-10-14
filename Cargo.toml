@@ -23,13 +23,21 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 # Already in Bevy's dependency tree; used only through its safe API
 # (`cast_slice`), so the crate stays `forbid(unsafe_code)`.
 bytemuck = "1"
+# The `.grass.ron` style files. Both are already in Bevy's tree (its asset
+# meta files are RON), at these versions.
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 bevy = { version = "=0.20.0", default-features = false, features = [
   "3d",
   "tonemapping_luts",
   "free_camera",
+  # The examples reload `.grass.ron` files when they are saved.
+  "file_watcher",
 ] }
+# The golden-image check reads and writes PNGs; the version Bevy uses.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [lints.rust]
 unsafe_code = "forbid"

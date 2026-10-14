@@ -52,6 +52,10 @@ pub(crate) struct FieldGpu {
     pub placement: UVec4,
     /// Mask width and height, heightmap width and height, in texels.
     pub map_sizes: UVec4,
+    /// rgb: the ground's colour; w: how far roots blend toward it.
+    pub ground: Vec4,
+    /// x: specular, y: toon bands (0: physically based).
+    pub look: Vec4,
 }
 
 /// One chunk. Mirrors `Chunk` in `common.wesl`: 32 bytes.
@@ -76,6 +80,58 @@ pub(crate) struct FieldTables {
     pub masks: Arc<Vec<u32>>,
     /// Every heightmap, one normalized height per texel.
     pub heights: Arc<Vec<f32>>,
+    /// The optional shading terms some field uses (`LookFeatures`).
+    pub features: LookFeatures,
+}
+
+/// Optional shading terms, compiled into the grass shaders only when some
+/// field's style uses them, so the others cost nothing.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct LookFeatures(u8);
+
+impl LookFeatures {
+    pub(crate) const GROUND_TINT: Self = Self(1);
+    pub(crate) const SHEEN: Self = Self(2);
+    pub(crate) const TOON: Self = Self(4);
+
+    /// The terms `style` uses.
+    pub(crate) fn of(style: &GrassStyle) -> Self {
+        let mut features = Self::default();
+        if style.ground_tint > 0.0 {
+            features.0 |= Self::GROUND_TINT.0;
+        }
+        if style.specular > 0.0 {
+            features.0 |= Self::SHEEN.0;
+        }
+        if style.toon_bands > 0 {
+            features.0 |= Self::TOON.0;
+        }
+        features
+    }
+
+    pub(crate) fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// The shader definitions that compile the terms in.
+    pub(crate) fn shader_defs(self) -> impl Iterator<Item = &'static str> {
+        [
+            (Self::GROUND_TINT, "GRASS_GROUND_TINT"),
+            (Self::SHEEN, "GRASS_SHEEN"),
+            (Self::TOON, "GRASS_TOON"),
+        ]
+        .into_iter()
+        .filter(move |(feature, _)| self.contains(*feature))
+        .map(|(_, def)| def)
+    }
+}
+
+impl std::ops::BitOr for LookFeatures {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
 }
 
 /// Whether the tables need a rebuild.
@@ -170,8 +226,10 @@ pub(crate) fn rebuild(
     dirty.0 = false;
 
     let mut builder = TableBuilder::default();
+    let mut features = LookFeatures::default();
     for (index, (field, transform, style, mask, heightmap)) in inputs.iter().enumerate() {
         builder.add_field(index as u32, field, transform, style, *mask, *heightmap);
+        features = features | LookFeatures::of(style);
     }
     *tables = FieldTables {
         version: tables.version + 1,
@@ -179,6 +237,7 @@ pub(crate) fn rebuild(
         chunks: Arc::new(builder.chunks),
         masks: Arc::new(builder.masks),
         heights: Arc::new(builder.heights),
+        features,
     };
 }
 
@@ -242,6 +301,15 @@ impl TableBuilder {
                 height_offset,
             ),
             map_sizes: UVec4::new(mask_size.x, mask_size.y, height_size.x, height_size.y),
+            ground: linear(style.ground_color)
+                .truncate()
+                .extend(style.ground_tint.clamp(0.0, 1.0)),
+            look: Vec4::new(
+                style.specular.clamp(0.0, 1.0),
+                style.toon_bands as f32,
+                0.0,
+                0.0,
+            ),
         });
 
         let counts = (field.size / CHUNK_SIZE).ceil().as_uvec2();

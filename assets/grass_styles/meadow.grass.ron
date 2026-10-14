@@ -1,0 +1,19 @@
+// GrassStyle::MEADOW, as a file. Copy it, edit it, and load it with
+// `asset_server.load("path/to/copy.grass.ron")`. Every field is
+// optional: a missing one comes from `base`, a preset name.
+(
+    height: (0.3, 0.6),
+    width: 0.02,
+    density: 60.0,
+    lean: 0.15,
+    stiffness: 0.3,
+    root_color: (0.06, 0.13, 0.03),
+    tip_color: (0.38, 0.55, 0.16),
+    root_occlusion: 0.6,
+    translucency: 0.6,
+    min_width_px: 1.0,
+    specular: 0.3,
+    ground_color: (0.2, 0.15, 0.09),
+    ground_tint: 0.25,
+    toon_bands: 0,
+)

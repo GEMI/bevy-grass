@@ -80,6 +80,19 @@ pub struct GrassStyle {
     /// Minimum on-screen width of a blade, in pixels. Blades narrower than a
     /// pixel shimmer; raise this for cameras far from the ground.
     pub min_width_px: f32,
+    /// Rough specular on the upper half of the blade, 0 (matte) to 1, so
+    /// wind waves show as a moving sheen.
+    pub specular: f32,
+    /// The colour of the ground the field grows on; see `ground_tint`.
+    pub ground_color: Color,
+    /// How far the lowest third of each blade blends toward `ground_color`,
+    /// 0 (not at all) to 1, so the field sits in the terrain instead of on
+    /// it.
+    pub ground_tint: f32,
+    /// Flat toon shading with this many bands of light; 0 shades physically,
+    /// like the rest of the scene. Forward rendering only: a deferred view
+    /// shades every style physically.
+    pub toon_bands: u32,
 }
 
 impl GrassStyle {
@@ -95,6 +108,10 @@ impl GrassStyle {
         root_occlusion: 0.6,
         translucency: 0.6,
         min_width_px: 1.0,
+        specular: 0.3,
+        ground_color: Color::srgb(0.20, 0.15, 0.09),
+        ground_tint: 0.25,
+        toon_bands: 0,
     };
 
     /// Deep green to straw tips, loose and flowing. For hiding in grass and
@@ -110,7 +127,87 @@ impl GrassStyle {
         root_occlusion: 0.7,
         translucency: 0.5,
         min_width_px: 1.0,
+        specular: 0.3,
+        ground_color: Color::srgb(0.20, 0.15, 0.09),
+        ground_tint: 0.2,
+        toon_bands: 0,
     };
+
+    /// Golden, dense, stiff stems with a sheen. Farmland.
+    pub const WHEAT: Self = Self {
+        height: Vec2::new(0.9, 1.2),
+        width: 0.015,
+        density: 90.0,
+        lean: 0.08,
+        stiffness: 0.6,
+        root_color: Color::srgb(0.30, 0.27, 0.11),
+        tip_color: Color::srgb(0.86, 0.70, 0.32),
+        root_occlusion: 0.5,
+        translucency: 0.5,
+        specular: 0.5,
+        ground_tint: 0.15,
+        ..Self::MEADOW
+    };
+
+    /// Yellow-brown, sparse and stiff. Arid and late-summer biomes.
+    pub const DRY_SAVANNA: Self = Self {
+        height: Vec2::new(0.5, 1.0),
+        width: 0.02,
+        density: 25.0,
+        lean: 0.2,
+        stiffness: 0.6,
+        root_color: Color::srgb(0.25, 0.20, 0.10),
+        tip_color: Color::srgb(0.74, 0.62, 0.36),
+        root_occlusion: 0.5,
+        translucency: 0.35,
+        specular: 0.2,
+        ground_color: Color::srgb(0.42, 0.33, 0.20),
+        ground_tint: 0.3,
+        ..Self::MEADOW
+    };
+
+    /// Uniform, short and dense. Gardens, towns, sports fields.
+    pub const LAWN: Self = Self {
+        height: Vec2::new(0.05, 0.12),
+        width: 0.008,
+        density: 250.0,
+        lean: 0.1,
+        stiffness: 0.7,
+        root_color: Color::srgb(0.04, 0.10, 0.03),
+        tip_color: Color::srgb(0.22, 0.42, 0.10),
+        root_occlusion: 0.4,
+        translucency: 0.4,
+        specular: 0.2,
+        ground_tint: 0.0,
+        ..Self::MEADOW
+    };
+
+    /// Flat toon bands, wide blades and no specular, for non-photoreal art.
+    pub const STYLIZED: Self = Self {
+        height: Vec2::new(0.4, 0.8),
+        width: 0.06,
+        density: 30.0,
+        lean: 0.2,
+        stiffness: 0.3,
+        root_color: Color::srgb(0.10, 0.30, 0.12),
+        tip_color: Color::srgb(0.45, 0.75, 0.30),
+        root_occlusion: 0.5,
+        translucency: 0.3,
+        specular: 0.0,
+        ground_tint: 0.0,
+        toon_bands: 3,
+        ..Self::MEADOW
+    };
+
+    /// The six general-purpose presets, from the architecture plan.
+    pub const GENERAL: [Self; 6] = [
+        Self::MEADOW,
+        Self::TALL_PRAIRIE,
+        Self::WHEAT,
+        Self::DRY_SAVANNA,
+        Self::LAWN,
+        Self::STYLIZED,
+    ];
 
     // Tall summer and autumn grass. Each theme has a main look and variants;
     // all of them share the blade shape (4 cm wide, 40 per m², about 16 cm
@@ -129,6 +226,12 @@ impl GrassStyle {
         root_occlusion: 0.65,
         translucency: 0.6,
         min_width_px: 1.0,
+        // The themes were approved without sheen or ground tint; a game can
+        // add either.
+        specular: 0.0,
+        ground_color: Color::srgb(0.20, 0.15, 0.09),
+        ground_tint: 0.0,
+        toon_bands: 0,
     };
 
     /// Summer variant: deep green, denser and taller, as along a ditch or
@@ -178,6 +281,10 @@ impl GrassStyle {
         root_occlusion: 0.65,
         translucency: 0.4,
         min_width_px: 1.0,
+        specular: 0.0,
+        ground_color: Color::srgb(0.20, 0.15, 0.09),
+        ground_tint: 0.0,
+        toon_bands: 0,
     };
 
     /// Autumn variant: rust-red, like dying bracken.

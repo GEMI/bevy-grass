@@ -11,7 +11,12 @@
 //! cargo run --example bench -- --no-grass         # the same frames without grass
 //! cargo run --example bench -- --interactors 512  # a horde trampling around the view
 //! cargo run --example bench -- --screenshot shots/bench.png   # the last frame
+//! cargo run --example bench -- --sheen --tint --toon  # add optional look terms
 //! ```
+//!
+//! The styles are the M3 look, without the optional terms (sheen, ground tint,
+//! toon bands), so runs stay comparable across versions; each term has a
+//! flag, to measure what it costs.
 //!
 //! Columns: frame, frame time, and the GPU time of trampling, grass culling,
 //! blade generation and the whole main opaque pass (terrain included), in ms. The
@@ -47,6 +52,10 @@ struct Bench {
     orthographic: bool,
     grass: bool,
     interactors: u32,
+    /// The optional look terms, from `--sheen`, `--tint` and `--toon`.
+    sheen: bool,
+    tint: bool,
+    toon: bool,
     /// What the camera looks at this frame, in world XZ.
     focus: Vec2,
     csv_path: String,
@@ -61,6 +70,7 @@ fn main() {
     let mut screenshot = None;
     let mut quality = GrassQuality::High;
     let mut csv_path = "target/bench.csv".to_string();
+    let (mut sheen, mut tint, mut toon) = (false, false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -73,6 +83,9 @@ fn main() {
                     .expect("--interactors needs a count");
             }
             "--screenshot" => screenshot = args.next(),
+            "--sheen" => sheen = true,
+            "--tint" => tint = true,
+            "--toon" => toon = true,
             "--csv" => csv_path = args.next().expect("--csv needs a path"),
             "--tier" => {
                 quality = match args.next().as_deref() {
@@ -106,6 +119,9 @@ fn main() {
         orthographic,
         grass,
         interactors,
+        sheen,
+        tint,
+        toon,
         focus: Vec2::ZERO,
         csv_path,
         rows: Vec::new(),
@@ -251,6 +267,12 @@ fn setup(
         }
     } else {
         GrassStyle::MEADOW
+    };
+    let style = GrassStyle {
+        specular: if bench.sheen { 0.4 } else { 0.0 },
+        ground_tint: if bench.tint { 0.3 } else { 0.0 },
+        toon_bands: if bench.toon { 3 } else { 0 },
+        ..style
     };
     commands.spawn(GrassField {
         size: Vec2::splat(TERRAIN_SIZE),

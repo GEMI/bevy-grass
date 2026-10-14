@@ -8,6 +8,8 @@
 //!   a screenshot is the same on every run and every machine.
 //! * `--perf` logs Bevy's per-pass CPU and GPU times once a second; the grass
 //!   compute pass appears as `grass_indirect_args`.
+//!
+//! Any other `--flag` is kept for the example itself (`ExampleArgs::has`).
 
 #![allow(dead_code)]
 
@@ -26,6 +28,8 @@ pub(crate) struct ExampleArgs {
     pub(crate) screenshot: Option<String>,
     pub(crate) fixed_time: bool,
     pub(crate) perf: bool,
+    /// Flags the example reads itself.
+    pub(crate) flags: Vec<String>,
 }
 
 impl ExampleArgs {
@@ -38,7 +42,7 @@ impl ExampleArgs {
                 "--screenshot" => args.screenshot = it.next(),
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
-                other => eprintln!("unknown argument {other}"),
+                other => args.flags.push(other.to_owned()),
             }
         }
         if args.screenshot.is_some() && args.frames.is_none() {
@@ -47,25 +51,46 @@ impl ExampleArgs {
         args
     }
 
+    /// Whether the example's own `flag` was given.
+    pub(crate) fn has(&self, flag: &str) -> bool {
+        self.flags.iter().any(|f| f == flag)
+    }
+
+    /// The value after the example's own `flag`, if given.
+    pub(crate) fn value(&self, flag: &str) -> Option<&str> {
+        let at = self.flags.iter().position(|f| f == flag)?;
+        self.flags.get(at + 1).map(String::as_str)
+    }
+
     /// `DefaultPlugins` with a window that does not wait for vsync when
     /// measuring, plus the requested measurement plugins.
     pub(crate) fn install(self, app: &mut App, title: &str) {
         let measuring = self.frames.is_some();
-        app.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: title.into(),
-                // Physical 1920x1080 whatever the display scaling, so measurements
-                // compare across machines.
-                resolution: WindowResolution::new(1920, 1080).with_scale_factor_override(1.0),
-                present_mode: if measuring {
-                    PresentMode::AutoNoVsync
-                } else {
-                    PresentMode::AutoVsync
-                },
-                ..default()
-            }),
-            ..default()
-        }));
+        app.add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: title.into(),
+                        // Physical 1920x1080 whatever the display scaling, so measurements
+                        // compare across machines.
+                        resolution: WindowResolution::new(1920, 1080)
+                            .with_scale_factor_override(1.0),
+                        present_mode: if measuring {
+                            PresentMode::AutoNoVsync
+                        } else {
+                            PresentMode::AutoVsync
+                        },
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    // The repository's `assets` folder, also when the example's exe
+                    // is started directly rather than through `cargo run`.
+                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
+                    ..default()
+                }),
+        );
         if self.fixed_time {
             app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
                 1.0 / 60.0,
