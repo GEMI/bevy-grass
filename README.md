@@ -605,4 +605,4 @@ The full design and its measured results are in
 
 ## License
 
-Dual-licensed under MIT or Apache-2.0, at your option.
+MIT. See [`LICENSE`](LICENSE).
