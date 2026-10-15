@@ -13,7 +13,14 @@
 //! cargo run --example bench -- --screenshot shots/bench.png   # the last frame
 //! cargo run --example bench -- --sheen --tint --toon  # add optional look terms
 //! cargo run --example bench -- --species --tufts --shape --variation  # add variation
+//! cargo run --profile release-lto --example bench -- --single-threaded  # the fastest frame on few-core CPUs
 //! ```
+//!
+//! What sets the frame-time floor, beyond grass (see "The frame-time floor"
+//! in `docs/performance.md`): `--no-plugin` leaves `GrassPlugin` out
+//! entirely, `--no-gpu-timing` leaves out the GPU timestamp and statistics
+//! queries (the GPU columns are then empty), `--no-terrain` and
+//! `--no-shadows` take the terrain mesh and the sun's shadows away.
 //!
 //! The styles are the M3 look, without the optional terms (sheen, ground tint,
 //! toon bands) or any variation, so runs stay comparable across versions;
@@ -56,6 +63,10 @@ const WARMUP: u32 = 120;
 struct Bench {
     orthographic: bool,
     grass: bool,
+    /// The terrain mesh and the sun's shadows, both on unless `--no-terrain`
+    /// or `--no-shadows`.
+    terrain: bool,
+    shadows: bool,
     interactors: u32,
     /// The optional look terms, from `--sheen`, `--tint` and `--toon`.
     sheen: bool,
@@ -83,6 +94,9 @@ fn main() {
     let mut csv_path = "target/bench.csv".to_string();
     let (mut sheen, mut tint, mut toon) = (false, false, false);
     let (mut species, mut tufts, mut shape, mut variation) = (false, false, false, false);
+    let mut single_threaded = false;
+    let (mut plugin, mut gpu_timing) = (true, true);
+    let (mut terrain, mut shadows) = (true, true);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -102,6 +116,11 @@ fn main() {
             "--tufts" => tufts = true,
             "--shape" => shape = true,
             "--variation" => variation = true,
+            "--single-threaded" => single_threaded = true,
+            "--no-plugin" => plugin = false,
+            "--no-gpu-timing" => gpu_timing = false,
+            "--no-terrain" => terrain = false,
+            "--no-shadows" => shadows = false,
             "--csv" => csv_path = args.next().expect("--csv needs a path"),
             "--tier" => {
                 quality = match args.next().as_deref() {
@@ -120,20 +139,25 @@ fn main() {
         frames: Some(FRAMES),
         screenshot,
         perf: std::env::var_os("BENCH_PERF").is_some(),
+        single_threaded,
         ..Default::default()
     }
     .install(&mut app, "bevy_grass: benchmark");
-    app.add_plugins(GrassPlugin {
-        quality,
-        max_interactors: Some(interactors.max(64)),
-        ..default()
-    });
-    if !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
+    if plugin {
+        app.add_plugins(GrassPlugin {
+            quality,
+            max_interactors: Some(interactors.max(64)),
+            ..default()
+        });
+    }
+    if gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
     app.insert_resource(Bench {
         orthographic,
-        grass,
+        grass: grass && plugin,
+        terrain,
+        shadows,
         interactors,
         sheen,
         tint,
@@ -228,7 +252,7 @@ fn setup(
     bench: Res<Bench>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut styles: ResMut<Assets<GrassStyle>>,
+    styles: Option<ResMut<Assets<GrassStyle>>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let mut camera = commands.spawn(Camera3d::default());
@@ -242,7 +266,7 @@ fn setup(
     }
     let mut sun = commands.spawn((
         DirectionalLight {
-            shadow_maps_enabled: true,
+            shadow_maps_enabled: bench.shadows,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 2.0, -0.6, 0.0)),
@@ -259,20 +283,22 @@ fn setup(
             .build(),
         );
     }
-    commands.spawn((
-        Mesh3d(meshes.add(terrain_mesh())),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.18, 0.14, 0.08),
-            perceptual_roughness: 0.95,
-            ..default()
-        })),
-    ));
+    if bench.terrain {
+        commands.spawn((
+            Mesh3d(meshes.add(terrain_mesh())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.18, 0.14, 0.08),
+                perceptual_roughness: 0.95,
+                ..default()
+            })),
+        ));
+    }
     for _ in 0..bench.interactors {
         commands.spawn(GrassInteractor::default());
     }
-    if !bench.grass {
+    let Some(mut styles) = styles.filter(|_| bench.grass) else {
         return;
-    }
+    };
     // DEMO ARPG GAME's blades are wider and fewer than a perspective game's, with a
     // 2-pixel minimum width (the `arpg_camera` example's style).
     let style = if bench.orthographic {

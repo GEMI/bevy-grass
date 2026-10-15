@@ -200,12 +200,134 @@ Same scene, five paired rounds.
 
 So the main pass's cost is neither the lighting maths nor its table lookups, and the generation pass is not limited by its texture samples. What is left in the main pass is the shadow lookup (9 samples), rasterizing and shading 2×2 quads of thin blades at 4× MSAA, and the clustered-light lookup. The next useful step is a diagnostic rather than another optimization: stub each of those out once to find which one dominates.
 
+## The frame-time floor (October 15, 2026)
+
+On a second machine, an RTX 4070 Ti with an Intel i5-4570S (a 4-core Haswell from 2013, no hyper-threading), the grass costs about 0.62 ms of GPU time in perspective and 0.45 ms at DEMO ARPG GAME's camera, against 3.8 and 3.1 ms on the T1200. The frame did not follow: about 2.9 ms p50 and 3.5 ms p95, with or without grass. This section finds out why. Same bench, 1080p, 4× MSAA, no vsync, Linux X11 and Vulkan; paired, interleaved rounds as above, with the frame time's p50 and p95 rather than grass cost.
+
+### What sets the floor
+
+The GPU was busy 47% of the time at full clocks and no CPU thread was saturated, so the frame waited on the CPU. Taking things away, four rounds each:
+
+| Run | Frame p50 | Frame p95 |
+| --- | --- | --- |
+| Bench, as before | 2.91 ms | 3.55 ms |
+| `--no-grass` (plugin loaded, no field) | 2.89 ms | 3.60 ms |
+| `--no-plugin` (no `GrassPlugin` at all) | 2.71 ms | 3.34 ms |
+| `--no-plugin --no-gpu-timing` | 2.56 ms | 3.15 ms |
+| ... and `--no-terrain --no-shadows`: an empty scene | 2.13 ms | 2.69 ms |
+
+**An empty Bevy app takes 2.1 ms on this CPU.** The whole grass library, drawing included, is about 0.2 ms of the frame (7%), and the GPU timing queries the bench adds are another 0.15–0.2 ms. On the T1200 the GPU was the limit, so the floor never showed.
+
+A trace (Bevy's `trace_chrome`, which doubles frame time, so proportions only) shows why. A frame runs about 620 systems; grass is 10 of them. The render thread is the critical path, and most of its `Render` schedule is spent waiting while its multi-threaded executor hands systems to the compute pool. `nsys` counts about 340 `futex` calls per frame. Presenting costs 0.07 ms a frame, so the swapchain is not the cause.
+
+### Hypotheses tested
+
+Kept if the frame gets at least 10% faster (the developer's rule for this pass).
+
+| # | Hypothesis | What was built | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| L1 | The orthographic trample focus scans every chunk, three times a frame (15,625 chunks, 0.5 MB, more than Haswell's L2) | `chunk_height_at` indexes each field's chunk block directly | +0.0% / +0.8% | −2.9% / −3.3% | Rejected: under 10%, and the retest below found less. |
+| L2 | Grass rebuilds five bind groups every frame | Rebuilt only when a buffer they bind is reallocated (`BufferId`) | +2.4% / +1.5% | — | Rejected: noise. |
+| L3 | `GrassPlugin` always adds `FarGrassMaterial`'s material plugin and systems | Left out | −0.7% / −1.6% | — | Rejected: under 10%. |
+| H1 | Unused Bevy plugins add systems | Picking, animation, text, gamepads and scenes disabled (gizmos cannot be: `LightPlugin` needs them) | −2.0% / +0.3% | — | Rejected: noise. |
+| H2 | The multi-threaded executor costs more than the systems on 4 cores | `--single-threaded`: one thread per app; pipelined rendering kept | −9.7% / −12.6% | −4.3% / −5.9% | Under 10% alone; see H2 + H3. |
+| H3 | Default release builds leave CPU time on the table | `--profile release-lto`: fat LTO, one codegen unit, no `target-cpu=native` (`native` gained nothing more) | −12.0% / −8.3% | −10.8% / −10.5% | **Kept** as an opt-in profile. |
+| | **H2 + H3** | | **−18.7% / −17.7%** | **−15.8% / −16.5%** | **Kept**: 2.44 / 2.68 ms and 2.34 / 2.53 ms. |
+| | Fewer worker threads (3) | `TaskPoolOptions::with_num_threads` | +17.5% / +7.3% | — | Rejected. Six threads: no change. |
+| | No pipelined rendering | `PipelinedRenderingPlugin` disabled | +26% / +15% | — | Rejected: pipelining overlaps the two apps. |
+
+### Retest: the library's own CPU work, at a 4–6% bar
+
+Slower CPUs pay for the library's CPU work too, so three changes were retested together, kept if the frame gets 4–6% faster combined. Measured as a game runs, without the bench's GPU timing (`--no-gpu-timing`), six paired rounds:
+
+| Change | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
+| --- | --- | --- |
+| L1, chunk lookup by index | +0.2% / +1.0% | −1.8% / −2.0% |
+| L3, far grass in its own `FarGrassPlugin`, added only by games that use it | −1.1% / +0.2% | −1.0% / +0.2% |
+| L4, trample, cull and generate in one compute pass, timed inside it (`pass_span`); the GPU readback tests pass | −0.7% / −1.1% | −0.2% / +1.2% |
+| **All three** | **+1.7% / +1.3%** | **−0.6% / +2.6%** |
+
+Rejected: together they are within noise. The estimate of 4–6% was wrong. These three were the CPU work that the trace attributes to grass, but they are not where the library's 0.2 ms goes. What remains unexplained is the plugin's fixed cost: `--no-grass` (plugin loaded, no field) is still about 6% slower than `--no-plugin`. With no field, every frame still runs the trample decay over all 65,536 cells, records the compute encoder and the grass render-graph system, and schedules ten systems. Stub those out one at a time before building another fix.
+
+Lessons:
+
+- **On a CPU-bound machine, a faster GPU does not show in the frame.** Before reading frame times on a new machine, run the empty scene (`--no-plugin --no-gpu-timing --no-terrain --no-shadows`) and compare.
+- **Grass cannot reach a 10% frame change here.** Leaving the library out entirely saves 7%. Its CPU work is a few uniform writes, bind groups and one compute encoder; at this point it gets cheaper only by the GPU numbers above.
+- **The levers are the game's, not the library's.** The release profile and the executor belong to DEMO ARPG GAME's `Cargo.toml` and app setup. `--single-threaded` was measured only on 4 cores; on a CPU with many cores and heavier game systems it may lose, so measure it there before adopting it.
+
+## GPU pass on a starved GPU (October 15, 2026)
+
+### How it was measured
+
+The RTX 4070 Ti was locked to 300 MHz core and 5001 MHz memory (`sudo nvidia-smi -lgc 300,300` and `-lmc 5001,5001`; undo with `-rgc` and `-rmc`). That is about twice a T1200's shading rate with a similar ratio of arithmetic to memory bandwidth, and it makes the bench GPU-bound again: grass costs 6.5 ms in perspective and 4.1 ms at DEMO ARPG GAME's camera (p50), more than on the T1200. With frame time limited by the GPU, the usual method applies unchanged: paired rounds, frame time p50 and p95, grass cost against `--no-grass`. The card is a newer architecture (Ada) than the T1200 (Turing), so what is kept here should be confirmed on the T1200 with `tools/bench_ab.py`.
+
+### Where the time went
+
+Each part stubbed out for a run, four rounds, perspective p50 (DEMO ARPG GAME's camera in brackets):
+
+| Part | Share of grass cost |
+| --- | --- |
+| Compute (trample, cull, generate): every draw skipped | 45% (28%) |
+| Shadow lookup in grass fragments | 12% (11%) |
+| The rest of the lighting | 1% (2%) |
+| Grass in the shadow map | 13% (14%) |
+| Rasterizing and shading the blades, without lighting | the rest, about 29% (45%) |
+
+The lighting maths is nearly free: of the 13% that a flat colour saves, the shadow lookup is 12%. That is why the cheaper lighting function (above) gained nothing.
+
+The surprise was generation: 3.9 ms at the locked clock (0.35 ms unlocked), almost exactly the 9.45× clock ratio. Work that scales with the core clock like that is a serial chain, not bandwidth. `cull` handed each visible chunk to one 64-thread workgroup, and `generate` walked all of a chunk's candidates in a loop: about 9,200 candidates, 144 rounds of four barriers, for a full-density chunk. The few dense near chunks ran on a few multiprocessors while the rest of the GPU sat idle. At DEMO ARPG GAME's camera only a few dozen chunks are visible at all.
+
+### G6: chunks split into slices (kept)
+
+`cull` now writes one work item per slice of 512 candidates (`VisibleChunk` holds the chunk, the slice's first candidate and its count), and `generate` runs one workgroup per slice. Nothing else changes: the 22 presets render pixel-identical (golden check, mean difference 0.000), the bench draws the same blades per bucket frame for frame, and the GPU readback tests pass. Five paired rounds:
+
+| Slice | Perspective p50 / p95, share of grass cost | DEMO ARPG GAME p50 / p95 |
+| --- | --- | --- |
+| 256 | −48.9% / −43.6% | −44.1% / −37.0% |
+| **512** | **−48.2% / −43.4%** (−3.1 ms, a third of the frame) | **−43.2% / −38.4%** |
+| 1024 | −46.8% / −41.3% | −39.0% / −39.0% |
+
+512 is kept: as fast as 256 within noise, with half the work items. Generation fell from 3.9 to 0.18 ms. The work list holds 8,192 slices; the bench peaks at 420 at High, 739 at Ultra and 270 at DEMO ARPG GAME's camera. The overflow check now also warns when the list overflows.
+
+At stock clocks the frame stays CPU-bound, so the frame barely moves, but nothing gets worse. Five paired rounds against the pre-G6 build: generation fell from 0.36 to 0.034 ms in perspective and from 0.23 to 0.031 ms at DEMO ARPG GAME's camera. The frame went −3.6% / −4.0% (p50 / p95) in perspective and −4.2% / −3.7% at DEMO ARPG GAME, which is most of what grass cost there. The 22 presets again rendered pixel-identical.
+
+### After G6
+
+Grass cost fell to 3.4 ms in perspective and 2.4 ms at DEMO ARPG GAME's camera (p50). Stubbed out again:
+
+| Part | Perspective | DEMO ARPG GAME |
+| --- | --- | --- |
+| Compute | 3% | 5% |
+| Vertex shading (every vertex moved off-screen, so nothing is rasterized; the shadow pass still draws, so this is an upper bound) | about 4% | under 6% |
+| Grass in the shadow map | 14% | 22% |
+| Rasterizing and shading the blades | 78% | 91% |
+| … of which the shadow lookup | 20% | 18% |
+| … of which the rest of the lighting | 3% | 3% |
+| 4× MSAA (grass cost with MSAA off) | −27% | −32% |
+
+### Other hypotheses
+
+| # | Hypothesis | Verdict |
+| --- | --- | --- |
+| G1 | `let field = fields[i]` copies the 272-byte `Field` per vertex and per candidate | Not testable on NVIDIA, whose compiler drops unused loads. Worth one run on an AMD or Intel GPU. |
+| G2 | Per-blade work (curve, facing, minimum width) repeated for every vertex | Rejected: all vertex shading is about 4% of grass cost. |
+| G3 | Bevy's 4-sample hardware shadow filter for grass instead of the view's 9-sample Gaussian | **−17.1% / −18.2%** in perspective, **−12.7% / −12.2%** at DEMO ARPG GAME's camera. Passes, but it changes the look: blades shadowing each other turn crisper and grainier, 0.3–11% of pixels off by more than 16 of 255 across the 22 presets. **Developer's decision.** |
+| G4 | Generation's arithmetic: storage loads instead of filtered texture reads, integer division, barriers | Rejected: after G6 all compute is 3%. |
+| G5 | Fewer interpolated values (13 floats per vertex) | Not built: interpolation sits inside the raster bucket, and on its own it cannot be large. |
+
+Lessons:
+
+- **Lock the clocks to find what a slow GPU pays for.** At full clock on a fast GPU, generation looked like 0.35 ms; on a starved one it was half the grass.
+- **Spread work across workgroups by its size, not by its container.** One workgroup per chunk made the frame wait for the densest chunk.
+- **Stub out to attribute, then optimize.** The vertex shader, the lighting maths and generation's arithmetic all looked like candidates and together cost under 10%.
+
 ## Levers not yet tried
 
-In expected order of effect:
+In expected order of effect. The main pass is now known to be the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup the largest single term.
 
-1. **Find what dominates the main pass** (see above): shadow lookup, quad overshading at 4× MSAA, or the cluster lookup. A cheaper lighting function was tried and gained nothing.
-2. **Lighting computed less often than per pixel.** For example per vertex or per blade, where normals are already smooth, as the survey's "volumetric shading" suggests. Bevy's shadow-map bindings may only be visible to the fragment stage, which would block the per-vertex version.
+1. **The shadow filter for grass** (G3): measured at −12 to −18%, waiting on the developer's decision about the look.
+2. **The shadow lookup less often than per pixel.** Per vertex, or once per blade in generation from last frame's shadow map: up to the 20% the lookup costs, with shadow edges along a blade lost. Bevy's shadow-map bindings may only be visible to the fragment stage, which would block the per-vertex version.
 3. **Fewer near blades.** LOD 0 is 100% density to 18 m. Halving from 10 m would apply experiment 7's gain to the most expensive blades, at a visible cost close to the camera.
 4. **DEMO ARPG GAME style.** See experiment 8, decision D3.
-5. **Shadows off in DEMO ARPG GAME.** See experiment 2, decision D5.
+5. **Shadows off in DEMO ARPG GAME.** See experiment 2, decision D5: grass in the shadow map is 22% of grass cost at DEMO ARPG GAME's camera.
+6. **MSAA**, a game setting: 27–32% of grass cost.

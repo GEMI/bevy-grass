@@ -576,6 +576,16 @@ To measure on your machine, run `cargo run --release --example bench` (add
 `--ortho` for the top-down camera) and compare with a `--no-grass` run.
 `tools/bench_ab.py` runs paired A/B rounds of two builds.
 
+On an RTX 4070 Ti with a 2013 quad-core CPU the frame is limited by the CPU,
+not by grass: an empty Bevy scene alone takes 2.1 ms. Fat LTO
+(`--profile release-lto`) and single-threaded schedules (`--single-threaded`)
+cut that frame by 16–19%; see "The frame-time floor" in
+[`docs/performance.md`](docs/performance.md). The same GPU, clocked down to
+about twice a T1200, is how blade generation was found to wait on its densest
+chunk; splitting chunks into slices halved the grass cost there, with
+identical images ("GPU pass on a starved GPU"). The T1200 figures above
+predate that change.
+
 ## Testing
 
 - **Golden images.** Every preset is rendered headless at a fixed time and

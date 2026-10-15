@@ -73,3 +73,13 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
+
+# Whole-program optimization, for measuring the frame a shipped game gets: on
+# a CPU-bound machine it makes the whole frame faster, not only grass (see
+# "The frame-time floor" in docs/performance.md). A full build takes about
+# 17 minutes on 4 cores. Cargo ignores a dependency's profiles, so a game
+# sets this in its own Cargo.toml.
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

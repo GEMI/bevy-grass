@@ -8,6 +8,8 @@
 //!   a screenshot is the same on every run and every machine.
 //! * `--perf` logs Bevy's per-pass CPU and GPU times once a second; the grass
 //!   compute pass appears as `grass_indirect_args`.
+//! * `--single-threaded` runs each app's systems on one thread (see
+//!   `single_threaded_schedules`); faster on CPUs with few cores.
 //! * `--record DIR` saves every second frame of the last `--record-frames`
 //!   (default 600) before `--frames` as numbered PNGs in `DIR`: with
 //!   `--fixed-time`, 30 frames for each second of game time, for a video.
@@ -19,9 +21,11 @@
 use std::time::Duration;
 
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::ecs::schedule::SingleThreadedExecutor;
 use bevy::prelude::*;
 use bevy::render::diagnostic::RenderDiagnosticsPlugin;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::render::{ExtractSchedule, Render, RenderApp};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
 
@@ -31,6 +35,8 @@ pub(crate) struct ExampleArgs {
     pub(crate) screenshot: Option<String>,
     pub(crate) fixed_time: bool,
     pub(crate) perf: bool,
+    /// Single-threaded schedules, from `--single-threaded`.
+    pub(crate) single_threaded: bool,
     /// Where `--record` saves frames, and how many frames it covers.
     pub(crate) record: Option<(String, u32)>,
     /// Flags the example reads itself.
@@ -47,6 +53,7 @@ impl ExampleArgs {
                 "--screenshot" => args.screenshot = it.next(),
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
+                "--single-threaded" => args.single_threaded = true,
                 "--record" => {
                     let dir = it.next().expect("--record needs a directory");
                     args.record = Some((dir, args.record.as_ref().map_or(600, |r| r.1)));
@@ -123,10 +130,34 @@ impl ExampleArgs {
                 LogDiagnosticsPlugin::default(),
             ));
         }
+        if self.single_threaded {
+            single_threaded_schedules(app);
+        }
         app.insert_resource(self)
             .init_resource::<FrameTimes>()
             .add_systems(Last, count_frames);
     }
+}
+
+/// Runs the main app's per-frame schedules and the render app's schedules on
+/// one thread each. Pipelined rendering still puts the two apps on separate
+/// threads.
+///
+/// On a CPU with few cores a frame of Bevy is hundreds of small systems, and
+/// the multi-threaded executor spends more time waking threads than the
+/// systems take. See "The frame-time floor" in `docs/performance.md`.
+fn single_threaded_schedules(app: &mut App) {
+    let single = |schedule: &mut Schedule| {
+        schedule.set_executor(SingleThreadedExecutor::new());
+    };
+    app.edit_schedule(First, single)
+        .edit_schedule(PreUpdate, single)
+        .edit_schedule(Update, single)
+        .edit_schedule(PostUpdate, single)
+        .edit_schedule(Last, single);
+    let render = app.sub_app_mut(RenderApp);
+    render.edit_schedule(Render, single);
+    render.edit_schedule(ExtractSchedule, single);
 }
 
 #[derive(Resource, Debug, Default)]
