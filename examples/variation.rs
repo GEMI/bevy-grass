@@ -129,8 +129,12 @@ fn setup(
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, -0.5, -0.5, 0.0)),
+        // The first cascade only 12 m deep, so near blades are several shadow
+        // texels wide: with one cascade over 60 m a texel was wider than a
+        // blade, and blade shadows blinked on and off as the grass swayed.
         CascadeShadowConfigBuilder {
-            num_cascades: 1,
+            num_cascades: 3,
+            first_cascade_far_bound: 12.0,
             maximum_distance: 60.0,
             ..default()
         }

@@ -13,6 +13,7 @@
 //! cargo run --example bench -- --screenshot shots/bench.png   # the last frame
 //! cargo run --example bench -- --sheen --tint --toon  # add optional look terms
 //! cargo run --example bench -- --species --tufts --shape --variation  # add variation
+//! cargo run --example bench -- --prepass  # a depth prepass on the camera
 //! cargo run --profile release-lto --example bench -- --single-threaded  # the fastest frame on few-core CPUs
 //! ```
 //!
@@ -42,6 +43,7 @@ use std::fmt::Write as _;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::ScalingMode;
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::diagnostic::{DiagnosticPath, DiagnosticsStore};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -67,6 +69,8 @@ struct Bench {
     /// or `--no-shadows`.
     terrain: bool,
     shadows: bool,
+    /// A depth prepass on the camera, from `--prepass`.
+    prepass: bool,
     interactors: u32,
     /// The optional look terms, from `--sheen`, `--tint` and `--toon`.
     sheen: bool,
@@ -97,6 +101,7 @@ fn main() {
     let mut single_threaded = false;
     let (mut plugin, mut gpu_timing) = (true, true);
     let (mut terrain, mut shadows) = (true, true);
+    let mut prepass = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -121,6 +126,7 @@ fn main() {
             "--no-gpu-timing" => gpu_timing = false,
             "--no-terrain" => terrain = false,
             "--no-shadows" => shadows = false,
+            "--prepass" => prepass = true,
             "--csv" => csv_path = args.next().expect("--csv needs a path"),
             "--tier" => {
                 quality = match args.next().as_deref() {
@@ -157,6 +163,7 @@ fn main() {
         orthographic,
         grass: grass && plugin,
         terrain,
+        prepass,
         shadows,
         interactors,
         sheen,
@@ -256,6 +263,9 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
 ) {
     let mut camera = commands.spawn(Camera3d::default());
+    if bench.prepass {
+        camera.insert(DepthPrepass);
+    }
     if bench.orthographic {
         camera.insert(Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::FixedVertical {

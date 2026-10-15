@@ -321,13 +321,46 @@ Lessons:
 - **Spread work across workgroups by its size, not by its container.** One workgroup per chunk made the frame wait for the densest chunk.
 - **Stub out to attribute, then optimize.** The vertex shader, the lighting maths and generation's arithmetic all looked like candidates and together cost under 10%.
 
+## Five more hypotheses on the T1200 (October 15, 2026)
+
+Back on the development laptop (T1200, GPU-bound), after G6. Same method: `tools/bench_ab.py`, 6–10 interleaved paired rounds against the G6 build, shares of grass cost (reference minus `--no-grass`). Kept if both p50 and p95 improve by at least 3% in both scenes (the developer's bar for this pass).
+
+| # | Hypothesis | What was built | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| P1 | A depth prepass shades each pixel once | Bevy's `DepthPrepass` on the camera (bench `--prepass`), which grass already draws into | +11.6% / +17.8% | +29.9% / +26.5% | Rejected, as in M2: the main pass fell from 3.43 to 2.51 ms, but drawing every blade twice cost more. |
+| P2 | Blades drawn front to back hide the ones behind before those are shaded | `cull` counts slices per distance band (32 bands over the grass radius, view depth at an orthographic camera) and a second pass, `place`, writes them nearest band first, so generation and drawing follow | +0.2% / +0.6% | +1.3% / +1.2% | Rejected: the main pass did not move (3.69 against 3.68 ms). The 0.3 ms main-pass rise seen after G6 was noise between sessions, not draw order. Images identical. |
+| P3 | Grass work nobody needs: compute with no field, trample decay with nothing trampled | Compute skipped with no chunks; the decay pass skipped once the CPU's mirror of its recovery step shows every cell back | +1.4% / +2.4% | +1.9% / −0.2% | Rejected. With no field, the frame was 0.04–0.08 ms (2–3%) faster: real, but under the bar, and only where there is no grass. |
+| P4 | Shadow maps need less detail than the eye | Shadow draws at LOD 1 or coarser (separate draw arguments) | −2.3% / −0.6% | +1.8% / +0.5% | Rejected. DEMO ARPG GAME's camera already draws LOD 1 at High, so it is the control. The shadow map's cost is its pixels, not its vertices. |
+| P5 | The sun's shadow per vertex instead of per pixel | See below; Bevy's 9-tap filter per vertex | −3.3% / −7.0% | −7.3% / −4.1% | Rejected by the developer: passes the bar, but the shadows look cheap. Reverted. |
+
+The ceiling for P5, grass with no shadow lookup at all, was −31.5% / −24.7% in perspective and −25.7% / −3.6% at DEMO ARPG GAME's camera.
+
+### P5: the sun's shadow per vertex (rejected)
+
+Bevy binds its shadow maps for the fragment stage only, so grass bound them again (group 3 of the main pass: Bevy's lights uniform, the directional shadow-map array and its comparison sampler, visible to the vertex stage). The vertex shader repeated Bevy's `fetch_directional_shadow` for the first directional light (cascade choice and blend, normal and depth bias, on the side of the blade facing the sun) and passed the result to the fragment, which lit the blade with Bevy's per-pixel lookup switched off and took away the sun's direct light, from Bevy's own `directional_light`, where the vertices found shadow.
+
+With one hardware-filtered tap per vertex it measured −5.6% / −20.3% in perspective and −12.8% / −4.5% at DEMO ARPG GAME's camera, but shadows blinked as the grass moved: one tap is close to on or off, so a whole segment between two vertices flipped at once. On 60 recorded frames of swaying grass, the mean on-off-on change between frames was 13.8 per pixel with per-pixel shadows, 15.9 with one tap per vertex and 14.3 with Bevy's 9-tap filter per vertex, which cost most of the gain (above). Even filtered, shadows resolved at 7 rows along a blade looked cheap next to per-pixel ones, and grass would also have lost point- and spot-light shadows (Bevy's shadow switch is one flag per surface, for every light). Per-vertex or per-blade shadow lookups are not worth trying again.
+
+## Smoother motion and steadier shadows (October 15, 2026)
+
+Comparing P5 with the build before it, the developer noticed that both blinked, and that blades vibrated rather than swayed. Two causes, neither a performance change:
+
+- **The bend was stored in 8 bits per axis**, since M0. A blade's tip could only move in steps of 1/127 of its height, about 1.2 cm on a 1.5 m blade: blades held still, then hopped, out of step with each other. It is now 12 bits, with last frame's bend (for motion vectors) as a 4-bit step from it, in the same 16-byte instance: steps of 0.7 mm. Paired rounds against the 8-bit build: −0.7% / −0.4% at DEMO ARPG GAME's camera and +0.3% / +0.5% in perspective (p50 / p95 of grass cost), noise. The goldens changed (blade edges moved up to a pixel) and were re-blessed.
+- **The `variation` example's shadow map was too coarse.** One cascade over 60 m in a 2048 map is about 4–5 cm per texel; a blade is 1–2 cm wide, so blade shadows popped on and off as blades crossed texel centres. It now uses three cascades, the first 12 m deep, as the bench's perspective scene already did with Bevy's defaults (first cascade 10 m), so its cost is in the numbers above. A 4096 map with `GrassShadows::Full` looked sharper still but cost +27% to +47% of grass cost and was not needed.
+
+Lessons:
+
+- **Judge motion, not stills.** The golden images could not show either problem.
+- **Quantize per frame only what the eye cannot see step.** Positions were 16-bit and fine. The bend changes every frame, so its steps showed as motion.
+- **A shadow texel must be smaller than a blade near the camera**, or grass shadows blink. Games should keep the first cascade short (10–15 m in perspective). DEMO ARPG GAME's single map, about 30 m deep, has texels of roughly 2 cm against blades 4–8 cm wide.
+
 ## Levers not yet tried
 
-In expected order of effect. The main pass is now known to be the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup the largest single term.
+In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
 
-1. **The shadow filter for grass** (G3): measured at −12 to −18%, waiting on the developer's decision about the look.
-2. **The shadow lookup less often than per pixel.** Per vertex, or once per blade in generation from last frame's shadow map: up to the 20% the lookup costs, with shadow edges along a blade lost. Bevy's shadow-map bindings may only be visible to the fragment stage, which would block the per-vertex version.
+1. **MSAA**, a game setting: 27–32% of grass cost, with more shimmer on thin blades.
+2. **Shadows off in DEMO ARPG GAME.** See experiment 2, decision D5: grass in the shadow map is 22% of grass cost at DEMO ARPG GAME's camera.
 3. **Fewer near blades.** LOD 0 is 100% density to 18 m. Halving from 10 m would apply experiment 7's gain to the most expensive blades, at a visible cost close to the camera.
 4. **DEMO ARPG GAME style.** See experiment 8, decision D3.
-5. **Shadows off in DEMO ARPG GAME.** See experiment 2, decision D5: grass in the shadow map is 22% of grass cost at DEMO ARPG GAME's camera.
-6. **MSAA**, a game setting: 27–32% of grass cost.
+5. **The game's build and executor** on CPU-bound PCs: fat LTO and single-threaded schedules (above), and untried, PGO and a faster allocator such as mimalloc.
+6. **G3, Bevy's 4-tap shadow filter for grass**: −12 to −18% measured on the 4070 Ti, waiting on the developer's decision about the look.
