@@ -450,7 +450,7 @@ Estimates are rough, for one developer working with agents: about 12 weeks to th
 | M2 GPU-driven core | 🟡 Built; five steps still have a "Done when" check not run (2.1, 2.2, 2.4, 2.5, 2.6) | G2 ⬜ needs RTX 3060 class hardware |
 | M3 DEMO ARPG GAME v1 | 🟡 3.1–3.3, 3.5 and 3.6 done; 3.4 drafted (DEMO ARPG GAME builds bevy-grass from the local disk until it is hosted); 3.7 measured; 3.8 waits for the developer | G3 🟡 D2, D4 and D5 answered; the readability sign-off and a Tracy capture remain |
 | M4 Complete look and Bevy passes | ✅ Done: all six steps meet their "Done when" | G4 🟡 the goldens wait for the developer's approval; the M2 budget is still unproven (G2) |
-| Variation (added) | ✅ Done: species, blade shape, colour, placement | The new presets' goldens wait for the developer's approval, like G4's |
+| Variation (added) | ✅ Done: species, blade shape, colour, placement | ✅ The developer approved the new styles' look on October 15 |
 | M5–M6 | ⬜ Not started | ⬜ |
 
 #### Performance pass after M2
@@ -656,9 +656,9 @@ The developer asked for grass that varies the way real fields do, with every kin
 | V.4 Placement | Tufts (`tufts`, `tuft_size`): each candidate moves part of the way to its nearest tuft centre, each tuft pulling by its own amount, and leans out from it. Tuft centres come from a 256 KB table like the clump table (a jittered grid's Voronoi cells, 64 tufts a side), because searching nine centres per blade made the clump lookup 40–130% slower in M3. The blade count does not change. Bare patches (`bare_patches`, `bare_patch_size`): density times a smooth step of a two-sample noise, the second sample turned and scaled so the pattern does not visibly repeat; the threshold for a given share comes from the noise's measured distribution (unit test: within 3% of the share). Both are uniform branches per workgroup, skipped when off. | ✅ Done |
 | V.5 Presets, example and cost | `SUMMER_WILD`, `AUTUMN_WILD` and `WILDFLOWER_MEADOW` (`GrassStyle::WILD`) use everything; the `variation` example switches each kind on and off over one of them; the bench has `--species`, `--tufts`, `--shape` and `--variation`. | ✅ Done. Cost on the T1200 (paired runs, perspective / DEMO ARPG GAME's camera, in `docs/performance.md`): with everything off, as M4 (+0.07 / −0.09 ms, noise); tufts and bare patches, and blade shape, free; colour +0.14 / +0.08 ms; four plants on 21% of the blades +0.28 / +0.16 ms (6.5% / 4.7% of grass cost). Two cheaper species picks were tried and measured no faster. |
 
-The goldens of the eight new presets are in `tests/golden/` for the developer to approve. Whether DEMO ARPG GAME uses any of this is the developer's decision; its styles are unchanged.
+The goldens of the eight new presets are in `tests/golden/`; the developer approved the styles' look on October 15, 2026. Whether DEMO ARPG GAME uses any of this is the developer's decision; its styles are unchanged.
 
-One API change: the species list is not `Copy`, so `GrassStyle { height, ..style }` now moves `style`'s species out of a variable (a preset constant is unaffected). Code that uses the variable afterwards writes `..style.clone()`. DEMO ARPG GAME's `grass.rs` needed that one change, on its local `grass-bevy-grass` branch, uncommitted.
+One API change: the species list is not `Copy`, so `GrassStyle { height, ..style }` now moves `style`'s species out of a variable (a preset constant is unaffected). Code that uses the variable afterwards writes `..style.clone()`. DEMO ARPG GAME's `grass.rs` needed that one change, on its local `grass-bevy-grass` branch, where `--grass summer-wild`, `autumn-wild` and `wildflower-meadow` now grow the wild styles (its default is unchanged).
 
 #### M5 Editing and ground (about 2 weeks)
 
