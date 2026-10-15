@@ -173,12 +173,26 @@ fn quantize(value: f32, max_value: f32) -> u32 {
     return u32(round(clamp(value, 0.0, 1.0) * max_value));
 }
 
-fn snorm8(value: f32) -> u32 {
-    return quantize(value * 0.5 + 0.5, 255.0);
+/// Steps of last frame's bend per unit of bend. Twin of
+/// `mirror::BEND_DELTA_STEPS`.
+const BEND_DELTA_STEPS: f32 = 128.0;
+
+/// One axis of a blade's bend in 16 bits: the bend in the low 12 (8 bits
+/// made the blades step visibly as the wind moved them), and last frame's
+/// bend, for motion vectors, as a 4-bit step from it. Twin of
+/// `mirror::pack_bend`.
+fn pack_bend(bend: f32, previous: f32) -> u32 {
+    let now = quantize(bend * 0.5 + 0.5, 4095.0);
+    let decoded = f32(now) / 4095.0 * 2.0 - 1.0;
+    let step = clamp(round((previous - decoded) * BEND_DELTA_STEPS), -8.0, 7.0);
+    return now | (u32(i32(step) + 8) << 12u);
 }
 
-fn unsnorm8(value: u32) -> f32 {
-    return f32(value & 0xffu) / 255.0 * 2.0 - 1.0;
+/// This frame's and last frame's bend from `pack_bend`'s 16 bits.
+fn unpack_bend(bits: u32) -> vec2<f32> {
+    let now = f32(bits & 0xfffu) / 4095.0 * 2.0 - 1.0;
+    let step = f32(i32((bits >> 12u) & 0xfu) - 8);
+    return vec2<f32>(now, now + step / BEND_DELTA_STEPS);
 }
 
 /// A blade as the generation pass produces it.
@@ -210,8 +224,7 @@ fn pack(blade: BladeData, origin: vec4<f32>) -> vec4<u32> {
         y | (facing << 16u) | ((blade.seed & 0xffu) << 24u),
         quantize(blade.height, 255.0) | (quantize(blade.width, 255.0) << 8u) | ((blade.field & 0xffu) << 16u)
             | ((blade.lod & 3u) << 24u) | ((blade.clump & 63u) << 26u),
-        snorm8(blade.bend.x) | (snorm8(blade.bend.y) << 8u) | (snorm8(blade.previous_bend.x) << 16u)
-            | (snorm8(blade.previous_bend.y) << 24u),
+        pack_bend(blade.bend.x, blade.previous_bend.x) | (pack_bend(blade.bend.y, blade.previous_bend.y) << 16u),
     );
 }
 
@@ -244,8 +257,10 @@ fn unpack(words: vec4<u32>, origin: vec4<f32>) -> Instance {
     out.clump = f32(words.z >> 26u) / 63.0;
     out.height = f32(words.z & 0xffu) / 255.0;
     out.width = f32((words.z >> 8u) & 0xffu) / 255.0;
-    out.bend = vec2<f32>(unsnorm8(words.w), unsnorm8(words.w >> 8u));
-    out.previous_bend = vec2<f32>(unsnorm8(words.w >> 16u), unsnorm8(words.w >> 24u));
+    let bend_x = unpack_bend(words.w & 0xffffu);
+    let bend_z = unpack_bend(words.w >> 16u);
+    out.bend = vec2<f32>(bend_x.x, bend_z.x);
+    out.previous_bend = vec2<f32>(bend_x.y, bend_z.y);
     return out;
 }
 

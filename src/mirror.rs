@@ -332,14 +332,28 @@ fn dequantize(value: u32, bits: u32) -> f32 {
     value as f32 / ((1u64 << bits) - 1) as f32
 }
 
+/// Steps of last frame's bend per unit of bend.
 #[cfg(test)]
-fn snorm8(value: f32) -> u32 {
-    quantize(value * 0.5 + 0.5, 8)
+pub(crate) const BEND_DELTA_STEPS: f32 = 128.0;
+
+/// One axis of a blade's bend in 16 bits: the bend in the low 12, and last
+/// frame's bend as a 4-bit step from it. The WESL twin is `pack_bend`.
+#[cfg(test)]
+fn pack_bend(bend: f32, previous: f32) -> u32 {
+    let now = quantize(bend * 0.5 + 0.5, 12);
+    let decoded = dequantize(now, 12) * 2.0 - 1.0;
+    let step = ((previous - decoded) * BEND_DELTA_STEPS)
+        .round()
+        .clamp(-8.0, 7.0);
+    now | (((step as i32 + 8) as u32) << 12)
 }
 
+/// This frame's and last frame's bend from `pack_bend`'s 16 bits.
 #[cfg(test)]
-fn unsnorm8(value: u32) -> f32 {
-    dequantize(value, 8) * 2.0 - 1.0
+pub(crate) fn unpack_bend(bits: u32) -> (f32, f32) {
+    let now = dequantize(bits & 0xfff, 12) * 2.0 - 1.0;
+    let step = ((bits >> 12) & 0xf) as i32 - 8;
+    (now, now + step as f32 / BEND_DELTA_STEPS)
 }
 
 /// Packs a blade into the 16-byte instance format. The WESL twins are
@@ -350,7 +364,7 @@ fn unsnorm8(value: u32) -> f32 {
 /// | 0 | x (16), z (16), over ±`extent` around the view's instance origin |
 /// | 1 | y (16) over ±`HEIGHT_RANGE`, facing (8), seed (8) |
 /// | 2 | height (8), width (8), field (8), LOD (2), flags (6) |
-/// | 3 | bend x, bend z, previous bend x, previous bend z (8 each) |
+/// | 3 | bend x and z (16 each: 12 for this frame, 4 for last frame's as a step from it) |
 #[cfg(test)]
 pub(crate) fn pack(blade: &Blade, extent: f32) -> [u32; 4] {
     let x = quantize(blade.position.x / (2.0 * extent) + 0.5, 16);
@@ -365,16 +379,16 @@ pub(crate) fn pack(blade: &Blade, extent: f32) -> [u32; 4] {
             | (u32::from(blade.field) << 16)
             | ((u32::from(blade.lod) & 3) << 24)
             | ((u32::from(blade.clump) & 63) << 26),
-        snorm8(blade.bend.x)
-            | (snorm8(blade.bend.y) << 8)
-            | (snorm8(blade.previous_bend.x) << 16)
-            | (snorm8(blade.previous_bend.y) << 24),
+        pack_bend(blade.bend.x, blade.previous_bend.x)
+            | (pack_bend(blade.bend.y, blade.previous_bend.y) << 16),
     ]
 }
 
 /// Unpacks the 16-byte instance format.
 #[cfg(test)]
 pub(crate) fn unpack(words: [u32; 4], extent: f32) -> Blade {
+    let bend_x = unpack_bend(words[3] & 0xffff);
+    let bend_z = unpack_bend(words[3] >> 16);
     Blade {
         position: Vec3::new(
             (dequantize(words[0] & 0xffff, 16) - 0.5) * 2.0 * extent,
@@ -388,8 +402,8 @@ pub(crate) fn unpack(words: [u32; 4], extent: f32) -> Blade {
         lod: ((words[2] >> 24) & 3) as u8,
         field: ((words[2] >> 16) & 0xff) as u8,
         clump: (words[2] >> 26) as u8,
-        bend: Vec2::new(unsnorm8(words[3] & 0xff), unsnorm8((words[3] >> 8) & 0xff)),
-        previous_bend: Vec2::new(unsnorm8((words[3] >> 16) & 0xff), unsnorm8(words[3] >> 24)),
+        bend: Vec2::new(bend_x.0, bend_z.0),
+        previous_bend: Vec2::new(bend_x.1, bend_z.1),
     }
 }
 
@@ -903,7 +917,7 @@ mod tests {
             field: 17,
             clump: 45,
             bend: Vec2::new(-0.5, 0.25),
-            previous_bend: Vec2::new(0.9, -1.0),
+            previous_bend: Vec2::new(-0.47, 0.21),
         };
         let extent = 128.0;
         let back = unpack(pack(&blade, extent), extent);
@@ -922,13 +936,25 @@ mod tests {
             (back.seed, back.lod, back.field, back.clump),
             (blade.seed, blade.lod, blade.field, blade.clump)
         );
-        assert!((back.bend - blade.bend).abs().max_element() <= 1.0 / 255.0);
+        assert!((back.bend - blade.bend).abs().max_element() <= 1.0 / 4095.0 + 1e-6);
         assert!(
             (back.previous_bend - blade.previous_bend)
                 .abs()
                 .max_element()
-                <= 1.0 / 255.0
+                <= 1.0 / 4095.0 + 0.5 / BEND_DELTA_STEPS + 1e-6
         );
+    }
+
+    #[test]
+    fn a_large_change_in_bend_is_clamped_not_wrapped() {
+        for (bend, previous) in [(0.0, 0.9), (0.0, -0.9), (1.0, -1.0), (-1.0, 1.0)] {
+            let (now, back) = unpack_bend(pack_bend(bend, previous));
+            // Half a 12-bit step, 1 / 4095, and a little for rounding.
+            assert!((now - bend).abs() <= 1.0 / 4095.0 + 1e-6);
+            // The furthest step toward last frame's bend.
+            assert!((back - previous).abs() < (previous - bend).abs());
+            assert!((back - now).abs() <= 8.0 / BEND_DELTA_STEPS);
+        }
     }
 
     fn curve_length(points: &[Vec3; 3]) -> f32 {

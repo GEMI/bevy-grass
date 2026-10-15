@@ -189,8 +189,8 @@ Each frame, per camera, three small compute dispatches decide which blades exist
 | Facing | 8 | Yaw around the ground normal |
 | Height, width | 8 + 8 | Scaled by style and mask height multiplier |
 | Seed | 8 | Color variation, sway phase |
-| Wind bend, current | 2 × 8 | Tip offset direction and amount |
-| Wind bend, previous frame | 2 × 8 | For motion vectors |
+| Wind bend, current | 2 × 12 | Tip offset direction and amount. 8 bits made blades step visibly as the wind moved them |
+| Wind bend, previous frame | 2 × 4 | For motion vectors, as a step from the current bend |
 | LOD and flags | 16 | LOD level, cross-fade dither, chunk index high bits |
 
 **Buffers.** Instance buffers are allocated once at the tier's maximum blade count and reused every frame. If a frame overflows, extra blades in that LOD bucket are dropped, a warning is logged once, and the capacity can be raised via `GrassPlugin`. Each extra camera gets its own instance buffers; split-screen doubles blade memory, not CPU cost.

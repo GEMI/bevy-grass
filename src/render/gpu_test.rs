@@ -104,8 +104,6 @@ fn gpu_bends(app: &mut App) -> Vec<(Vec2, Vec2)> {
     };
     let origin = view.instance_origin;
     let position = |q: u32, center: f32| ((q as f32 / 65535.0) - 0.5) * 2.0 * origin.w + center;
-    // Offset binary, as `snorm8` in `common.wesl` writes it.
-    let snorm = |byte: u32| (byte & 0xff) as f32 / 255.0 * 2.0 - 1.0;
     words
         .iter()
         .map(|w| {
@@ -113,7 +111,8 @@ fn gpu_bends(app: &mut App) -> Vec<(Vec2, Vec2)> {
                 position(w[0] & 0xffff, origin.x),
                 position(w[0] >> 16, origin.z),
             );
-            (root, Vec2::new(snorm(w[3]), snorm(w[3] >> 8)))
+            let bend = |bits: u32| mirror::unpack_bend(bits).0;
+            (root, Vec2::new(bend(w[3] & 0xffff), bend(w[3] >> 16)))
         })
         .collect()
 }
