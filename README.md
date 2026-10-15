@@ -4,11 +4,11 @@ GPU-driven, wind-animated grass for [Bevy](https://bevy.org) 0.20: fields of
 any size, tall walkable grass, flowers and seed heads, trampling, and every
 blade lit by Bevy's own PBR.
 
-![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg)
+![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
 
-| ![Wildflower meadow](docs/images/flowers.jpg) | ![The same field from a top-down ARPG camera](docs/images/arpg.jpg) |
+| ![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg) | ![Wildflower meadow](docs/images/flowers.jpg) |
 | --- | --- |
-| ![Every preset side by side](docs/images/styles.jpg) | ![A meadow with a cleared patch and wheat behind](docs/images/meadow.jpg) |
+| ![The same wild field from a top-down ARPG camera](docs/images/arpg.jpg) | ![A meadow with a cleared patch and wheat behind](docs/images/meadow.jpg) |
 
 - **No blades are stored.** Every frame, compute shaders decide which blades
   exist near each camera and build them on the GPU. A 4 km field costs what a
@@ -328,14 +328,15 @@ cargo run --release --example meadow
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–4 pick the wind, S toggles grass shadows |
-| `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera |
+| `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures themselves (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a fixed flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |
 | `golden` | Every preset rendered headless and compared with reference images (`--bless` to update them) |
 
 Every example also takes `--frames N --perf` (p50 and p95 frame time and GPU
-time per grass pass) and `--fixed-time --screenshot PATH` (repeatable
-screenshots).
+time per grass pass), `--fixed-time --screenshot PATH` (repeatable
+screenshots) and `--fixed-time --record DIR` (10 seconds of frames for a
+video).
 
 ## API
 

@@ -8,6 +8,9 @@
 //!   a screenshot is the same on every run and every machine.
 //! * `--perf` logs Bevy's per-pass CPU and GPU times once a second; the grass
 //!   compute pass appears as `grass_indirect_args`.
+//! * `--record DIR` saves every second frame of the last `--record-frames`
+//!   (default 600) before `--frames` as numbered PNGs in `DIR`: with
+//!   `--fixed-time`, 30 frames for each second of game time, for a video.
 //!
 //! Any other `--flag` is kept for the example itself (`ExampleArgs::has`).
 
@@ -28,6 +31,8 @@ pub(crate) struct ExampleArgs {
     pub(crate) screenshot: Option<String>,
     pub(crate) fixed_time: bool,
     pub(crate) perf: bool,
+    /// Where `--record` saves frames, and how many frames it covers.
+    pub(crate) record: Option<(String, u32)>,
     /// Flags the example reads itself.
     pub(crate) flags: Vec<String>,
 }
@@ -42,7 +47,22 @@ impl ExampleArgs {
                 "--screenshot" => args.screenshot = it.next(),
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
+                "--record" => {
+                    let dir = it.next().expect("--record needs a directory");
+                    args.record = Some((dir, args.record.as_ref().map_or(600, |r| r.1)));
+                }
+                "--record-frames" => {
+                    let count = it.next().and_then(|v| v.parse().ok()).unwrap_or(600);
+                    let dir = args.record.take().map_or_else(String::new, |r| r.0);
+                    args.record = Some((dir, count));
+                }
                 other => args.flags.push(other.to_owned()),
+            }
+        }
+        if let Some((dir, count)) = &args.record {
+            assert!(!dir.is_empty(), "--record-frames needs --record DIR");
+            if args.frames.is_none() {
+                args.frames = Some(count + 300);
             }
         }
         if args.screenshot.is_some() && args.frames.is_none() {
@@ -124,6 +144,24 @@ fn count_frames(
     };
     times.0.push(time.delta_secs() * 1000.0);
     let frame = times.0.len() as u32;
+    if let Some((dir, count)) = &args.record
+        && frame + count > frames
+        && frame <= frames
+        && frame % 2 == frames % 2
+    {
+        let _ = std::fs::create_dir_all(dir);
+        let mut shot = commands.spawn(Screenshot::primary_window());
+        shot.observe(save_to_disk(format!("{dir}/{frame:05}.png")));
+        // The last frame ends the recording once it is saved. A window takes
+        // one screenshot a frame, so this one has to end it.
+        if frame == frames {
+            shot.observe(
+                |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    exit.write(AppExit::Success);
+                },
+            );
+        }
+    }
     if frame != frames {
         return;
     }
@@ -151,6 +189,8 @@ fn count_frames(
                     },
                 );
         }
+        // A recording ends with its last frame, above.
+        None if args.record.is_some() => {}
         None => {
             exit.write(AppExit::Success);
         }
@@ -167,7 +207,7 @@ pub(crate) fn spawn_person(
     commands
         .spawn((
             Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
-            MeshMaterial3d(materials.add(Color::srgb(0.7, 0.2, 0.15))),
+            MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
             Transform::from_translation(at + Vec3::Y * 0.9),
         ))
         .id()

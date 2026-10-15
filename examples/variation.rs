@@ -14,6 +14,8 @@
 //!
 //! WASD and the mouse fly the camera (hold the left button to look).
 //! `--arpg` uses DEMO ARPG GAME's camera instead: orthographic, 30° down, 45° yaw.
+//! `--walk` sends the person on a walk through the field, parting the grass,
+//! with the camera following.
 //! For screenshots, `--style N` (1–3) and `--no-plants`, `--no-tufts`,
 //! `--no-shape` and `--no-colour` set the start.
 //!
@@ -21,6 +23,7 @@
 //! cargo run --example variation
 //! cargo run --example variation -- --arpg
 //! cargo run --example variation -- --fixed-time --no-tufts --screenshot shots/variation.png
+//! cargo run --example variation -- --walk --fixed-time --record target/walk   # frames for a video
 //! ```
 
 mod common;
@@ -48,6 +51,7 @@ struct Switches {
 #[derive(Resource, Clone, Copy)]
 struct Start {
     arpg: bool,
+    walk: bool,
     file: usize,
     switches: Switches,
 }
@@ -67,6 +71,7 @@ fn main() {
     let args = common::ExampleArgs::parse();
     let start = Start {
         arpg: args.has("--arpg"),
+        walk: args.has("--walk"),
         file: args
             .value("--style")
             .and_then(|n| n.parse::<usize>().ok())
@@ -83,7 +88,7 @@ fn main() {
     app.add_plugins((GrassPlugin::default(), FreeCameraPlugin))
         .insert_resource(start)
         .add_systems(Startup, setup)
-        .add_systems(Update, (switch, refresh, title).chain())
+        .add_systems(Update, ((switch, refresh, title).chain(), walk))
         .run();
 }
 
@@ -95,7 +100,9 @@ fn setup(
     mut styles: ResMut<Assets<GrassStyle>>,
     start: Res<Start>,
 ) {
-    if start.arpg {
+    if start.walk {
+        commands.spawn((Camera3d::default(), Following));
+    } else if start.arpg {
         let rotation =
             Quat::from_euler(EulerRot::YXZ, 45f32.to_radians(), -30f32.to_radians(), 0.0);
         commands.spawn((
@@ -137,7 +144,16 @@ fn setup(
             ..default()
         })),
     ));
-    let _ = common::spawn_person(&mut commands, &mut meshes, &mut materials, Vec3::ZERO);
+    let person = common::spawn_person(&mut commands, &mut meshes, &mut materials, Vec3::ZERO);
+    if start.walk {
+        commands.entity(person).insert((
+            Walking,
+            GrassInteractor {
+                radius: 0.5,
+                strength: 1.0,
+            },
+        ));
+    }
 
     let style = styles.add(GrassStyle::default());
     commands.spawn(GrassField {
@@ -155,6 +171,39 @@ fn setup(
         style,
         dirty: true,
     });
+}
+
+/// The person out for a walk (`--walk`).
+#[derive(Component)]
+struct Walking;
+
+/// The camera that follows them.
+#[derive(Component)]
+struct Following;
+
+/// Where the walk is `t` seconds in: a stroll along +X, weaving a little.
+fn walk_path(t: f32) -> Vec3 {
+    let x = -12.0 + 1.3 * t;
+    Vec3::new(x, 0.0, 1.5 * (x * 0.25).sin())
+}
+
+fn walk(
+    time: Res<Time>,
+    mut walkers: Query<&mut Transform, (With<Walking>, Without<Following>)>,
+    mut cameras: Query<&mut Transform, With<Following>>,
+) {
+    let t = time.elapsed_secs();
+    let at = walk_path(t);
+    for mut transform in &mut walkers {
+        // A little bob with every step.
+        transform.translation = at + Vec3::Y * (0.9 + 0.04 * (t * 6.0).sin().abs());
+    }
+    for mut transform in &mut cameras {
+        // Behind and to the side, high enough to see the trail.
+        let eye = Vec3::new(at.x - 3.5, 2.4, 5.5);
+        *transform = Transform::from_translation(eye)
+            .looking_at(Vec3::new(at.x + 0.5, 0.5, at.z * 0.5), Vec3::Y);
+    }
 }
 
 fn switch(

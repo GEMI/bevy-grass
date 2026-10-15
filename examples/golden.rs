@@ -154,7 +154,7 @@ fn setup(
     });
     let plane = meshes.add(Plane3d::default().mesh().size(12.0, 12.0));
     let person = meshes.add(Capsule3d::new(0.25, 1.3));
-    let red = materials.add(Color::srgb(0.7, 0.2, 0.15));
+    let blue = materials.add(Color::srgb(0.15, 0.32, 0.75));
 
     for (index, (name, style)) in GrassStyle::presets().enumerate() {
         let at = Vec3::new(index as f32 * SPACING, 0.0, 0.0);
@@ -180,7 +180,7 @@ fn setup(
         ));
         commands.spawn((
             Mesh3d(person.clone()),
-            MeshMaterial3d(red.clone()),
+            MeshMaterial3d(blue.clone()),
             Transform::from_translation(at + Vec3::new(0.8, 0.9, 1.0)),
         ));
         commands.spawn((
