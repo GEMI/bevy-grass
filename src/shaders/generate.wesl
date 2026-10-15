@@ -33,6 +33,9 @@ import package::shaders::common::{
 /// `mirror::clump_table`: a clump per 25 cm square of a 64 m tile, four bytes
 /// to a word.
 @group(0) @binding(9) var<storage, read> clumps: array<u32>;
+/// `mirror::tuft_table`: the nearest tuft centre for every quarter of a
+/// tuft spacing of a 64-tuft tile.
+@group(0) @binding(10) var<storage, read> tuft_table: array<u32>;
 
 /// One visible chunk: its index and how many candidates it needs.
 struct VisibleChunk {
@@ -109,12 +112,15 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let chunk = chunks[index];
     let field = fields[chunk.ids.x];
-    let tallest = field.shape.y;
+    let tallest = field.mix.w;
     let origin = chunk_origin(chunk, field);
+    // Tufts pull blades up to one and a half tuft spacings from where they
+    // were placed.
+    let spread = tallest + select(0.0, field.tufts.y * 1.5, field.tufts.x > 0.0);
     // The chunk's ground box, grown by the tallest blade: up for its height,
     // sideways for how far it can lean or bend.
-    var lo = vec3<f32>(origin.x - tallest, chunk.bounds.z, origin.y - tallest);
-    var hi = vec3<f32>(origin.x + frame.chunk_size + tallest, chunk.bounds.w + tallest, origin.y + frame.chunk_size + tallest);
+    var lo = vec3<f32>(origin.x - spread, chunk.bounds.z, origin.y - spread);
+    var hi = vec3<f32>(origin.x + frame.chunk_size + spread, chunk.bounds.w + tallest, origin.y + frame.chunk_size + spread);
     if view.shadow_offset.w > 0.5 {
         // Blades just outside the view can still shadow ground inside it.
         let reach = view.shadow_offset.xyz * tallest;
@@ -171,6 +177,43 @@ fn clump_of(point: vec2<f32>) -> u32 {
     let entry = vec2<i32>(floor(point * 4.0)) & vec2<i32>(255);
     let index = u32(entry.y * 256 + entry.x);
     return (clumps[index / 4u] >> ((index % 4u) * 8u)) & 63u;
+}
+
+/// The nearest tuft centre to `q`, in tuft spacings, and the tuft's random
+/// value in [0, 1]. Twin of `mirror::tuft_at`.
+fn tuft_at(q: vec2<f32>) -> vec3<f32> {
+    let entry = floor(q * 4.0);
+    let wrapped = vec2<i32>(entry) & vec2<i32>(255);
+    let word = tuft_table[u32(wrapped.y * 256 + wrapped.x)];
+    let offset = (vec2<f32>(f32(word & 0xffu), f32((word >> 8u) & 0xffu)) / 255.0 - 0.5) * 4.0;
+    return vec3<f32>((entry + 0.5) / 4.0 + offset, f32((word >> 16u) & 0xffu) / 255.0);
+}
+
+/// The noise bare patches are cut from. Twin of `mirror::bare_noise`.
+fn bare_noise(at: vec2<f32>, size: f32) -> f32 {
+    let uv = at / (size * 8.0);
+    let turned = vec2<f32>(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
+    return 0.5 * (textureSampleLevel(gust_texture, gust_sampler, uv, 0.0).r
+        + textureSampleLevel(gust_texture, gust_sampler, turned, 0.0).r);
+}
+
+/// Which of the field's species a blade is: the index of its entry. Twin
+/// of `mirror::pick_species`.
+fn pick_species(first: u32, field: Field, seed: u32, clump: u32) -> u32 {
+    let count = u32(field.mix.z);
+    for (var k = 1u; k < count; k++) {
+        let species = fields[first + k];
+        let salt = k * 0x9e3779b9u;
+        let scattered = unit(hash(seed ^ salt));
+        let mixer = hash(salt ^ 0x5bd1e995u);
+        let shuffled = (clump * ((mixer & 0x3eu) | 1u) + (mixer >> 8u)) & 63u;
+        let patched = (f32(shuffled) + unit(hash(seed ^ salt ^ 0x68e31da4u))) / 64.0;
+        let clustered = unit(hash(seed ^ salt ^ 0x1b873593u)) < species.mix.y;
+        if select(scattered, patched, clustered) < species.mix.x {
+            return first + k;
+        }
+    }
+    return first;
 }
 
 /// Bilinear R8G8 mask sample: density and height multiplier.
@@ -253,8 +296,18 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     let cell_hash = hash2(hash2(chunk.ids.y, chunk.ids.z), hash2(cell, field.placement.x));
     let offset = vec2<f32>(unit(cell_hash), unit(hash(cell_hash)));
     let p = fract(tile[point] + offset);
-    let local = chunk.bounds.xy + (vec2<f32>(f32(cell % tiles), f32(cell / tiles)) + p) * field.extent.w;
-    if any(local >= field.extent.xy) {
+    var local = chunk.bounds.xy + (vec2<f32>(f32(cell % tiles), f32(cell / tiles)) + p) * field.extent.w;
+    // Tufts: the blade moves part of the way to its tuft's centre, the tuft's
+    // own share of the pull, so tufts differ in size.
+    var outward = vec2<f32>(0.0);
+    if field.tufts.x > 0.0 {
+        let size = field.tufts.y;
+        let q = (field.min_corner.xz + local) / size;
+        let tuft = tuft_at(q);
+        outward = q - tuft.xy;
+        local -= outward * min(field.tufts.x * (0.6 + 0.8 * tuft.z), 0.95) * size;
+    }
+    if any(local >= field.extent.xy) || any(local < vec2<f32>(0.0)) {
         return out;
     }
     let rank = (f32(point) + 0.5) / f32(TILE_POINTS);
@@ -269,15 +322,27 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         distance_to_eye = distance(root, view.camera_position.xyz);
         falloff = density_falloff(view, distance_to_eye);
     }
+    var bare = 1.0;
+    if field.tufts.z >= 0.0 {
+        let threshold = field.tufts.z;
+        bare = smoothstep(threshold - 0.05, threshold + 0.05, bare_noise(root.xz, field.tufts.w));
+    }
     let tile_size = field.extent.w;
     let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
-    let keep = clamp(field.shape.w * mask.x * view.density_scale * falloff / candidate_density, 0.0, 1.0);
+    let keep = clamp(field.shape.w * mask.x * bare * view.density_scale * falloff / candidate_density, 0.0, 1.0);
     if rank >= keep {
         return out;
     }
 
+    // A field of one species skips the pick, and reads its entry once.
+    var entry = chunk.ids.x;
+    var look = field;
+    if field.mix.z > 1.5 {
+        entry = pick_species(chunk.ids.x, field, seed, clump_of(root.xz));
+        look = fields[entry];
+    }
     let h = unit(hash(seed ^ 0x68u));
-    let height = (field.shape.x + h * (field.shape.y - field.shape.x)) * mask.y;
+    let height = (look.shape.x + h * (look.shape.y - look.shape.x)) * mask.y;
     if height < 0.01 {
         return out;
     }
@@ -295,24 +360,33 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     if lod == 3u {
         lod = select_lod(view, distance_to_eye, unit(hash(seed ^ 0x10du)));
     }
-    let width = field.shape.z * (0.75 + 0.5 * unit(hash(seed ^ 0x77u))) * coverage_width(falloff);
+    let width = look.shape.z * (0.75 + 0.5 * unit(hash(seed ^ 0x77u))) * coverage_width(falloff);
     let seed_unit = f32(seed >> 24u) / 255.0;
 
     var blade: BladeData;
     blade.root = root;
     blade.facing = unit(hash(seed ^ 0x66u));
-    blade.height = height / max(field.shape.y, 1e-3);
-    blade.width = width / (WIDTH_RANGE * max(field.shape.z, 1e-5));
+    if dot(outward, outward) > 1e-8 {
+        // Tufted blades lean out from the tuft's centre: the tighter the
+        // tufts, the more of them.
+        let random = vec2<f32>(sin(blade.facing * TAU), cos(blade.facing * TAU));
+        let away = mix(random, normalize(outward), min(field.tufts.x * 1.5, 1.0));
+        if dot(away, away) > 1e-6 {
+            blade.facing = fract(atan2(away.x, away.y) / TAU);
+        }
+    }
+    blade.height = height / max(look.shape.y, 1e-3);
+    blade.width = width / (WIDTH_RANGE * max(look.shape.z, 1e-5));
     blade.seed = seed >> 24u;
     blade.lod = lod;
-    blade.field = chunk.ids.x;
+    blade.field = entry;
     blade.clump = clump_of(root.xz);
     // A trampled blade lies down away from what pushed it, and the wind moves
     // it less the flatter it lies.
     let push = trample_push(root.xz);
     let calm = 1.0 - min(length(push), 1.0);
-    blade.bend = wind_bend(root.xz, seed_unit, field.motion.y, frame.time) * calm + push;
-    blade.previous_bend = wind_bend(root.xz, seed_unit, field.motion.y, frame.previous_time) * calm + push;
+    blade.bend = wind_bend(root.xz, seed_unit, look.motion.y, frame.time) * calm + push;
+    blade.previous_bend = wind_bend(root.xz, seed_unit, look.motion.y, frame.previous_time) * calm + push;
 
     out.keep = true;
     out.bucket = select(lod, 0u, view.fixed_lod != 3u);

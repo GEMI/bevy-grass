@@ -82,6 +82,21 @@ struct Field {
     ground: vec4<f32>,
     /// x: specular, y: toon bands (0: physically based).
     look: vec4<f32>,
+    /// x: this species' chance of taking a blade the species before it left;
+    /// y: its clustering; z: species in the field and w: the tallest blade
+    /// of any of them (both on the field's first entry).
+    mix: vec4<f32>,
+    /// x: twist, in turns; y: droop; z: fold; w: head, a share of the length.
+    form: vec4<f32>,
+    /// rgb: head colour; w: head width.
+    head: vec4<f32>,
+    /// rgb: patch colour over tip colour; w: patch amount.
+    patches: vec4<f32>,
+    /// x: patch size; y: dry tips; z: dead blades.
+    variation: vec4<f32>,
+    /// x: tuft pull; y: tuft size; z: bare-patch noise threshold (-1: none);
+    /// w: bare patch size.
+    tufts: vec4<f32>,
 }
 
 /// One chunk. Mirrors `ChunkGpu`.
@@ -236,14 +251,19 @@ fn unpack(words: vec4<u32>, origin: vec4<f32>) -> Instance {
 
 /// The three control points of a blade, in world space relative to its root.
 /// Twin of `mirror::blade_curve`, with the lean and bend already in world XZ.
-fn blade_curve(height: f32, offset_fraction: vec2<f32>) -> array<vec3<f32>, 3> {
+/// `droop` is 0 without `GRASS_SHAPE`, and the curve is then exactly the
+/// plain blade's.
+fn blade_curve(height: f32, offset_fraction: vec2<f32>, droop_wanted: f32) -> array<vec3<f32>, 3> {
     let wanted = offset_fraction * height;
-    let horizontal = min(length(wanted), height * 0.95);
-    let offset = select(vec2<f32>(0.0), normalize(wanted) * horizontal, horizontal > 1e-6);
+    // An upright blade has no side to droop toward.
+    let droop = select(0.0, droop_wanted, dot(wanted, wanted) > 1e-12);
+    let horizontal = min(length(wanted) + droop * 0.7 * height, height * 0.95);
+    let offset = select(vec2<f32>(0.0), normalize(wanted) * horizontal, horizontal > 1e-6 && dot(wanted, wanted) > 1e-12);
     let p0 = vec3<f32>(0.0);
-    var p2 = vec3<f32>(offset.x, sqrt(max(height * height - horizontal * horizontal, 0.0)), offset.y);
+    var p2 = vec3<f32>(offset.x, sqrt(max(height * height - horizontal * horizontal, 0.0)) * (1.0 - 0.7 * droop), offset.y);
     let ratio = horizontal / max(height, 1e-6);
     var p1 = vec3<f32>(0.0, height * max(1.0 - ratio, 0.05 * max(ratio, 1.0)), 0.0);
+    p1.y += (height * 0.9 - p1.y) * min(droop * 2.0, 1.0);
     for (var i = 0; i < 2; i++) {
         let chord = distance(p2, p0);
         let polygon = distance(p1, p0) + distance(p2, p1);
@@ -252,6 +272,19 @@ fn blade_curve(height: f32, offset_fraction: vec2<f32>) -> array<vec3<f32>, 3> {
         p2 = p1 + (p2 - p1) * scale;
     }
     return array<vec3<f32>, 3>(p0, p1, p2);
+}
+
+/// A random number in [0, 1) for a blade and `salt`, from the seed, facing
+/// and clump its instance carries.
+fn instance_random(instance: Instance, salt: u32) -> f32 {
+    let bits = u32(round(instance.seed * 255.0)) | (u32(instance.facing * 256.0) << 8u)
+        | (u32(round(instance.clump * 63.0)) << 16u);
+    return unit(hash(bits ^ salt));
+}
+
+/// The colour of dried grass of `color`'s brightness.
+fn straw_of(color: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(dot(color, vec3<f32>(0.3, 0.59, 0.11))) * vec3<f32>(1.25, 1.1, 0.6);
 }
 
 /// LOD rows; twin of `mirror::LOD_ROWS`.

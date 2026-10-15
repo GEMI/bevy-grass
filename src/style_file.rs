@@ -16,7 +16,25 @@
 //!
 //! Colours are sRGB, as in `Color::srgb`. The crate's `assets/grass_styles`
 //! folder holds every preset as a file to copy from.
+//!
+//! Other plants mix in through `species`, each a style of its own with its
+//! share of the blades:
+//!
+//! ```text
+//! (
+//!     base: "SUMMER_TALL",
+//!     tufts: 0.3,
+//!     species: [
+//!         (share: 0.1, style: (base: "SEED_HEADS")),
+//!         (share: 0.03, clustering: 0.8, style: (
+//!             base: "WHITE_FLOWERS",
+//!             head_color: (0.75, 0.55, 0.95),
+//!         )),
+//!     ],
+//! )
+//! ```
 
+use std::borrow::Cow;
 use std::fmt;
 
 use bevy::asset::io::Reader;
@@ -26,10 +44,11 @@ use bevy::math::Vec2;
 use bevy::reflect::TypePath;
 use serde::{Deserialize, Serialize};
 
-use crate::api::GrassStyle;
+use crate::api::{GrassSpecies, GrassStyle};
+use crate::fields::MAX_SPECIES;
 
 /// The presets a file can name as its `base`.
-const PRESETS: [(&str, GrassStyle); 14] = [
+static PRESETS: [(&str, GrassStyle); 22] = [
     ("MEADOW", GrassStyle::MEADOW),
     ("TALL_PRAIRIE", GrassStyle::TALL_PRAIRIE),
     ("WHEAT", GrassStyle::WHEAT),
@@ -44,6 +63,14 @@ const PRESETS: [(&str, GrassStyle); 14] = [
     ("AUTUMN_RUST", GrassStyle::AUTUMN_RUST),
     ("AUTUMN_STRAW", GrassStyle::AUTUMN_STRAW),
     ("AUTUMN_FADED", GrassStyle::AUTUMN_FADED),
+    ("SUMMER_WILD", GrassStyle::SUMMER_WILD),
+    ("AUTUMN_WILD", GrassStyle::AUTUMN_WILD),
+    ("WILDFLOWER_MEADOW", GrassStyle::WILDFLOWER_MEADOW),
+    ("SEED_HEADS", GrassStyle::SEED_HEADS),
+    ("WHITE_FLOWERS", GrassStyle::WHITE_FLOWERS),
+    ("YELLOW_FLOWERS", GrassStyle::YELLOW_FLOWERS),
+    ("CLOVER", GrassStyle::CLOVER),
+    ("BROAD_LEAF", GrassStyle::BROAD_LEAF),
 ];
 
 impl GrassStyle {
@@ -123,6 +150,48 @@ struct GrassStyleFile {
     ground_tint: Option<f32>,
     #[serde(default)]
     toon_bands: Option<u32>,
+    #[serde(default)]
+    twist: Option<f32>,
+    #[serde(default)]
+    droop: Option<f32>,
+    #[serde(default)]
+    fold: Option<f32>,
+    #[serde(default)]
+    head: Option<f32>,
+    #[serde(default)]
+    head_width: Option<f32>,
+    #[serde(default)]
+    head_color: Option<Srgb>,
+    #[serde(default)]
+    patch_color: Option<Srgb>,
+    #[serde(default)]
+    patch_amount: Option<f32>,
+    #[serde(default)]
+    patch_size: Option<f32>,
+    #[serde(default)]
+    dry_tips: Option<f32>,
+    #[serde(default)]
+    dead_blades: Option<f32>,
+    #[serde(default)]
+    tufts: Option<f32>,
+    #[serde(default)]
+    tuft_size: Option<f32>,
+    #[serde(default)]
+    bare_patches: Option<f32>,
+    #[serde(default)]
+    bare_patch_size: Option<f32>,
+    #[serde(default)]
+    species: Option<Vec<GrassSpeciesFile>>,
+}
+
+/// One entry of `species`.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GrassSpeciesFile {
+    share: f32,
+    #[serde(default)]
+    clustering: Option<f32>,
+    style: GrassStyleFile,
 }
 
 fn srgb(color: Color) -> Srgb {
@@ -152,6 +221,32 @@ impl GrassStyleFile {
             ground_color: Some(srgb(style.ground_color)),
             ground_tint: Some(style.ground_tint),
             toon_bands: Some(style.toon_bands),
+            twist: Some(style.twist),
+            droop: Some(style.droop),
+            fold: Some(style.fold),
+            head: Some(style.head),
+            head_width: Some(style.head_width),
+            head_color: Some(srgb(style.head_color)),
+            patch_color: Some(srgb(style.patch_color)),
+            patch_amount: Some(style.patch_amount),
+            patch_size: Some(style.patch_size),
+            dry_tips: Some(style.dry_tips),
+            dead_blades: Some(style.dead_blades),
+            tufts: Some(style.tufts),
+            tuft_size: Some(style.tuft_size),
+            bare_patches: Some(style.bare_patches),
+            bare_patch_size: Some(style.bare_patch_size),
+            species: Some(
+                style
+                    .species
+                    .iter()
+                    .map(|species| GrassSpeciesFile {
+                        share: species.share,
+                        clustering: Some(species.clustering),
+                        style: Self::from_style(&species.style),
+                    })
+                    .collect(),
+            ),
         }
     }
 
@@ -178,6 +273,29 @@ impl GrassStyleFile {
             ground_color: self.ground_color.map_or(base.ground_color, color),
             ground_tint: self.ground_tint.unwrap_or(base.ground_tint),
             toon_bands: self.toon_bands.unwrap_or(base.toon_bands),
+            twist: self.twist.unwrap_or(base.twist),
+            droop: self.droop.unwrap_or(base.droop),
+            fold: self.fold.unwrap_or(base.fold),
+            head: self.head.unwrap_or(base.head),
+            head_width: self.head_width.unwrap_or(base.head_width),
+            head_color: self.head_color.map_or(base.head_color, color),
+            patch_color: self.patch_color.map_or(base.patch_color, color),
+            patch_amount: self.patch_amount.unwrap_or(base.patch_amount),
+            patch_size: self.patch_size.unwrap_or(base.patch_size),
+            dry_tips: self.dry_tips.unwrap_or(base.dry_tips),
+            dead_blades: self.dead_blades.unwrap_or(base.dead_blades),
+            tufts: self.tufts.unwrap_or(base.tufts),
+            tuft_size: self.tuft_size.unwrap_or(base.tuft_size),
+            bare_patches: self.bare_patches.unwrap_or(base.bare_patches),
+            bare_patch_size: self.bare_patch_size.unwrap_or(base.bare_patch_size),
+            species: match self.species {
+                Some(list) => Cow::Owned(
+                    list.into_iter()
+                        .map(GrassSpeciesFile::resolve)
+                        .collect::<Result<_, _>>()?,
+                ),
+                None => base.species,
+            },
         };
         if !(style.height.x >= 0.0 && style.height.x <= style.height.y && style.height.y > 0.0) {
             return Err(GrassStyleFileError::Invalid(
@@ -189,7 +307,43 @@ impl GrassStyleFile {
                 "width must be above 0 and density at least 0",
             ));
         }
+        if !(style.patch_size > 0.0 && style.tuft_size > 0.0 && style.bare_patch_size > 0.0) {
+            return Err(GrassStyleFileError::Invalid(
+                "patch_size, tuft_size and bare_patch_size must be above 0",
+            ));
+        }
+        if !(0.0..0.9).contains(&style.head) {
+            return Err(GrassStyleFileError::Invalid(
+                "head must be at least 0 and below 0.9",
+            ));
+        }
+        if style.species.len() >= MAX_SPECIES {
+            return Err(GrassStyleFileError::Invalid(
+                "a style mixes at most 15 species besides its own blades",
+            ));
+        }
         Ok(style)
+    }
+}
+
+impl GrassSpeciesFile {
+    fn resolve(self) -> Result<GrassSpecies, GrassStyleFileError> {
+        let style = self.style.resolve()?;
+        if !style.species.is_empty() {
+            return Err(GrassStyleFileError::Invalid(
+                "a species cannot have species of its own",
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.share) {
+            return Err(GrassStyleFileError::Invalid(
+                "a species' share must be from 0 to 1",
+            ));
+        }
+        Ok(GrassSpecies {
+            share: self.share,
+            clustering: self.clustering.unwrap_or(0.0),
+            style,
+        })
     }
 }
 
@@ -215,7 +369,11 @@ impl fmt::Display for GrassStyleFileError {
             Self::UnknownBase(name) => write!(
                 f,
                 "no preset called {name:?}; the presets are {}",
-                PRESETS.map(|(name, _)| name).join(", ")
+                PRESETS
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::Invalid(why) => write!(f, "invalid grass style: {why}"),
         }
@@ -327,5 +485,40 @@ mod tests {
             GrassStyle::from_ron("(height: (0.5, 0.2))"),
             Err(GrassStyleFileError::Invalid(_))
         ));
+        assert!(matches!(
+            GrassStyle::from_ron(
+                "(species: [(share: 0.1, style: (species: [(share: 0.1, style: ())]))])"
+            ),
+            Err(GrassStyleFileError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn species_name_only_what_differs_too() {
+        let style = GrassStyle::from_ron(
+            r#"(
+                base: "SUMMER_TALL",
+                species: [
+                    (share: 0.1, style: (base: "SEED_HEADS")),
+                    (share: 0.03, clustering: 0.8, style: (
+                        base: "WHITE_FLOWERS",
+                        head_color: (0.75, 0.55, 0.95),
+                    )),
+                ],
+            )"#,
+        )
+        .unwrap();
+        assert_eq!(style.species.len(), 2);
+        assert_eq!(style.species[0].clustering, 0.0);
+        assert_eq!(
+            format!("{:?}", style.species[0].style),
+            format!("{:?}", GrassStyle::SEED_HEADS)
+        );
+        assert_eq!(style.species[1].clustering, 0.8);
+        assert_eq!(srgb(style.species[1].style.head_color), (0.75, 0.55, 0.95));
+        assert_eq!(
+            style.species[1].style.height,
+            GrassStyle::WHITE_FLOWERS.height
+        );
     }
 }

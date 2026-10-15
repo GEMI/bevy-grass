@@ -151,6 +151,22 @@ The prepass and deferred paths cost nothing unless a camera has a prepass or is 
 
 Lesson: **put optional look terms behind shader definitions from the start.** Even a term set to zero costs fragment time when it is compiled in, because the compiler cannot fold it.
 
+## Variation (October 15, 2026)
+
+Paired runs, four rounds each, T1200. Each bench flag takes `SUMMER_WILD`'s settings for one kind of variation; "grass cost" is the frame time minus a `--no-grass` run's.
+
+| Change | Perspective | DEMO ARPG GAME | Notes |
+| --- | --- | --- | --- |
+| Everything off, against M4 | +0.07 ms | −0.09 ms | Noise level (+2% / −3% of grass cost). The first version cost +0.10 ms in generation; skipping the species pick, and the second read of the field's entry, when a field has one species brought it back. Images are bit-identical to M4's. |
+| `--tufts`: tufts and bare patches | +0.04 ms | −0.03 ms | Free. Generation costs more (the tuft lookup and the bare-patch noise), the main pass less (bare ground). |
+| `--shape`: twist, droop, fold | −0.05 ms | −0.10 ms | Free. Drooping blades are shorter on screen. |
+| `--variation`: colour patches, dry tips, dead blades | +0.14 ms | +0.08 ms | 3–4% of grass cost: a noise sample per vertex. |
+| `--species`: four plants, 21% of blades | +0.28 ms | +0.16 ms | 6.5% / 4.7% of grass cost (seven rounds; the first four alone gave 10% / 6%). Most of it is generation, and some is the main pass: heads, wider leaves, and the shape code the heads turn on. |
+| Species pick reading only the chance and clustering of each species, and only the shape and stiffness of the chosen one | +0.02 ms | −0.00 ms | Not kept: the compiler already left out the loads that were not used. |
+| Species pick with one hash per species instead of three | +0.04 ms | +0.02 ms | Not kept: the pick's arithmetic is not the cost. |
+
+Lesson: as with M4's look terms, **every kind of variation is behind a shader definition or a uniform branch**, so a game pays only for what its styles use.
+
 ## Levers not yet tried
 
 In expected order of effect:

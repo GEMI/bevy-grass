@@ -1,5 +1,7 @@
 //! The public types: everything a game touches.
 
+use std::borrow::Cow;
+
 use bevy::asset::{Asset, Handle};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
@@ -93,6 +95,97 @@ pub struct GrassStyle {
     /// like the rest of the scene. Forward rendering only: a deferred view
     /// shades every style physically.
     pub toon_bands: u32,
+
+    // The blade's shape. Every setting at 0 is the plain blade.
+    /// How far blades twist along their length, in turns at the tip. Each
+    /// blade twists its own way, by up to this much.
+    pub twist: f32,
+    /// How far blades arch over and hang, 0 (upright) to 1 (the tip hangs
+    /// near the ground). Each blade droops between none and this much, tall
+    /// ones the most.
+    pub droop: f32,
+    /// How far each blade is folded along its midrib, 0 (open and rounded)
+    /// to 1 (a V): a folded blade is narrower face-on, and its two halves
+    /// catch the light differently.
+    pub fold: f32,
+    /// A head at the top of each blade, a seed head or a flower, as a share
+    /// of the blade's length; 0 for none. The head turns toward the camera.
+    pub head: f32,
+    /// Width of the head, in metres.
+    pub head_width: f32,
+    /// Colour of the head.
+    pub head_color: Color,
+
+    // Variation across the field. These belong to the field: in a species'
+    // style (see `species`) they are ignored.
+    /// The colour the blades drift toward in large patches, as the tip
+    /// colour; the rest of each blade shifts with it. Real fields are greener
+    /// in hollows and yellower on dry rises.
+    pub patch_color: Color,
+    /// How far blades in a patch take on `patch_color`, 0 (no patches) to 1.
+    pub patch_amount: f32,
+    /// Size of the colour patches, in metres.
+    pub patch_size: f32,
+    /// How far the upper part of blades dries toward straw, 0 (not at all)
+    /// to 1; some blades dry more than others.
+    pub dry_tips: f32,
+    /// Share of blades that are dead and straw-coloured, 0 to 1.
+    pub dead_blades: f32,
+    /// How strongly blades gather into tufts, 0 (spread evenly) to 1
+    /// (tight tufts with bare ground between them). Tufted blades also lean
+    /// out from the tuft's centre. The number of blades does not change.
+    pub tufts: f32,
+    /// Distance between tufts, in metres.
+    pub tuft_size: f32,
+    /// Share of the ground left bare, in patches, 0 to 1. The grass thins
+    /// out toward a patch's edge rather than stopping at a line.
+    pub bare_patches: f32,
+    /// Size of the bare patches, in metres.
+    pub bare_patch_size: f32,
+    /// Other plants growing among this style's blades: other grasses, seed
+    /// heads, flowers, clover. Each takes its share of the blades; the
+    /// style's own blades are the rest. Empty for one species.
+    ///
+    /// Build a list with `vec![...]` and `.into()`, or in a constant with
+    /// `Cow::Borrowed(&[...])`. A field mixes at most 16 species, its own
+    /// included.
+    pub species: Cow<'static, [GrassSpecies]>,
+}
+
+/// A plant growing among a style's own blades. See [`GrassStyle::species`].
+#[derive(Debug, Clone, Reflect)]
+pub struct GrassSpecies {
+    /// Share of the field's blades, 0 to 1. When the shares of a style's
+    /// species add up to more than 1, they are scaled down to 1 and the
+    /// style's own blades disappear.
+    pub share: f32,
+    /// How much the species grows in patches about a metre across instead
+    /// of scattered, 0 (scattered) to 1 (only in patches). Its share stays
+    /// the same.
+    pub clustering: f32,
+    /// What its blades look like: height, width, lean, stiffness, colours,
+    /// root occlusion, translucency, specular, and the shape (`twist`,
+    /// `droop`, `fold`, `head`). The rest of this style (density, the
+    /// ground, the variation settings and its own `species`) is ignored:
+    /// those come from the field's style.
+    pub style: GrassStyle,
+}
+
+impl GrassSpecies {
+    /// `share` of the blades look like `style`, scattered.
+    pub const fn new(style: GrassStyle, share: f32) -> Self {
+        Self {
+            share,
+            clustering: 0.0,
+            style,
+        }
+    }
+
+    /// The same species, growing in patches (`clustering`, 0 to 1).
+    #[must_use]
+    pub fn clustered(self, clustering: f32) -> Self {
+        Self { clustering, ..self }
+    }
 }
 
 impl GrassStyle {
@@ -112,6 +205,22 @@ impl GrassStyle {
         ground_color: Color::srgb(0.20, 0.15, 0.09),
         ground_tint: 0.25,
         toon_bands: 0,
+        twist: 0.0,
+        droop: 0.0,
+        fold: 0.0,
+        head: 0.0,
+        head_width: 0.03,
+        head_color: Color::srgb(0.85, 0.80, 0.60),
+        patch_color: Color::srgb(0.55, 0.55, 0.22),
+        patch_amount: 0.0,
+        patch_size: 12.0,
+        dry_tips: 0.0,
+        dead_blades: 0.0,
+        tufts: 0.0,
+        tuft_size: 0.6,
+        bare_patches: 0.0,
+        bare_patch_size: 3.0,
+        species: Cow::Borrowed(&[]),
     };
 
     /// Deep green to straw tips, loose and flowing. For hiding in grass and
@@ -131,6 +240,22 @@ impl GrassStyle {
         ground_color: Color::srgb(0.20, 0.15, 0.09),
         ground_tint: 0.2,
         toon_bands: 0,
+        twist: 0.0,
+        droop: 0.0,
+        fold: 0.0,
+        head: 0.0,
+        head_width: 0.03,
+        head_color: Color::srgb(0.85, 0.80, 0.60),
+        patch_color: Color::srgb(0.55, 0.55, 0.22),
+        patch_amount: 0.0,
+        patch_size: 12.0,
+        dry_tips: 0.0,
+        dead_blades: 0.0,
+        tufts: 0.0,
+        tuft_size: 0.6,
+        bare_patches: 0.0,
+        bare_patch_size: 3.0,
+        species: Cow::Borrowed(&[]),
     };
 
     /// Golden, dense, stiff stems with a sheen. Farmland.
@@ -232,6 +357,22 @@ impl GrassStyle {
         ground_color: Color::srgb(0.20, 0.15, 0.09),
         ground_tint: 0.0,
         toon_bands: 0,
+        twist: 0.0,
+        droop: 0.0,
+        fold: 0.0,
+        head: 0.0,
+        head_width: 0.03,
+        head_color: Color::srgb(0.85, 0.80, 0.60),
+        patch_color: Color::srgb(0.55, 0.55, 0.22),
+        patch_amount: 0.0,
+        patch_size: 12.0,
+        dry_tips: 0.0,
+        dead_blades: 0.0,
+        tufts: 0.0,
+        tuft_size: 0.6,
+        bare_patches: 0.0,
+        bare_patch_size: 3.0,
+        species: Cow::Borrowed(&[]),
     };
 
     /// Summer variant: deep green, denser and taller, as along a ditch or
@@ -285,6 +426,22 @@ impl GrassStyle {
         ground_color: Color::srgb(0.20, 0.15, 0.09),
         ground_tint: 0.0,
         toon_bands: 0,
+        twist: 0.0,
+        droop: 0.0,
+        fold: 0.0,
+        head: 0.0,
+        head_width: 0.03,
+        head_color: Color::srgb(0.85, 0.80, 0.60),
+        patch_color: Color::srgb(0.55, 0.55, 0.22),
+        patch_amount: 0.0,
+        patch_size: 12.0,
+        dry_tips: 0.0,
+        dead_blades: 0.0,
+        tufts: 0.0,
+        tuft_size: 0.6,
+        bare_patches: 0.0,
+        bare_patch_size: 3.0,
+        species: Cow::Borrowed(&[]),
     };
 
     /// Autumn variant: rust-red, like dying bracken.
@@ -331,6 +488,205 @@ impl GrassStyle {
         Self::AUTUMN_FADED,
     ];
 
+    // Plants to mix into a field as species (`GrassSpecies`). Each is also a
+    // style of its own: a field of nothing but clover works.
+
+    /// Thin stems with pale seed heads, like timothy or foxtail.
+    pub const SEED_HEADS: Self = Self {
+        height: Vec2::new(0.8, 1.4),
+        width: 0.012,
+        lean: 0.1,
+        stiffness: 0.45,
+        root_color: Color::srgb(0.07, 0.12, 0.04),
+        tip_color: Color::srgb(0.40, 0.50, 0.20),
+        translucency: 0.5,
+        head: 0.2,
+        head_width: 0.022,
+        head_color: Color::srgb(0.62, 0.56, 0.36),
+        ..Self::SUMMER_TALL
+    };
+
+    /// White flowers on slender stems, like oxeye daisies.
+    pub const WHITE_FLOWERS: Self = Self {
+        height: Vec2::new(0.35, 0.7),
+        width: 0.01,
+        density: 30.0,
+        lean: 0.08,
+        stiffness: 0.5,
+        root_color: Color::srgb(0.05, 0.11, 0.03),
+        tip_color: Color::srgb(0.24, 0.42, 0.12),
+        translucency: 0.4,
+        head: 0.12,
+        head_width: 0.05,
+        head_color: Color::srgb(0.92, 0.92, 0.86),
+        ..Self::SUMMER_TALL
+    };
+
+    /// Small yellow flowers, like buttercups.
+    pub const YELLOW_FLOWERS: Self = Self {
+        height: Vec2::new(0.3, 0.6),
+        head: 0.1,
+        head_width: 0.035,
+        head_color: Color::srgb(0.95, 0.78, 0.12),
+        ..Self::WHITE_FLOWERS
+    };
+
+    /// Low, broad, dark leaves lying over, like clover.
+    pub const CLOVER: Self = Self {
+        height: Vec2::new(0.08, 0.2),
+        width: 0.035,
+        density: 120.0,
+        lean: 0.35,
+        stiffness: 0.5,
+        root_color: Color::srgb(0.04, 0.10, 0.04),
+        tip_color: Color::srgb(0.16, 0.34, 0.12),
+        root_occlusion: 0.5,
+        translucency: 0.4,
+        droop: 0.7,
+        ..Self::SUMMER_TALL
+    };
+
+    /// Wide, folded leaves that arch over, like plantain or dock.
+    pub const BROAD_LEAF: Self = Self {
+        height: Vec2::new(0.2, 0.45),
+        width: 0.06,
+        density: 30.0,
+        lean: 0.3,
+        stiffness: 0.4,
+        root_color: Color::srgb(0.04, 0.09, 0.03),
+        tip_color: Color::srgb(0.20, 0.38, 0.10),
+        root_occlusion: 0.55,
+        translucency: 0.5,
+        twist: 0.1,
+        droop: 0.6,
+        fold: 0.5,
+        ..Self::SUMMER_TALL
+    };
+
+    /// The plants to mix in as species.
+    pub const PLANTS: [Self; 5] = [
+        Self::SEED_HEADS,
+        Self::WHITE_FLOWERS,
+        Self::YELLOW_FLOWERS,
+        Self::CLOVER,
+        Self::BROAD_LEAF,
+    ];
+
+    // Wild styles: a theme's grass with every kind of variation, and other
+    // plants among it.
+
+    /// Summer grass gone wild: tufts and bare spots, blades that twist and
+    /// droop, yellower patches, dry tips, seed heads, broad leaves and a few
+    /// flowers.
+    pub const SUMMER_WILD: Self = Self {
+        twist: 0.15,
+        droop: 0.25,
+        fold: 0.3,
+        patch_color: Color::srgb(0.56, 0.58, 0.22),
+        patch_amount: 0.45,
+        dry_tips: 0.2,
+        dead_blades: 0.04,
+        tufts: 0.35,
+        bare_patches: 0.06,
+        species: Cow::Borrowed(&[
+            GrassSpecies {
+                share: 0.10,
+                clustering: 0.3,
+                style: Self::SEED_HEADS,
+            },
+            GrassSpecies {
+                share: 0.06,
+                clustering: 0.6,
+                style: Self::BROAD_LEAF,
+            },
+            GrassSpecies {
+                share: 0.03,
+                clustering: 0.8,
+                style: Self::WHITE_FLOWERS,
+            },
+            GrassSpecies {
+                share: 0.02,
+                clustering: 0.8,
+                style: Self::YELLOW_FLOWERS,
+            },
+        ]),
+        ..Self::SUMMER_TALL
+    };
+
+    /// Autumn grass gone wild: drier, more dead blades and beaten-down
+    /// tufts, rusty patches, and seed heads and leaves gone brown.
+    pub const AUTUMN_WILD: Self = Self {
+        twist: 0.15,
+        droop: 0.35,
+        fold: 0.3,
+        patch_color: Color::srgb(0.50, 0.30, 0.14),
+        patch_amount: 0.4,
+        dry_tips: 0.35,
+        dead_blades: 0.12,
+        tufts: 0.35,
+        bare_patches: 0.08,
+        species: Cow::Borrowed(&[
+            GrassSpecies {
+                share: 0.12,
+                clustering: 0.3,
+                style: Self {
+                    root_color: Color::srgb(0.16, 0.12, 0.06),
+                    tip_color: Color::srgb(0.50, 0.40, 0.22),
+                    head_color: Color::srgb(0.48, 0.36, 0.20),
+                    translucency: 0.4,
+                    ..Self::SEED_HEADS
+                },
+            },
+            GrassSpecies {
+                share: 0.06,
+                clustering: 0.6,
+                style: Self {
+                    root_color: Color::srgb(0.12, 0.07, 0.03),
+                    tip_color: Color::srgb(0.42, 0.24, 0.10),
+                    translucency: 0.3,
+                    ..Self::BROAD_LEAF
+                },
+            },
+        ]),
+        ..Self::AUTUMN_TALL
+    };
+
+    /// A short meadow full of flowers and clover.
+    pub const WILDFLOWER_MEADOW: Self = Self {
+        twist: 0.1,
+        droop: 0.15,
+        fold: 0.2,
+        patch_color: Color::srgb(0.30, 0.55, 0.14),
+        patch_amount: 0.4,
+        dry_tips: 0.1,
+        tufts: 0.2,
+        species: Cow::Borrowed(&[
+            GrassSpecies {
+                share: 0.15,
+                clustering: 0.7,
+                style: Self::CLOVER,
+            },
+            GrassSpecies {
+                share: 0.06,
+                clustering: 0.6,
+                style: Self::WHITE_FLOWERS,
+            },
+            GrassSpecies {
+                share: 0.06,
+                clustering: 0.6,
+                style: Self::YELLOW_FLOWERS,
+            },
+        ]),
+        ..Self::MEADOW
+    };
+
+    /// The wild styles.
+    pub const WILD: [Self; 3] = [
+        Self::SUMMER_WILD,
+        Self::AUTUMN_WILD,
+        Self::WILDFLOWER_MEADOW,
+    ];
+
     /// Average distance between neighbouring blades at full density, in
     /// metres: `1 / sqrt(density)`.
     pub fn spacing(&self) -> f32 {
@@ -352,6 +708,15 @@ impl GrassStyle {
     pub fn with_density(self, blades_per_m2: f32) -> Self {
         Self {
             density: blades_per_m2.max(0.0),
+            ..self
+        }
+    }
+
+    /// The same style with `species` growing among its blades.
+    #[must_use]
+    pub fn with_species(self, species: impl Into<Cow<'static, [GrassSpecies]>>) -> Self {
+        Self {
+            species: species.into(),
             ..self
         }
     }

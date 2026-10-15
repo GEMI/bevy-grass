@@ -167,6 +167,8 @@ impl GrassLayouts {
                     sampler(SamplerBindingType::Filtering),
                     uniform_buffer::<LodTable>(false),
                     read(),
+                    // The tuft table.
+                    read(),
                 ),
             ),
         );
@@ -199,6 +201,9 @@ impl GrassLayouts {
                     uniform_buffer::<ViewUniformData>(false),
                     read(),
                     read(),
+                    // The noise the colour patches come from.
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
                 ),
             ),
         );
@@ -231,11 +236,12 @@ pub(crate) struct GrassShared {
     heights: StorageBuffer<Vec<f32>>,
     tile: Buffer,
     clumps: Buffer,
+    tufts: Buffer,
     lods: UniformBuffer<LodTable>,
     /// All three LODs' indices, back to back.
     pub indices: Buffer,
-    gust_view: TextureView,
-    gust_sampler: Sampler,
+    pub gust_view: TextureView,
+    pub gust_sampler: Sampler,
     uploaded_version: u64,
     /// Chunks in the table; zero means no grass anywhere.
     pub chunk_count: u32,
@@ -291,6 +297,12 @@ pub(crate) fn init_shared(
         usage: BufferUsages::STORAGE,
     });
 
+    let tufts = device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("grass_tufts"),
+        contents: bytemuck::cast_slice(mirror::tuft_table()),
+        usage: BufferUsages::STORAGE,
+    });
+
     let gust = device.create_texture_with_data(
         &queue,
         &TextureDescriptor {
@@ -328,6 +340,7 @@ pub(crate) fn init_shared(
         heights: StorageBuffer::default(),
         tile,
         clumps,
+        tufts,
         lods,
         indices,
         gust_view,
@@ -417,6 +430,7 @@ pub(crate) fn prepare_shared_bind_groups(
                 &shared.gust_sampler,
                 lods,
                 shared.clumps.as_entire_binding(),
+                shared.tufts.as_entire_binding(),
             )),
         ));
     }

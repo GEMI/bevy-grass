@@ -42,6 +42,7 @@ impl Plugin for GrassRenderPlugin {
             .init_resource::<resources::GrassSharedBindGroups>()
             .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassMainPipeline>>()
             .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassPrepassPipeline>>()
+            .init_resource::<SpecializedRenderPipelines<bevy_glue::GrassShadowPipeline>>()
             .add_render_command::<Opaque3d, bevy_glue::DrawGrassMain>()
             .add_render_command::<Opaque3dPrepass, bevy_glue::DrawGrassPrepass>()
             .add_render_command::<Opaque3dDeferred, bevy_glue::DrawGrassPrepass>()

@@ -7,13 +7,16 @@
 //! * `GRASS_GROUND_TINT`: roots blend toward the ground's colour.
 //! * `GRASS_SHEEN`: rough specular on the upper half of the blade.
 //! * `GRASS_TOON`: flat toon bands (forward only).
+//! * `GRASS_SHAPE`: heads, in their own colour.
+//! * `GRASS_VARIATION`: colour patches, dry tips and dead blades.
 
 import bevy_pbr::render::{
     pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
     pbr_functions::calculate_view,
     mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
 };
-import package::shaders::common::{Field, Instance};
+import package::shaders::common::{Field, Instance, instance_random, straw_of};
+import package::shaders::blade::{noise_texture, noise_sampler};
 
 /// Base colour and translucency of a blade at height `t` (0 root, 1 tip).
 fn blade_color(instance: Instance, field: Field, t: f32) -> vec4<f32> {
@@ -25,6 +28,28 @@ fn blade_color(instance: Instance, field: Field, t: f32) -> vec4<f32> {
     let green = mix(field.root_color.rgb, field.tip_color.rgb, pow(t, 0.7)) * shade;
     let straw = vec3<f32>(dot(green, vec3<f32>(0.3, 0.59, 0.11))) * vec3<f32>(1.25, 1.1, 0.6);
     var color = mix(green, straw, 0.4 * step(0.8, fract(clump * 5.3)));
+@if(GRASS_VARIATION) {
+    // Patches several metres across, where the blades' colour drifts toward
+    // the patch colour: the noise, turned so its repeat is not along the
+    // world's axes.
+    let at = instance.root.xz / (field.variation.x * 8.0);
+    let uv = vec2<f32>(at.x * 0.83 - at.y * 0.56, at.x * 0.56 + at.y * 0.83);
+    let noise = textureSampleLevel(noise_texture, noise_sampler, uv, 0.0).r;
+    let in_patch = field.patches.w * smoothstep(0.3, 0.7, noise);
+    color *= mix(vec3<f32>(1.0), field.patches.rgb, in_patch);
+    // Dry tips: the upper part of the blade, some blades more than others.
+    let dry = field.variation.y * smoothstep(0.45, 1.0, t) * (0.4 + 1.2 * instance_random(instance, 0x7d1u));
+    color = mix(color, straw_of(color), min(dry, 1.0));
+}
+@if(GRASS_SHAPE) {
+    let head = field.form.w;
+    color = select(color, field.head.rgb, head > 0.0 && t >= 1.0 - 0.5 * head - 1e-4);
+}
+@if(GRASS_VARIATION) {
+    // Dead blades, head and all.
+    let dead = instance_random(instance, 0x7d2u) < field.variation.z;
+    color = select(color, straw_of(color) * 0.85, dead);
+}
 @if(GRASS_GROUND_TINT)
     // The lowest third of the blade blends toward the ground's colour, so the
     // field sits in the terrain instead of on it.

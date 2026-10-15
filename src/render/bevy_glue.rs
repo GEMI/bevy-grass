@@ -238,10 +238,55 @@ impl SpecializedRenderPipeline for GrassPrepassPipeline {
 }
 
 /// The shadow pipeline: depth only, for directional-light views.
-#[derive(Resource, Debug, Clone, Copy)]
-pub(crate) struct GrassShadowPipeline(Option<CachedRenderPipelineId>);
+/// Specialized by the terms that move blades (`LookFeatures::geometry`), so
+/// shadows have the blades' shape.
+#[derive(Resource, Clone)]
+pub(crate) struct GrassShadowPipeline {
+    shadow_view_layout: BindGroupLayoutDescriptor,
+    empty_layout: BindGroupLayoutDescriptor,
+    grass_layout: BindGroupLayoutDescriptor,
+    shader: Handle<Shader>,
+    /// Directional shadow maps need geometry behind the near plane clamped
+    /// rather than clipped, as Bevy's own shadow pipelines do. Without the
+    /// GPU feature grass casts no shadow rather than a wrong one.
+    supported: bool,
+}
 
-#[allow(clippy::too_many_arguments)]
+impl SpecializedRenderPipeline for GrassShadowPipeline {
+    type Key = LookFeatures;
+
+    fn specialize(&self, features: LookFeatures) -> RenderPipelineDescriptor {
+        RenderPipelineDescriptor {
+            label: Some("grass_shadow".into()),
+            layout: vec![
+                self.shadow_view_layout.clone(),
+                self.empty_layout.clone(),
+                self.grass_layout.clone(),
+            ],
+            vertex: VertexState {
+                shader: self.shader.clone(),
+                shader_defs: features.shader_defs().map(ShaderDefVal::from).collect(),
+                ..Default::default()
+            },
+            fragment: None,
+            primitive: PrimitiveState {
+                cull_mode: None,
+                unclipped_depth: true,
+                ..Default::default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+            multisample: MultisampleState::default(),
+            ..Default::default()
+        }
+    }
+}
+
 pub(crate) fn init_pipelines(
     mut commands: Commands,
     mesh_pipeline: Res<MeshPipeline>,
@@ -249,7 +294,6 @@ pub(crate) fn init_pipelines(
     shaders: Res<GrassShaders>,
     layouts: Res<GrassLayouts>,
     mut vertex_layouts: ResMut<MeshVertexBufferLayouts>,
-    pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
 ) {
     let template = Mesh::new(
@@ -273,42 +317,13 @@ pub(crate) fn init_pipelines(
         shader: shaders.prepass.clone(),
     });
 
-    // Directional shadow maps need geometry behind the near plane clamped
-    // rather than clipped, as Bevy's own shadow pipelines do. Without the
-    // feature grass casts no shadow rather than a wrong one.
-    let shadow = device
-        .features()
-        .contains(WgpuFeatures::DEPTH_CLIP_CONTROL)
-        .then(|| {
-            pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("grass_shadow".into()),
-                layout: vec![
-                    layouts.shadow_view.clone(),
-                    layouts.empty.clone(),
-                    layouts.draw.clone(),
-                ],
-                vertex: VertexState {
-                    shader: shaders.shadow.clone(),
-                    ..Default::default()
-                },
-                fragment: None,
-                primitive: PrimitiveState {
-                    cull_mode: None,
-                    unclipped_depth: true,
-                    ..Default::default()
-                },
-                depth_stencil: Some(DepthStencilState {
-                    format: CORE_3D_DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(CompareFunction::GreaterEqual),
-                    stencil: StencilState::default(),
-                    bias: DepthBiasState::default(),
-                }),
-                multisample: MultisampleState::default(),
-                ..Default::default()
-            })
-        });
-    commands.insert_resource(GrassShadowPipeline(shadow));
+    commands.insert_resource(GrassShadowPipeline {
+        shadow_view_layout: layouts.shadow_view.clone(),
+        empty_layout: layouts.empty.clone(),
+        grass_layout: layouts.draw.clone(),
+        shader: shaders.shadow.clone(),
+        supported: device.features().contains(WgpuFeatures::DEPTH_CLIP_CONTROL),
+    });
 }
 
 /// Draws a camera's LOD buckets: all three in the main pass and prepasses,
@@ -428,6 +443,7 @@ pub(crate) struct GrassPipelines<'w> {
     prepass: Res<'w, GrassPrepassPipeline>,
     prepass_specialized: ResMut<'w, SpecializedRenderPipelines<GrassPrepassPipeline>>,
     shadow: Res<'w, GrassShadowPipeline>,
+    shadow_specialized: ResMut<'w, SpecializedRenderPipelines<GrassShadowPipeline>>,
     view_keys: Res<'w, ViewKeyCache>,
     prepass_view_keys: Res<'w, ViewKeyPrepassCache>,
     renderer_method: Res<'w, DefaultOpaqueRendererMethod>,
@@ -570,7 +586,13 @@ pub(crate) fn queue_grass(
         }
 
         if let Some(lights) = lights {
-            let pipeline = pipelines.shadow.0.filter(|_| draws);
+            let pipeline = (draws && pipelines.shadow.supported).then(|| {
+                pipelines.shadow_specialized.specialize(
+                    &pipelines.cache,
+                    &pipelines.shadow,
+                    features.geometry(),
+                )
+            });
             queue_shadows(
                 &mut phases.shadow,
                 lights,

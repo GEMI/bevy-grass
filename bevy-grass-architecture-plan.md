@@ -296,6 +296,8 @@ The crate ships six grass styles and four wind presets, each tuned against the r
 
 **Added 2026-10-14, at the developer's request:** two tall-grass themes for DEMO ARPG GAME, each with a main look and three variants, all sharing one blade shape (0.7–1.5 m, 4 cm wide, 40 per m², about 16 cm apart) so they mix in one scene. `GrassStyle::SUMMER` is `SUMMER_TALL` (green), `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`; `GrassStyle::AUTUMN` is `AUTUMN_TALL` (brown), `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`. The `styles` example shows all eight. Density and the distance between blades are one setting seen two ways (`density` in blades per m², or `spacing()` / `with_spacing(metres)`, where spacing is `1 / sqrt(density)`). The shadow mode (`GrassShadows`) is now also a resource, so a game can turn grass shadows on and off at runtime.
 
+**Added 2026-10-15, at the developer's request:** variation (see "Variation" in the Implementation plan). Five plants that a field can mix in as species (`GrassStyle::PLANTS`: `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`), and three styles that use every kind of variation (`GrassStyle::WILD`: `SUMMER_WILD` and `AUTUMN_WILD` over the tall-grass themes, `WILDFLOWER_MEADOW` over `MEADOW`). Every earlier preset is unchanged and uses none of it.
+
 Presets are `const` values in Rust and also ship as `.ron` files, so users can copy one, edit it and hot-reload it. The example browser shows every style under every wind preset side by side.
 
 ## Platform support and Bevy versions
@@ -357,7 +359,7 @@ flowchart TB
     style G3 stroke-width:3px
 ```
 
-**Progress (October 14, 2026):** green is done, yellow is built but not fully checked, white is not started. M0 and M1 are done and G1 passed; G0 is missing only one image-diff. M2 is built, and G2 waits for a run on target hardware. M3 is in DEMO ARPG GAME and waits for the developer's readability sign-off. M4 is done; G4 waits for the developer to approve the golden images. Details are under Status, and each milestone table below has a State column.
+**Progress (October 15, 2026):** green is done, yellow is built but not fully checked, white is not started. M0 and M1 are done and G1 passed; G0 is missing only one image-diff. M2 is built, and G2 waits for a run on target hardware. M3 is in DEMO ARPG GAME and waits for the developer's readability sign-off. M4 is done; G4 waits for the developer to approve the golden images. Variation, added on October 15 at the developer's request, is done and sits outside the milestone chain. Details are under Status, and each milestone table below has a State column.
 
 M2 carries the performance gate on purpose: everything after it is built on a pipeline already proven to fit the budget. M3 carries the second gate: the plugin is only done for v1 when it holds its budget inside the real game, next to a 300-monster horde.
 
@@ -369,7 +371,7 @@ M2 carries the performance gate on purpose: everything after it is built on a pi
 | Hi-Z pyramid not exposed by Bevy | Occlusion culling needs a private depth downsample | Build a small one in-crate; frustum and distance culling already meet the budget |
 | Thin-geometry aliasing | Shimmer without TAA | 1-pixel minimum width, motion vectors, docs recommend TAA |
 | Integrated GPUs miss Low-tier budget | Smaller audience | Lower Low-tier radius; compatibility path post-1.0 |
-| Scope creep into a vegetation system | Delays 1.0 | Flowers, bushes, impostors and style blending are explicitly post-1.0 |
+| Scope creep into a vegetation system | Delays 1.0 | Bushes, impostors and style blending are explicitly post-1.0. Flowers and other small plants are blades with heads, mixed in as species (Variation), not meshes |
 
 **Open questions.**
 
@@ -439,7 +441,7 @@ Technical decisions are made here and can be revised by whoever implements the s
 
 Estimates are rough, for one developer working with agents: about 12 weeks to the first release, and about 7 weeks until DEMO ARPG GAME has grass (end of M3).
 
-### Status (October 14, 2026)
+### Status (October 15, 2026)
 
 | Milestone | State | Gate |
 | --- | --- | --- |
@@ -448,6 +450,7 @@ Estimates are rough, for one developer working with agents: about 12 weeks to th
 | M2 GPU-driven core | 🟡 Built; five steps still have a "Done when" check not run (2.1, 2.2, 2.4, 2.5, 2.6) | G2 ⬜ needs RTX 3060 class hardware |
 | M3 DEMO ARPG GAME v1 | 🟡 3.1–3.3, 3.5 and 3.6 done; 3.4 drafted (DEMO ARPG GAME builds bevy-grass from the local disk until it is hosted); 3.7 measured; 3.8 waits for the developer | G3 🟡 D2, D4 and D5 answered; the readability sign-off and a Tracy capture remain |
 | M4 Complete look and Bevy passes | ✅ Done: all six steps meet their "Done when" | G4 🟡 the goldens wait for the developer's approval; the M2 budget is still unproven (G2) |
+| Variation (added) | ✅ Done: species, blade shape, colour, placement | The new presets' goldens wait for the developer's approval, like G4's |
 | M5–M6 | ⬜ Not started | ⬜ |
 
 #### Performance pass after M2
@@ -640,6 +643,22 @@ M4 adds the rest of the architecture's look and its integration with Bevy's othe
 **Gate G4:** golden images approved, and the M2 budget still holds.
 
 **State: 🟡 Partly passed.** The golden images are in `tests/golden/` for the developer to approve. A game that uses none of the new terms pays what it paid at M3 (DEMO ARPG GAME's camera: +0.02 ms, noise level), so the M2 budget is no worse; G2 itself still needs a run on target hardware.
+
+#### Variation (added October 15, 2026, at the developer's request)
+
+The developer asked for grass that varies the way real fields do, with every kind of variation adjustable, down to how many species a field mixes. Every setting is a field of `GrassStyle` and of the `.grass.ron` format, and each is off at 0. With all of them off, rendering is bit-identical to M4: the 14 M4 goldens still match exactly on the T1200.
+
+| Step | Work | State |
+| --- | --- | --- |
+| V.1 Species | `GrassStyle::species`: a list of `GrassSpecies { share, clustering, style }`, up to 15 besides the style's own blades. A species is a whole style, of which only the blade's look is used (height, width, lean, stiffness, colours, root occlusion, translucency, specular, shape). Each species is its own entry of the field table, after its field's; chunks point at the field's first entry, and a blade at its species' entry, so the draws read a blade's look exactly as before. The generation pass picks the species after thinning, so the number and placement of blades do not change. A species' chance applies to the blades the ones before it left, which makes every share exact. A clustered species takes its random number from the blade's 1 m clump instead: shuffled per species, and spread within the clump by the blade's own number, so the share stays exact (unit test, 200,000 blades: within 1%). Five plants ship as presets (`GrassStyle::PLANTS`): `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`. | ✅ Done |
+| V.2 Blade shape | `twist` (turns at the tip; each blade its own way), `droop` (the curve reaches further, its tip sags and its control point rises, so the blade stands up and arches over; each blade its own amount, tall ones the most), `fold` (narrower face-on, edge normals turned inward), and heads (`head`, `head_width`, `head_color`): the strip's last row moves up to the head's widest point and turns toward the camera, so LOD 1 keeps the head and LOD 2 keeps its colour at the tip. All behind the `GRASS_SHAPE` shader definition; the shadow pipeline is now specialized on it too, so shadows have the blades' shape. The droop curve's length correction is within 6% (it is within 1% for the plain blade), which the ±50% height variation hides. | ✅ Done |
+| V.3 Colour | Patches several metres across (`patch_color`, `patch_amount`, `patch_size`) from the gust noise, now also bound to the draws, sampled once per vertex at the root and turned 34° so its repeat does not run along the world's axes; dry tips (`dry_tips`), varying per blade; dead blades (`dead_blades`), head and all. Behind `GRASS_VARIATION`. | ✅ Done |
+| V.4 Placement | Tufts (`tufts`, `tuft_size`): each candidate moves part of the way to its nearest tuft centre, each tuft pulling by its own amount, and leans out from it. Tuft centres come from a 256 KB table like the clump table (a jittered grid's Voronoi cells, 64 tufts a side), because searching nine centres per blade made the clump lookup 40–130% slower in M3. The blade count does not change. Bare patches (`bare_patches`, `bare_patch_size`): density times a smooth step of a two-sample noise, the second sample turned and scaled so the pattern does not visibly repeat; the threshold for a given share comes from the noise's measured distribution (unit test: within 3% of the share). Both are uniform branches per workgroup, skipped when off. | ✅ Done |
+| V.5 Presets, example and cost | `SUMMER_WILD`, `AUTUMN_WILD` and `WILDFLOWER_MEADOW` (`GrassStyle::WILD`) use everything; the `variation` example switches each kind on and off over one of them; the bench has `--species`, `--tufts`, `--shape` and `--variation`. | ✅ Done. Cost on the T1200 (paired runs, perspective / DEMO ARPG GAME's camera, in `docs/performance.md`): with everything off, as M4 (+0.07 / −0.09 ms, noise); tufts and bare patches, and blade shape, free; colour +0.14 / +0.08 ms; four plants on 21% of the blades +0.28 / +0.16 ms (6.5% / 4.7% of grass cost). Two cheaper species picks were tried and measured no faster. |
+
+The goldens of the eight new presets are in `tests/golden/` for the developer to approve. Whether DEMO ARPG GAME uses any of this is the developer's decision; its styles are unchanged.
+
+One API change: the species list is not `Copy`, so `GrassStyle { height, ..style }` now moves `style`'s species out of a variable (a preset constant is unaffected). Code that uses the variable afterwards writes `..style.clone()`. DEMO ARPG GAME's `grass.rs` needed that one change, on its local `grass-bevy-grass` branch, uncommitted.
 
 #### M5 Editing and ground (about 2 weeks)
 

@@ -29,6 +29,13 @@
 //! `.grass.ron` file ([`GrassStyleLoader`]). [`FarGrassMaterial`] carries the
 //! grass's colour onto the ground beyond the last blade.
 //!
+//! A style can vary its grass the way real fields do: other plants among the
+//! blades (seed heads, flowers, clover, broad leaves: [`GrassSpecies`](api::GrassSpecies)),
+//! tufts and bare patches, blades that twist, droop and fold, and colour
+//! patches, dry tips and dead blades. Every kind is a setting of
+//! [`GrassStyle`], off at 0, and costs nothing while no field uses it;
+//! `GrassStyle::WILD` uses them all.
+//!
 //! The design, and what each milestone adds, is in
 //! `bevy-grass-architecture-plan.md` at the repository root.
 
@@ -57,7 +64,9 @@ pub mod prelude {
     pub use crate::GrassPlugin;
     pub use crate::GrassQuality;
     pub use crate::GrassShadows;
-    pub use crate::api::{GrassField, GrassGround, GrassInteractor, GrassStyle, NoGrass, Wind};
+    pub use crate::api::{
+        GrassField, GrassGround, GrassInteractor, GrassSpecies, GrassStyle, NoGrass, Wind,
+    };
     pub use crate::far::{FarGrass, FarGrassMaterial};
 }
 

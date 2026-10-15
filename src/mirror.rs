@@ -447,30 +447,171 @@ pub(crate) fn clump_of(point: Vec2) -> u8 {
     ((clump_table()[index / 4] >> ((index % 4) * 8)) & 63) as u8
 }
 
+/// Tuft table entries per tuft spacing, along each axis.
+pub(crate) const TUFT_ENTRIES_PER_TUFT: i32 = 4;
+/// Entries along each side of the tuft table: it repeats every 64 tufts.
+pub(crate) const TUFT_SIDE: i32 = 256;
+
+/// Where the tufts are: one centre per tuft spacing (a square of side 1 in
+/// tuft units), jittered, as a Voronoi pattern like the clump table's. Each
+/// entry covers a quarter of a tuft spacing and holds its nearest centre,
+/// relative to the entry's own centre, in tuft spacings: x and z as signed
+/// bytes over ±2 in the low two bytes, and a random byte per tuft in the
+/// third. Wraps every 64 tufts.
+///
+/// A table for the same reason as the clump table: searching nine centres
+/// per blade is what made generation 40–130% slower there.
+pub(crate) fn tuft_table() -> &'static [u32] {
+    static TABLE: OnceLock<Vec<u32>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let tufts = TUFT_SIDE / TUFT_ENTRIES_PER_TUFT;
+        let byte = |offset: f32| ((offset / 4.0 + 0.5).clamp(0.0, 1.0) * 255.0).round() as u32;
+        (0..TUFT_SIDE * TUFT_SIDE)
+            .map(|index| {
+                let entry = Vec2::new((index % TUFT_SIDE) as f32, (index / TUFT_SIDE) as f32);
+                let point = (entry + 0.5) / TUFT_ENTRIES_PER_TUFT as f32;
+                let cell = point.floor();
+                let mut nearest = (f32::MAX, Vec2::ZERO, 0);
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        let neighbour = cell + Vec2::new(dx as f32, dz as f32);
+                        let wrapped = neighbour.as_ivec2().rem_euclid(IVec2::splat(tufts));
+                        let key = hash2(wrapped.x as u32, wrapped.y as u32) ^ 0x7f4a_7c15;
+                        let centre = neighbour + Vec2::new(unit(key), unit(hash(key)));
+                        let distance = centre.distance_squared(point);
+                        if distance < nearest.0 {
+                            nearest = (distance, centre - point, key);
+                        }
+                    }
+                }
+                let (_, offset, key) = nearest;
+                byte(offset.x) | (byte(offset.y) << 8) | ((hash(key ^ 0x3c) >> 24) << 16)
+            })
+            .collect()
+    })
+}
+
+/// The nearest tuft centre to `q` (in tuft spacings) and the tuft's random
+/// value in `[0, 1]`. The WESL twin is `tuft_at`.
+#[cfg(test)]
+pub(crate) fn tuft_at(q: Vec2) -> (Vec2, f32) {
+    let entry = (q * TUFT_ENTRIES_PER_TUFT as f32).floor();
+    let wrapped = entry.as_ivec2() & (TUFT_SIDE - 1);
+    let word = tuft_table()[(wrapped.y * TUFT_SIDE + wrapped.x) as usize];
+    let offset = (Vec2::new((word & 0xff) as f32, ((word >> 8) & 0xff) as f32) / 255.0 - 0.5) * 4.0;
+    let centre = (entry + 0.5) / TUFT_ENTRIES_PER_TUFT as f32 + offset;
+    (centre, ((word >> 16) & 0xff) as f32 / 255.0)
+}
+
+/// One bilinear sample of the gust noise (an R8 texture, wrapping), as the
+/// GPU's sampler takes it.
+fn sample_noise(noise: &[u8], uv: Vec2) -> f32 {
+    let size = (noise.len() as f32).sqrt() as i32;
+    let p = uv * size as f32 - 0.5;
+    let base = p.floor();
+    let t = p - base;
+    let at = |x: i32, y: i32| {
+        let x = (base.x as i32 + x).rem_euclid(size);
+        let y = (base.y as i32 + y).rem_euclid(size);
+        f32::from(noise[(y * size + x) as usize]) / 255.0
+    };
+    let top = at(0, 0) + (at(1, 0) - at(0, 0)) * t.x;
+    let bottom = at(0, 1) + (at(1, 1) - at(0, 1)) * t.x;
+    top + (bottom - top) * t.y
+}
+
+/// The noise bare patches are cut from, at world point `at`, for patches
+/// about `size` metres across: two samples of the gust noise, the second
+/// turned and scaled, so the pattern does not visibly repeat. The WESL twin
+/// is `bare_noise`.
+#[cfg(test)]
+#[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
+pub(crate) fn bare_noise(noise: &[u8], at: Vec2, size: f32) -> f32 {
+    let uv = at / (size * 8.0);
+    let turned = Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
+    0.5 * (sample_noise(noise, uv) + sample_noise(noise, turned))
+}
+
+/// The value of `bare_noise` below which `share` of the ground lies.
+#[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
+pub(crate) fn bare_threshold(share: f32) -> f32 {
+    static SORTED: OnceLock<Vec<f32>> = OnceLock::new();
+    let sorted = SORTED.get_or_init(|| {
+        let noise = crate::render::resources::gust_noise(crate::render::resources::GUST_SIZE);
+        let mut values: Vec<f32> = (0..32_768u32)
+            .map(|i| {
+                let uv = Vec2::new(unit(hash(i ^ 0xba5e)), unit(hash(i ^ 0xbead))) * 16.0;
+                let turned =
+                    Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
+                0.5 * (sample_noise(&noise, uv) + sample_noise(&noise, turned))
+            })
+            .collect();
+        values.sort_by(f32::total_cmp);
+        values
+    });
+    let index = (share.clamp(0.0, 1.0) * (sorted.len() - 1) as f32).round() as usize;
+    sorted[index]
+}
+
+/// Which of a field's species a blade is: 0 for the style's own, `k` for
+/// the `k`th of `species`, given as (chance, clustering) pairs. A species'
+/// chance applies to the blades the species before it left. A clustered
+/// species draws its random number from the blade's clump instead of the
+/// blade: shuffled per species, and spread within the clump by the blade's
+/// own number, so the shares stay exact. The WESL twin is in `evaluate`.
+#[cfg(test)]
+pub(crate) fn pick_species(seed: u32, clump: u32, species: &[(f32, f32)]) -> usize {
+    for (index, (chance, clustering)) in species.iter().enumerate() {
+        let k = index as u32 + 1;
+        let salt = k.wrapping_mul(0x9e37_79b9);
+        let scattered = unit(hash(seed ^ salt));
+        let mixer = hash(salt ^ 0x5bd1_e995);
+        let shuffled = (clump
+            .wrapping_mul((mixer & 0x3e) | 1)
+            .wrapping_add(mixer >> 8))
+            & 63;
+        let patched = (shuffled as f32 + unit(hash(seed ^ salt ^ 0x68e3_1da4))) / 64.0;
+        let clustered = unit(hash(seed ^ salt ^ 0x1b87_3593)) < *clustering;
+        if (if clustered { patched } else { scattered }) < *chance {
+            return k as usize;
+        }
+    }
+    0
+}
+
 /// The three Bézier control points of a blade of length `height`, leaning
-/// `lean` (a fraction of the height, horizontal) along +Z and bent by `bend`
-/// (a horizontal tip offset as a fraction of the height). The WESL twin is
-/// `blade_curve`.
+/// `lean` (a fraction of the height, horizontal) along +Z, bent by `bend`
+/// (a horizontal tip offset as a fraction of the height) and drooping by
+/// `droop` (0 to 1). The WESL twin is `blade_curve`.
 ///
 /// The tip is pushed horizontally, then pulled back down so the curve keeps
 /// its length: wind bends a blade, never stretches it. The construction is
 /// Jahrmann and Wimmer's (2017), with the length correction applied twice so
-/// that strong bends stay within 1% of the rest length.
+/// that strong bends stay within 1% of the rest length. A drooping blade
+/// reaches further, its tip sags and its control point rises: it stands up
+/// from the root and arches over.
 #[cfg(test)]
-pub(crate) fn blade_curve(height: f32, lean: f32, bend: Vec2) -> [Vec3; 3] {
-    let offset = (Vec2::new(0.0, lean) + bend) * height;
-    let horizontal = offset.length().min(height * 0.95);
-    let offset = offset.normalize_or_zero() * horizontal;
+pub(crate) fn blade_curve(height: f32, lean: f32, bend: Vec2, droop: f32) -> [Vec3; 3] {
+    let wanted = (Vec2::new(0.0, lean) + bend) * height;
+    // An upright blade has no side to droop toward.
+    let droop = if wanted.length_squared() > 1e-12 {
+        droop
+    } else {
+        0.0
+    };
+    let horizontal = (wanted.length() + droop * 0.7 * height).min(height * 0.95);
+    let offset = wanted.normalize_or_zero() * horizontal;
     let p0 = Vec3::ZERO;
     let mut p2 = Vec3::new(
         offset.x,
-        (height * height - horizontal * horizontal).sqrt(),
+        (height * height - horizontal * horizontal).max(0.0).sqrt() * (1.0 - 0.7 * droop),
         offset.y,
     );
     // The control point sits above the root, lower the further the tip leans,
     // which is what makes the blade arch instead of hinging at the root.
     let ratio = horizontal / height;
     let mut p1 = Vec3::new(0.0, height * (1.0 - ratio).max(0.05 * ratio.max(1.0)), 0.0);
+    p1.y += (height * 0.9 - p1.y) * (droop * 2.0).min(1.0);
     for _ in 0..2 {
         let chord = p2.distance(p0);
         let polygon = p1.distance(p0) + p2.distance(p1);
@@ -806,7 +947,7 @@ mod tests {
         for height in [0.1, 0.5, 1.4] {
             for bend in [0.0, 0.3, 0.6, 0.9, 1.5] {
                 for lean in [0.0, 0.2] {
-                    let curve = blade_curve(height, lean, Vec2::new(bend, 0.0));
+                    let curve = blade_curve(height, lean, Vec2::new(bend, 0.0), 0.0);
                     let length = curve_length(&curve);
                     assert!(
                         (length - height).abs() <= height * 0.01,
@@ -815,6 +956,108 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_drooping_blade_arches_over_and_keeps_its_length() {
+        for height in [0.1, 0.5, 1.4] {
+            for droop in [0.05, 0.25, 0.5, 1.0] {
+                for (lean, bend) in [(0.02, 0.0), (0.1, 0.0), (0.3, 0.0), (0.1, 0.6), (0.0, -0.9)] {
+                    let curve = blade_curve(height, lean, Vec2::new(bend, 0.0), droop);
+                    // The length correction assumes a gentle arch; a
+                    // drooping blade's tighter curve comes out within 6%,
+                    // which blades varying ±50% in height hide.
+                    let length = curve_length(&curve);
+                    assert!(
+                        (length - height).abs() <= height * 0.06,
+                        "height {height}, droop {droop}: length {length}"
+                    );
+                    // From half on, the tip hangs below the blade's highest
+                    // point.
+                    let top = (0..=64)
+                        .map(|i| bezier(&curve, i as f32 / 64.0).y)
+                        .fold(0.0, f32::max);
+                    assert!(droop < 0.5 || curve[2].y < top - height * 0.05 * droop);
+                }
+            }
+        }
+        // A blade with no lean or bend has no side to droop toward: it stays
+        // upright.
+        assert_eq!(
+            blade_curve(1.0, 0.0, Vec2::ZERO, 0.6),
+            blade_curve(1.0, 0.0, Vec2::ZERO, 0.0)
+        );
+    }
+
+    #[test]
+    fn tufts_are_the_nearest_jittered_centres() {
+        // Tuft centres sit one per tuft spacing, jittered, and every point
+        // belongs to its nearest centre, give or take the table's rounding.
+        for i in 0..4000 {
+            let q = Vec2::new(unit(hash(i)), unit(hash(i ^ 7))) * 200.0 - 100.0;
+            let (centre, _) = tuft_at(q);
+            assert!(q.distance(centre) < 1.5, "{q} -> {centre}");
+            let entry = (q * TUFT_ENTRIES_PER_TUFT as f32).floor() + 0.5;
+            let entry = entry / TUFT_ENTRIES_PER_TUFT as f32;
+            let (entry_centre, _) = tuft_at(entry);
+            assert!(entry_centre.distance(centre) < 1e-4);
+        }
+        // The table repeats every 64 tufts.
+        let (a, ra) = tuft_at(Vec2::new(3.3, 7.9));
+        let (b, rb) = tuft_at(Vec2::new(3.3 + 64.0, 7.9 - 128.0));
+        assert!((b - a - Vec2::new(64.0, -128.0)).length() < 1e-3);
+        assert_eq!(ra, rb);
+    }
+
+    #[test]
+    fn bare_patches_cover_their_share() {
+        let noise = crate::render::resources::gust_noise(crate::render::resources::GUST_SIZE);
+        for share in [0.05, 0.2, 0.5] {
+            let threshold = bare_threshold(share);
+            let bare = (0..20_000)
+                .filter(|&i| {
+                    let at = Vec2::new(unit(hash(i ^ 0x51)), unit(hash(i ^ 0x52))) * 500.0;
+                    bare_noise(&noise, at, 3.0) < threshold
+                })
+                .count() as f32
+                / 20_000.0;
+            assert!((bare - share).abs() < 0.03, "{share}: {bare}");
+        }
+        assert!(bare_threshold(0.0) <= bare_threshold(0.3));
+    }
+
+    #[test]
+    fn species_take_their_share_scattered_or_clustered() {
+        // Two species besides the style's own blades: 10% and 3%.
+        for clustering in [0.0, 0.8, 1.0] {
+            let chances = [(0.1, clustering), (0.03 / 0.9, clustering)];
+            let mut counts = [0usize; 3];
+            let blades = 200_000;
+            for i in 0..blades {
+                let clump = hash(i ^ 0x77) & 63;
+                counts[pick_species(hash(i), clump, &chances)] += 1;
+            }
+            let share = |n: usize| n as f32 / blades as f32;
+            assert!(
+                (share(counts[1]) - 0.1).abs() < 0.01,
+                "{clustering}: {counts:?}"
+            );
+            assert!(
+                (share(counts[2]) - 0.03).abs() < 0.005,
+                "{clustering}: {counts:?}"
+            );
+        }
+        // Clustered, a species fills some clumps and leaves the rest.
+        let chances = [(0.1, 1.0)];
+        let mut per_clump = [0usize; 64];
+        for i in 0..64_000 {
+            let clump = i % 64;
+            if pick_species(hash(i), clump, &chances) == 1 {
+                per_clump[clump as usize] += 1;
+            }
+        }
+        let empty = per_clump.iter().filter(|&&n| n == 0).count();
+        assert!(empty >= 56, "{per_clump:?}");
     }
 
     #[test]

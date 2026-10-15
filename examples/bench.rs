@@ -12,11 +12,16 @@
 //! cargo run --example bench -- --interactors 512  # a horde trampling around the view
 //! cargo run --example bench -- --screenshot shots/bench.png   # the last frame
 //! cargo run --example bench -- --sheen --tint --toon  # add optional look terms
+//! cargo run --example bench -- --species --tufts --shape --variation  # add variation
 //! ```
 //!
 //! The styles are the M3 look, without the optional terms (sheen, ground tint,
-//! toon bands), so runs stay comparable across versions; each term has a
-//! flag, to measure what it costs.
+//! toon bands) or any variation, so runs stay comparable across versions;
+//! each term and each kind of variation has a flag, to measure what it
+//! costs. The variation flags take `GrassStyle::SUMMER_WILD`'s settings:
+//! `--species` its plants (whose heads also turn on the shape code),
+//! `--tufts` its tufts and bare patches, `--shape` its twist, droop and fold,
+//! `--variation` its colour patches, dry tips and dead blades.
 //!
 //! Columns: frame, frame time, and the GPU time of trampling, grass culling,
 //! blade generation and the whole main opaque pass (terrain included), in ms. The
@@ -56,6 +61,12 @@ struct Bench {
     sheen: bool,
     tint: bool,
     toon: bool,
+    /// The kinds of variation, from `--species`, `--tufts`, `--shape` and
+    /// `--variation`.
+    species: bool,
+    tufts: bool,
+    shape: bool,
+    variation: bool,
     /// What the camera looks at this frame, in world XZ.
     focus: Vec2,
     csv_path: String,
@@ -71,6 +82,7 @@ fn main() {
     let mut quality = GrassQuality::High;
     let mut csv_path = "target/bench.csv".to_string();
     let (mut sheen, mut tint, mut toon) = (false, false, false);
+    let (mut species, mut tufts, mut shape, mut variation) = (false, false, false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -86,6 +98,10 @@ fn main() {
             "--sheen" => sheen = true,
             "--tint" => tint = true,
             "--toon" => toon = true,
+            "--species" => species = true,
+            "--tufts" => tufts = true,
+            "--shape" => shape = true,
+            "--variation" => variation = true,
             "--csv" => csv_path = args.next().expect("--csv needs a path"),
             "--tier" => {
                 quality = match args.next().as_deref() {
@@ -122,6 +138,10 @@ fn main() {
         sheen,
         tint,
         toon,
+        species,
+        tufts,
+        shape,
+        variation,
         focus: Vec2::ZERO,
         csv_path,
         rows: Vec::new(),
@@ -268,12 +288,27 @@ fn setup(
     } else {
         GrassStyle::MEADOW
     };
-    let style = GrassStyle {
+    let wild = GrassStyle::SUMMER_WILD;
+    let mut style = GrassStyle {
         specular: if bench.sheen { 0.4 } else { 0.0 },
         ground_tint: if bench.tint { 0.3 } else { 0.0 },
         toon_bands: if bench.toon { 3 } else { 0 },
         ..style
     };
+    if bench.species {
+        style.species.clone_from(&wild.species);
+    }
+    if bench.tufts {
+        (style.tufts, style.tuft_size) = (wild.tufts, wild.tuft_size);
+        (style.bare_patches, style.bare_patch_size) = (wild.bare_patches, wild.bare_patch_size);
+    }
+    if bench.shape {
+        (style.twist, style.droop, style.fold) = (wild.twist, wild.droop, wild.fold);
+    }
+    if bench.variation {
+        (style.patch_color, style.patch_amount) = (wild.patch_color, wild.patch_amount);
+        (style.dry_tips, style.dead_blades) = (wild.dry_tips, wild.dead_blades);
+    }
     commands.spawn(GrassField {
         size: Vec2::splat(TERRAIN_SIZE),
         style: styles.add(style),

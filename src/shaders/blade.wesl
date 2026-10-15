@@ -4,6 +4,7 @@
 
 import package::shaders::common::{
     Frame, View, Field, Instance, TAU, WIDTH_RANGE, LOD_VERTEX_STRIDE, unpack, blade_curve, lod_rows,
+    instance_random,
 };
 
 @group(2) @binding(0) var<uniform> frame: Frame;
@@ -11,6 +12,9 @@ import package::shaders::common::{
 @group(2) @binding(1) var<uniform> grass_view: View;
 @group(2) @binding(2) var<storage, read> instances: array<vec4<u32>>;
 @group(2) @binding(3) var<storage, read> fields: array<Field>;
+/// Smooth noise, wrapping: the gust noise, which colour patches come from.
+@group(2) @binding(4) var noise_texture: texture_2d<f32>;
+@group(2) @binding(5) var noise_sampler: sampler;
 
 /// One vertex of one blade, before it is placed: which blade, which LOD and
 /// which vertex of its strip.
@@ -71,8 +75,29 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     let rows = lod_rows(blade.lod);
     let is_tip = blade.local >= 2u * rows;
     let row = select(blade.local / 2u, rows, is_tip);
-    let t = f32(row) / f32(rows);
+    var t = f32(row) / f32(rows);
     let side = select(f32(blade.local % 2u) - 0.5, 0.0, is_tip);
+
+    // The shape (`GRASS_SHAPE`): without it, every term below is the plain
+    // blade's.
+    var twist = 0.0;
+    var droop = 0.0;
+    var fold = 0.0;
+    var in_head = false;
+@if(GRASS_SHAPE) {
+    let form = field.form;
+    // Each blade twists its own way and droops its own amount; tall blades
+    // droop the most.
+    twist = form.x * TAU * (instance_random(instance, 0x7c1u) * 2.0 - 1.0);
+    droop = form.y * instance_random(instance, 0x7c2u) * (0.5 + 0.5 * instance.height);
+    fold = form.z;
+    // A head takes the last row and the tip: the row moves up to the
+    // head's widest point, and the stem's rows spread out below it.
+    let has_head = form.w > 0.0 && rows > 1u;
+    let top = 1.0 - 0.5 * form.w;
+    t = select(t, select(f32(row) / f32(rows - 1u) * top, 1.0, is_tip), has_head);
+    in_head = form.w > 0.0 && (is_tip || (has_head && row == rows - 1u));
+}
 
     // The blade's flat side faces `facing`. As it turns edge-on to the eye it
     // is rotated part of the way toward it, so a field seen side-on does not
@@ -84,10 +109,18 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     let facing_eye = dot(face, to_eye);
     let edge_on = 1.0 - abs(facing_eye);
     face = normalize(mix(face, to_eye * select(-1.0, 1.0, facing_eye >= 0.0), edge_on * 0.4));
-    let across = vec3<f32>(face.y, 0.0, -face.x);
+    // The blade leans and bends one way along its length; twist turns only
+    // its cross-section, and a head turns to face the eye.
+    var turned = face;
+@if(GRASS_SHAPE) {
+    let c = cos(twist * t);
+    let s = sin(twist * t);
+    turned = select(vec2<f32>(face.x * c + face.y * s, face.y * c - face.x * s), to_eye, in_head);
+}
+    let across = vec3<f32>(turned.y, 0.0, -turned.x);
 
     let bend = select(instance.bend, instance.previous_bend, eye.previous);
-    let curve = blade_curve(height, face * field.motion.x + bend);
+    let curve = blade_curve(height, face * field.motion.x + bend, droop);
     let u = 1.0 - t;
     var point = curve[0] * (u * u) + curve[1] * (2.0 * u * t) + curve[2] * (t * t);
     let tangent = normalize((curve[1] - curve[0]) * (2.0 * u) + (curve[2] - curve[1]) * (2.0 * t) + vec3<f32>(0.0, 1e-5, 0.0));
@@ -103,14 +136,25 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // the taper; sub-pixel blades shimmer.
     let metres_per_pixel = (eye.clip_from_world * vec4<f32>(instance.root, 1.0)).w * eye.pixel_scale;
     let widen = max(1.0, field.motion.z * metres_per_pixel / max(root_width, 1e-6));
-    let width = root_width * widen * (1.0 - pow(t, 1.4));
+    var width = root_width * widen * (1.0 - pow(t, 1.4));
+    // Rounded normals: each edge tilts its normal outward by about 30°, so the
+    // flat strip shades like a curved leaf.
+    var cup = 0.577;
+@if(GRASS_SHAPE) {
+    // Folding narrows the blade face-on and turns the edges' normals inward,
+    // as the two halves of a V face apart.
+    width *= 1.0 - 0.4 * fold;
+    cup = 0.577 * (1.0 - 2.0 * fold);
+    // The head row is the head's widest point, as wide as the head, which
+    // grows with the blade (and with distance, as the blade does).
+    let head_width = field.head.w * instance.width * WIDTH_RANGE * widen;
+    width = select(width, max(width, head_width), in_head);
+}
 
     var out: BladeVertex;
     out.t = t;
     let normal = normalize(cross(across, tangent));
-    // Rounded normals: each edge tilts its normal outward by about 30°, so the
-    // flat strip shades like a curved leaf.
-    out.normal = normalize(normal + across * side * 2.0 * 0.577);
+    out.normal = normalize(normal + across * side * 2.0 * cup);
     out.world_position = instance.root + point + across * side * width;
     return out;
 }

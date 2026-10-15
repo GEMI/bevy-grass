@@ -498,6 +498,8 @@ pub(crate) fn prepare_view_bind_groups(
                 uniform,
                 buffers.instances.as_entire_binding(),
                 fields.clone(),
+                &shared.gust_view,
+                &shared.gust_sampler,
             )),
         ));
     }
