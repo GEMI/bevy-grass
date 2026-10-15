@@ -11,14 +11,15 @@ Grass cost is GPU time, and on the development laptop it is mostly fragment shad
 
 Both run at 1920 × 1080 with 4× MSAA and no vsync, measuring 1,380 frames after 120 warm-up frames.
 
-`tools/bench_ab.py` runs variants against a reference in paired, interleaved rounds. A result is the median paired difference in frame time p50, as a share of the reference's grass cost: the reference minus a `--no-grass` run. Frame time is used rather than per-pass GPU spans because it also captures costs that move between passes. For example, drawing grass in its own pass made the main-pass span look much cheaper while the frame got slower.
+`tools/bench_ab.py` runs variants against a reference in paired, interleaved rounds. A result is the median paired difference in frame time p50 or p95 (`report REFERENCE p95`), as a share of the reference's grass cost: the reference minus a `--no-grass` run. A run takes about 10 seconds, so five rounds of four variants, the reference and `--no-grass` in both scenes take about 10 minutes. Frame time is used rather than per-pass GPU spans because it also captures costs that move between passes. For example, drawing grass in its own pass made the main-pass span look much cheaper while the frame got slower.
 
 Rules learned the hard way:
 
 - **Reject runs that log errors.** A shader that fails to compile draws no grass, which looks like a large speed-up.
 - **Use paired differences.** The `--no-grass` baseline drifts by up to 0.9 ms between runs, because without grass the frame is limited by the CPU, not the GPU. Use it only for the size of the grass cost, never as the per-run reference.
-- **Expect noise of about ±2% of grass cost.** Four rounds resolve a 5% change.
-- **Keep a change only if it cuts grass cost by at least 10%** in the scene it targets and makes no scene worse. Changes that alter the look go to the developer even when they pass.
+- **Expect noise of about ±2% of grass cost.** Four or five rounds resolve a 5% change.
+- **Keep a change if it cuts grass cost by at least 5% at p95** (the developer's ruling of October 15, 2026; it was 10% at p50 before) in the scene it targets, makes no scene worse, and does not visibly degrade the image. Changes that alter the look go to the developer even when they pass.
+- **Keep the machine quiet.** A video playing in the background invalidated one run; restart rather than average it in.
 - **Count the blades, not just the time.** `RUST_LOG=bevy_grass=debug` logs visible chunks and blades per bucket, and it exposed a density bug (below).
 
 Development machine: Windows 11, NVIDIA T1200 laptop GPU (roughly a third of an RTX 3060), Bevy's default backend.
@@ -167,11 +168,43 @@ Paired runs, four rounds each, T1200. Each bench flag takes `SUMMER_WILD`'s sett
 
 Lesson: as with M4's look terms, **every kind of variation is behind a shader definition or a uniform branch**, so a game pays only for what its styles use.
 
+## Re-test on the most complex grass (October 15, 2026)
+
+The ideas from the M2 pass that gained a little were tried again with variation on, since the work per blade has grown: the bench's styles with every kind of variation and both optional terms (`--species --tufts --shape --variation --sheen --tint`). The question was whether any now passes 5% at p95 without hurting the image. Five paired rounds, T1200.
+
+Grass cost with all of that on: about 4.3 ms in perspective (4.9 ms at p95) and 3.3 ms at DEMO ARPG GAME's camera (3.8 ms at p95). Generation is now 1.63 ms and 1.14 ms of it, against 0.92 ms and about 0.4 ms for plain grass.
+
+| # | Idea | What was built | p95, perspective | p95, DEMO ARPG GAME | p50, perspective | p50, DEMO ARPG GAME | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Cheaper shadow filtering | The grass pipeline specialized with Bevy's `Hardware2x2` filter instead of the view's | **−10.1%** | −4.1% | −8.7% | −10.1% | **Rejected: degrades the image.** At the same frame, 8.6% of pixels change by more than 16 of 255 in both views. Self-shadowing on the blades turns harsh, dark and speckled (`target/retest/compare_*.png` when re-run). |
+| 3 | Screen-size culling | Generation drops perspective blades under 4 px tall | +1.9% | +0.1% | +1.5% | −1.2% | Rejected. It removes about 1% of far blades: even the smallest plant in the scene, a 0.2 m broad leaf, is 2.6 px tall only at the very edge of the 100 m radius. The test costs about what it saves. |
+| 5 | Occlusion culling by the terrain | The chunk cull marches 16 steps from the eye to the four top corners and the centre of each chunk's box through the field's own heightmap, and skips chunks hidden from all five (1 m margin) | +1.5% | +1.0% | +0.5% | −1.0% | Rejected. The flythrough has almost no chunk fully behind a hill: it removed 11 of 33,800 far blades. Worth trying again only in a hillier scene. |
+| T | Translucency with a branch | The backlit term computed only for backlit faces (identical image), the M3 variant that once measured cheaper | 0.0% | −0.8% | −1.5% | −1.3% | Rejected: within noise. |
+
+Not tried again, and why:
+
+- **2, no grass shadows; 4, a shorter grass radius; 8, fewer, wider blades at DEMO ARPG GAME's camera.** These change the look, and each is already a setting: `GrassShadows::Off`, the `Medium` or `Low` tier (70 m and 40 m), and the style's density and width.
+- **6b, grass in a pass of its own, and a depth-only grass pre-pass.** Both made frames slower. The reasons (MSAA testing depth per sample, storing and reloading the multisampled targets) do not depend on the blades.
+
+Lesson: with variation on, the cost has moved further into the generation pass (+0.7 ms in perspective) and into pixels, not into work that culling can remove.
+
+### Two levers, tried the same day
+
+Same scene, five paired rounds.
+
+| Idea | What was built | p95, perspective | p95, DEMO ARPG GAME | p50, perspective | p50, DEMO ARPG GAME | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| A lighting path written for grass | Bevy's `apply_pbr_lighting` cut down to a matte leaf: the same Burley diffuse, shadows, clustered point and spot lights, environment map and ambient, but `F_AB` from Bevy's polynomial instead of three lookups in its DFG table per fragment, and the sun's specular only where there is sheen. Images: a mean change of 1–3 of 255 (slightly less grey gloss), 0.1% of pixels by more than 16; no visible difference side by side | −0.3% | +1.5% | −0.1% | +0.2% | Rejected: within noise. The arithmetic and table lookups Bevy adds for grass are not where the main pass's time goes. |
+| Generation without last frame's wind | The previous bend set to the current one, as it could be for views without motion vectors (the bench's have none). Generation 1.62 → 1.54 ms in perspective | −1.2% | +1.2% | −1.1% | −0.6% | Rejected: the 0.08 ms saved in generation does not show in the frame. |
+| Bare-patch noise after thinning | The two noise samples taken only for blades that survive thinning without them; identical images | +0.7% | +0.2% | +0.7% | +0.8% | Rejected: within noise. |
+
+So the main pass's cost is neither the lighting maths nor its table lookups, and the generation pass is not limited by its texture samples. What is left in the main pass is the shadow lookup (9 samples), rasterizing and shading 2×2 quads of thin blades at 4× MSAA, and the clustered-light lookup. The next useful step is a diagnostic rather than another optimization: stub each of those out once to find which one dominates.
+
 ## Levers not yet tried
 
 In expected order of effect:
 
-1. **A lighting path written for grass.** Lighting is about half the main pass. A grass-specific function could skip what Bevy's full PBR path does for every fragment: specular, clustered light lookups when a scene has no point lights, and cascade blending. Point lights would need a fallback.
+1. **Find what dominates the main pass** (see above): shadow lookup, quad overshading at 4× MSAA, or the cluster lookup. A cheaper lighting function was tried and gained nothing.
 2. **Lighting computed less often than per pixel.** For example per vertex or per blade, where normals are already smooth, as the survey's "volumetric shading" suggests. Bevy's shadow-map bindings may only be visible to the fragment stage, which would block the per-vertex version.
 3. **Fewer near blades.** LOD 0 is 100% density to 18 m. Halving from 10 m would apply experiment 7's gain to the most expensive blades, at a visible cost close to the camera.
 4. **DEMO ARPG GAME style.** See experiment 8, decision D3.

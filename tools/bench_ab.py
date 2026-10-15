@@ -9,10 +9,11 @@
         Add the variant `nograss` to measure the grass-free baseline (it runs
         the first named variant's exe with --no-grass). `NAME+flag` runs NAME
         with `--flag` added, e.g. `m4+sheen` for the bench's `--sheen`.
-    python tools/bench_ab.py report REFERENCE
+    python tools/bench_ab.py report REFERENCE [p50|p95]
         For each variant, the median paired difference against the REFERENCE
         run of the same round and scene, in ms and as a share of the
-        reference's grass cost (reference minus no-grass, both medians).
+        reference's grass cost (reference minus no-grass, both medians), for
+        frame time p50 (the default) or p95.
 
 Results append to target/bench-ab/results.jsonl, so rounds can be added later.
 A run whose log contains ERROR or a panic is rejected: a shader that fails to
@@ -62,6 +63,7 @@ def run_one(name, scene, grass_exe):
         print(text[-3000:])
         raise SystemExit(f"{name} {scene}: errors in the log, run rejected")
     found = {m.group(1): float(m.group(2)) for m in LINE.finditer(text)}
+    found.update({m.group(1) + " p95": float(m.group(3)) for m in LINE.finditer(text)})
     if "frame" not in found:
         print(text[-3000:])
         raise SystemExit(f"{name} {scene}: no summary in the log")
@@ -80,21 +82,23 @@ def run(rounds, names):
                 run_one(name, scene, grass_exe)
 
 
-def report(reference):
+def report(reference, percentile="p50"):
+    key = "frame" if percentile == "p50" else "frame p95"
     rows = [json.loads(line) for line in open(RESULTS, encoding="utf-8")]
+    rows = [r for r in rows if key in r]
     medians = {}
     for scene in SCENES:
         for name in ("nograss", reference):
-            values = [r["frame"] for r in rows if r["variant"] == name and r["scene"] == scene]
+            values = [r[key] for r in rows if r["variant"] == name and r["scene"] == scene]
             medians[(name, scene)] = statistics.median(values) if values else None
     last = {}
     deltas = {}
     for r in rows:
         if r["variant"] == reference:
-            last[r["scene"]] = r["frame"]
+            last[r["scene"]] = r[key]
         elif r["variant"] != "nograss" and r["scene"] in last:
-            deltas.setdefault((r["variant"], r["scene"]), []).append(r["frame"] - last[r["scene"]])
-    print(f"against {reference}; negative is faster")
+            deltas.setdefault((r["variant"], r["scene"]), []).append(r[key] - last[r["scene"]])
+    print(f"frame {percentile} against {reference}; negative is faster")
     for (name, scene), d in sorted(deltas.items()):
         m = statistics.median(d)
         ref, base = medians[(reference, scene)], medians[("nograss", scene)]
@@ -109,6 +113,6 @@ if __name__ == "__main__":
     elif command == "run":
         run(int(sys.argv[2]), sys.argv[3:])
     elif command == "report":
-        report(sys.argv[2])
+        report(sys.argv[2], *sys.argv[3:4])
     else:
         print(__doc__)
