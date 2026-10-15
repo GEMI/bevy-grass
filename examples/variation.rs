@@ -199,8 +199,9 @@ fn walk(
         transform.translation = at + Vec3::Y * (0.9 + 0.04 * (t * 6.0).sin().abs());
     }
     for mut transform in &mut cameras {
-        // Behind and to the side, high enough to see the trail.
-        let eye = Vec3::new(at.x - 3.5, 2.4, 5.5);
+        // Behind and to the side, 30° down like DEMO ARPG GAME's camera, so the
+        // trail of bent grass shows.
+        let eye = Vec3::new(at.x - 3.5, 4.5, 5.6);
         *transform = Transform::from_translation(eye)
             .looking_at(Vec3::new(at.x + 0.5, 0.5, at.z * 0.5), Vec3::Y);
     }
