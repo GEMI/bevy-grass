@@ -40,7 +40,7 @@ pub(crate) struct GrassSettings {
     pub density_scale: f32,
     /// The single LOD orthographic views draw (T3).
     pub orthographic_lod: u32,
-    /// Chunks one view can draw at once.
+    /// Slices of visible chunks one view can generate at once.
     pub max_visible_chunks: u32,
     /// Interactors each view stamps a frame.
     pub max_interactors: u32,
@@ -122,6 +122,8 @@ pub(crate) struct GrassViewBuffers {
     readback_values: Arc<Mutex<[u32; 4]>>,
     frames_since_readback: u32,
     capacities: [u32; 3],
+    /// Entries in `visible`.
+    max_slices: u32,
     warned: bool,
 }
 
@@ -153,7 +155,8 @@ impl GrassViewBuffers {
             uniform: UniformBuffer::default(),
             visible: buffer(
                 "grass_visible_chunks",
-                u64::from(settings.max_visible_chunks) * 8,
+                // A `VisibleChunk`: one slice of a visible chunk, 16 bytes.
+                u64::from(settings.max_visible_chunks) * 16,
                 BufferUsages::STORAGE,
             ),
             counters: buffer(
@@ -203,6 +206,7 @@ impl GrassViewBuffers {
             readback_values: Arc::new(Mutex::new([0; 4])),
             frames_since_readback: 0,
             capacities,
+            max_slices: settings.max_visible_chunks,
             warned: false,
         }
     }
@@ -432,7 +436,7 @@ fn check_readback(buffers: &mut GrassViewBuffers) {
                 .readback_state
                 .store(READBACK_IDLE, Ordering::Release);
             debug!(
-                "bevy_grass: {} visible chunks; blades per bucket {} / {} / {}",
+                "bevy_grass: {} visible chunk slices; blades per bucket {} / {} / {}",
                 counts[3], counts[0], counts[1], counts[2]
             );
             let over: Vec<String> = (0..3)
@@ -450,6 +454,14 @@ fn check_readback(buffers: &mut GrassViewBuffers) {
                     "bevy_grass: instance buffers overflowed ({}); extra blades are dropped. Raise \
                      GrassPlugin::instance_capacity or lower the style density.",
                     over.join(", ")
+                );
+            }
+            if counts[3] > buffers.max_slices && !buffers.warned {
+                buffers.warned = true;
+                warn!(
+                    "bevy_grass: {} visible chunk slices for {}; the grass of the rest is \
+                     dropped. Lower the style density or the grass radius.",
+                    counts[3], buffers.max_slices
                 );
             }
         }

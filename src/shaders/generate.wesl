@@ -37,10 +37,14 @@ import package::shaders::common::{
 /// tuft spacing of a 64-tuft tile.
 @group(0) @binding(10) var<storage, read> tuft_table: array<u32>;
 
-/// One visible chunk: its index and how many candidates it needs.
+/// One slice of a visible chunk's candidates: the chunk, the slice's first
+/// candidate and how many it holds. A dense chunk is several slices, so
+/// several workgroups generate it at once.
 struct VisibleChunk {
     chunk: u32,
-    candidates: u32,
+    first: u32,
+    count: u32,
+    _pad: u32,
 }
 
 struct DispatchArgs {
@@ -60,7 +64,7 @@ struct DrawArgs {
 // This view.
 @group(1) @binding(0) var<uniform> view: View;
 @group(1) @binding(1) var<storage, read_write> visible: array<VisibleChunk>;
-/// 0–2: blades per bucket (unclamped); 3: visible chunks (unclamped).
+/// 0–2: blades per bucket (unclamped); 3: visible chunk slices (unclamped).
 @group(1) @binding(2) var<storage, read_write> counters: array<atomic<u32>, 4>;
 @group(1) @binding(3) var<storage, read_write> instances: array<vec4<u32>>;
 @group(1) @binding(4) var<storage, read_write> draw_args: array<DrawArgs, 3>;
@@ -73,6 +77,8 @@ struct DrawArgs {
 @group(2) @binding(0) var<storage, read_write> dispatch: DispatchArgs;
 
 const WORKGROUP: u32 = 64u;
+/// Candidates per slice: one workgroup's share of a chunk.
+const SLICE: u32 = 512u;
 const FIXED_LOD_NONE: u32 = 3u;
 
 fn is_orthographic() -> bool {
@@ -149,9 +155,12 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     if needed == 0u {
         return;
     }
-    let slot = atomicAdd(&counters[3], 1u);
-    if slot < view.max_visible_chunks {
-        visible[slot] = VisibleChunk(index, needed);
+    let slices = (needed + SLICE - 1u) / SLICE;
+    let slot = atomicAdd(&counters[3], slices);
+    for (var s = 0u; s < slices; s++) {
+        if slot + s < view.max_visible_chunks {
+            visible[slot + s] = VisibleChunk(index, s * SLICE, min(SLICE, needed - s * SLICE), 0u);
+        }
     }
 }
 
@@ -398,14 +407,14 @@ var<workgroup> group_total: u32;
 var<workgroup> group_counts: array<atomic<u32>, 3>;
 var<workgroup> group_base: array<u32, 3>;
 
-/// One workgroup per visible chunk. Survivors are counted per bucket inside
+/// One workgroup per slice of a visible chunk. Survivors are counted per bucket inside
 /// the workgroup first, so the global counters see one atomic per bucket per
 /// 64 candidates instead of one per blade.
 @compute @workgroup_size(64)
 fn generate(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index) lane: u32) {
     let entry = visible[group.x];
     if lane == 0u {
-        group_total = entry.candidates;
+        group_total = entry.count;
     }
     let total = workgroupUniformLoad(&group_total);
     let chunk = chunks[entry.chunk];
@@ -422,7 +431,7 @@ fn generate(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_i
         var result: Generated;
         result.keep = false;
         if index < total {
-            result = evaluate(chunk, field, index);
+            result = evaluate(chunk, field, entry.first + index);
         }
         var slot = 0u;
         if result.keep {

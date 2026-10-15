@@ -189,8 +189,9 @@ pub struct GrassPlugin {
 /// Interactors stamped a frame when `GrassPlugin::max_interactors` is not set.
 const DEFAULT_MAX_INTERACTORS: u32 = 64;
 
-/// Chunks one camera can draw in a frame: 8,192 chunks of 16 m is a disc of
-/// about 800 m, far beyond any tier's radius.
+/// Slices of visible chunks one camera can generate in a frame. A dense chunk
+/// is several slices of 512 candidates (`generate.wesl`); the bench peaks at
+/// 739 at Ultra, so 8,192 leaves room for styles ten times as dense.
 const MAX_VISIBLE_CHUNKS: u32 = 8192;
 
 impl Plugin for GrassPlugin {

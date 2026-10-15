@@ -1,5 +1,6 @@
 //! The per-view compute passes (`shaders/generate.wesl`): trample decay and
-//! stamping, chunk cull, dispatch sizing, blade generation and draw
+//! stamping, chunk cull (which splits each visible chunk into slices),
+//! dispatch sizing, blade generation (one workgroup per slice) and draw
 //! arguments. Recorded once per
 //! frame before any camera renders, so the main and shadow passes of every
 //! view read instances that match this frame.
