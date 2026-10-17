@@ -42,9 +42,6 @@
 //! patches, dry tips and dead blades. Every kind is a setting of
 //! [`GrassStyle`], off at 0, and costs nothing while no field uses it;
 //! `GrassStyle::WILD` uses them all.
-//!
-//! The design, and what each milestone adds, is in
-//! `bevy-grass-architecture-plan.md` at the repository root.
 
 mod api;
 mod clock;

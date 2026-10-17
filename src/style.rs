@@ -364,7 +364,7 @@ impl GrassStyle {
         ..Self::MEADOW
     };
 
-    /// The six general-purpose presets, from the architecture plan.
+    /// The six general-purpose presets.
     pub const GENERAL: [Self; 6] = [
         Self::MEADOW,
         Self::TALL_PRAIRIE,

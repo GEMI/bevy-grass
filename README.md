@@ -27,7 +27,7 @@ blade lit by Bevy's own PBR.
 - **22 presets**, from lawn to prairie to wildflower meadow, also shipped as
   `.grass.ron` files that reload while the game runs.
 
-> **Status:** pre-release (0.1). Everything on this page is built and
+> **Status:** pre-release (0.2). Everything on this page is built and
 > tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
 > release are next; see [Roadmap](#roadmap).
 
@@ -56,7 +56,7 @@ bevy_grass = { git = "https://github.com/GEMI/bevy-grass" }
 
 | Bevy | bevy_grass |
 | --- | --- |
-| 0.20 | 0.1 |
+| 0.20 | 0.2 |
 
 Requirements:
 
@@ -374,7 +374,7 @@ It needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`, so
 adding this crate never changes how Bevy is compiled:
 
 ```toml
-bevy_grass = { version = "0.1", features = ["debug"] }
+bevy_grass = { version = "0.2", features = ["debug"] }
 ```
 
 ### Scenes, inspectors and save files
@@ -921,8 +921,8 @@ predate that change.
 Post-1.0 ideas: impostor cards for very distant grass, bushes, and style
 blending between overlapping fields.
 
-The full design and its measured results are in
-[`bevy-grass-architecture-plan.md`](bevy-grass-architecture-plan.md).
+What was measured, and what was tried and dropped, is in
+[`docs/performance.md`](docs/performance.md).
 
 ## License
 

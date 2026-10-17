@@ -2,3 +2,17 @@
 /shots
 __pycache__/
 /target-trace
+
+# The maintainer's working notes: the API review the P0/P1/P2 items came from.
+/notes/
+
+# Editors, operating systems, and what benchmark and screenshot runs leave
+# behind when they are not pointed at target/.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+*.csv
+*.orig
+*.rej

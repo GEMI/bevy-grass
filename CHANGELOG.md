@@ -3,11 +3,13 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## Unreleased
+## 0.2.0 (not released yet)
+
+The API and settings pass and the polish pass, below, as one version.
 
 ### The API and settings pass (October 16, 2026)
 
-Built from the review in [`review.md`](review.md), items P1-1 to P1-9.
+Built from a review of the crate's API and developer experience, items P1-1 to P1-9.
 
 **Breaking, and what to write instead**
 
@@ -99,8 +101,7 @@ files are written with the new ones.
 
 ## 0.1.0
 
-Not released. The first version: GPU-driven grass with levels of detail,
-wind, trampling, shadows, the prepass and deferred paths, flowers and other
-species, 22 presets, and `FarGrassMaterial`. See
-[`bevy-grass-architecture-plan.md`](bevy-grass-architecture-plan.md) for what
-each milestone added.
+Never released; the version the first milestones were built as. The first
+version: GPU-driven grass with levels of detail, wind, trampling, shadows, the
+prepass and deferred paths, flowers and other species, 22 presets, and
+`FarGrassMaterial`.
