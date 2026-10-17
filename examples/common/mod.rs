@@ -8,8 +8,11 @@
 //!   a screenshot is the same on every run and every machine.
 //! * `--perf` logs Bevy's per-pass CPU and GPU times once a second; the grass
 //!   compute pass appears as `grass_indirect_args`.
-//! * `--single-threaded` runs each app's systems on one thread (see
-//!   `single_threaded_schedules`); faster on CPUs with few cores.
+//! * `--single-threaded` runs both apps' systems on one thread each (see
+//!   `single_threaded_main_schedules` / `single_threaded_render_schedules`);
+//!   faster on CPUs with few cores. `--single-threaded-main` and
+//!   `--single-threaded-render` apply it to one app only, to attribute the
+//!   cost.
 //! * `--record DIR` saves every second frame of the last `--record-frames`
 //!   (default 600) before `--frames` as numbered PNGs in `DIR`: with
 //!   `--fixed-time`, 30 frames for each second of game time, for a video.
@@ -35,8 +38,12 @@ pub(crate) struct ExampleArgs {
     pub(crate) screenshot: Option<String>,
     pub(crate) fixed_time: bool,
     pub(crate) perf: bool,
-    /// Single-threaded schedules, from `--single-threaded`.
-    pub(crate) single_threaded: bool,
+    /// Single-threaded main-app schedules, from `--single-threaded` or
+    /// `--single-threaded-main`.
+    pub(crate) single_threaded_main: bool,
+    /// Single-threaded render-app schedules, from `--single-threaded` or
+    /// `--single-threaded-render`.
+    pub(crate) single_threaded_render: bool,
     /// Where `--record` saves frames, and how many frames it covers.
     pub(crate) record: Option<(String, u32)>,
     /// `DefaultPlugins` members to leave out, from `--without a,b,c`.
@@ -55,7 +62,12 @@ impl ExampleArgs {
                 "--screenshot" => args.screenshot = it.next(),
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
-                "--single-threaded" => args.single_threaded = true,
+                "--single-threaded" => {
+                    args.single_threaded_main = true;
+                    args.single_threaded_render = true;
+                }
+                "--single-threaded-main" => args.single_threaded_main = true,
+                "--single-threaded-render" => args.single_threaded_render = true,
                 "--without" => {
                     let list = it.next().expect("--without needs a comma-separated list");
                     args.without.extend(list.split(',').map(str::to_owned));
@@ -100,28 +112,27 @@ impl ExampleArgs {
     pub(crate) fn install(self, app: &mut App, title: &str) {
         let measuring = self.frames.is_some();
         let plugins = DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: title.into(),
-                        // Physical 1920x1080 whatever the display scaling, so measurements
-                        // compare across machines.
-                        resolution: WindowResolution::new(1920, 1080)
-                            .with_scale_factor_override(1.0),
-                        present_mode: if measuring {
-                            PresentMode::AutoNoVsync
-                        } else {
-                            PresentMode::AutoVsync
-                        },
-                        ..default()
-                    }),
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: title.into(),
+                    // Physical 1920x1080 whatever the display scaling, so measurements
+                    // compare across machines.
+                    resolution: WindowResolution::new(1920, 1080).with_scale_factor_override(1.0),
+                    present_mode: if measuring {
+                        PresentMode::AutoNoVsync
+                    } else {
+                        PresentMode::AutoVsync
+                    },
                     ..default()
-                })
-                .set(AssetPlugin {
-                    // The repository's `assets` folder, also when the example's exe
-                    // is started directly rather than through `cargo run`.
-                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
-                    ..default()
-                });
+                }),
+                ..default()
+            })
+            .set(AssetPlugin {
+                // The repository's `assets` folder, also when the example's exe
+                // is started directly rather than through `cargo run`.
+                file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
+                ..default()
+            });
         app.add_plugins(without_plugins(plugins, &self.without));
         if self.fixed_time {
             app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
@@ -135,8 +146,11 @@ impl ExampleArgs {
                 LogDiagnosticsPlugin::default(),
             ));
         }
-        if self.single_threaded {
-            single_threaded_schedules(app);
+        if self.single_threaded_main {
+            single_threaded_main_schedules(app);
+        }
+        if self.single_threaded_render {
+            single_threaded_render_schedules(app);
         }
         app.insert_resource(self)
             .init_resource::<FrameTimes>()
@@ -144,14 +158,13 @@ impl ExampleArgs {
     }
 }
 
-/// Runs the main app's per-frame schedules and the render app's schedules on
-/// one thread each. Pipelined rendering still puts the two apps on separate
-/// threads.
+/// Runs the main app's per-frame schedules on one thread. Pipelined rendering
+/// still puts the render app on its own thread.
 ///
 /// On a CPU with few cores a frame of Bevy is hundreds of small systems, and
 /// the multi-threaded executor spends more time waking threads than the
 /// systems take. See "The frame-time floor" in `docs/performance.md`.
-fn single_threaded_schedules(app: &mut App) {
+fn single_threaded_main_schedules(app: &mut App) {
     let single = |schedule: &mut Schedule| {
         schedule.set_executor(SingleThreadedExecutor::new());
     };
@@ -160,6 +173,15 @@ fn single_threaded_schedules(app: &mut App) {
         .edit_schedule(Update, single)
         .edit_schedule(PostUpdate, single)
         .edit_schedule(Last, single);
+}
+
+/// Runs the render app's schedules on one thread. Pipelined rendering still
+/// puts the two apps on separate threads, so this isolates the render
+/// executor's contribution to the frame.
+fn single_threaded_render_schedules(app: &mut App) {
+    let single = |schedule: &mut Schedule| {
+        schedule.set_executor(SingleThreadedExecutor::new());
+    };
     let render = app.sub_app_mut(RenderApp);
     render.edit_schedule(Render, single);
     render.edit_schedule(ExtractSchedule, single);
@@ -256,8 +278,18 @@ fn without_plugins(
     names: &[String],
 ) -> bevy::app::PluginGroupBuilder {
     const ALL: &[&str] = &[
-        "picking", "animation", "scene", "gilrs", "clipboard", "gltf", "states", "a11y",
-        "input-focus", "anti-alias", "post-process", "ui",
+        "picking",
+        "animation",
+        "scene",
+        "gilrs",
+        "clipboard",
+        "gltf",
+        "states",
+        "a11y",
+        "input-focus",
+        "anti-alias",
+        "post-process",
+        "ui",
     ];
     let mut wanted: Vec<&str> = Vec::new();
     for name in names {

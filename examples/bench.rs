@@ -15,6 +15,8 @@
 //! cargo run --example bench -- --species --tufts --shape --variation  # add variation
 //! cargo run --example bench -- --prepass  # a depth prepass on the camera
 //! cargo run --profile release-lto --example bench -- --single-threaded  # the fastest frame on few-core CPUs
+//! cargo run --profile release-lto --example bench -- --single-threaded-render
+//!     # attribute the executor cost: render app only (see docs/bevy-baseline-executor.md)
 //! cargo run --example bench -- --tier competitive --target-hz 240 --machine t1200
 //!     # the 240 Hz acceptance gate: exits non-zero when frame p95 exceeds 4.167 ms
 //! cargo run --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-grass.csv
@@ -160,7 +162,8 @@ struct Cli {
     tufts: bool,
     shape: bool,
     variation: bool,
-    single_threaded: bool,
+    single_threaded_main: bool,
+    single_threaded_render: bool,
     plugin: bool,
     gpu_timing: bool,
     terrain: bool,
@@ -187,7 +190,8 @@ impl Default for Cli {
             tufts: false,
             shape: false,
             variation: false,
-            single_threaded: false,
+            single_threaded_main: false,
+            single_threaded_render: false,
             plugin: true,
             gpu_timing: true,
             terrain: true,
@@ -218,7 +222,12 @@ fn parse_cli() -> Cli {
             "--tufts" => cli.tufts = true,
             "--shape" => cli.shape = true,
             "--variation" => cli.variation = true,
-            "--single-threaded" => cli.single_threaded = true,
+            "--single-threaded" => {
+                cli.single_threaded_main = true;
+                cli.single_threaded_render = true;
+            }
+            "--single-threaded-main" => cli.single_threaded_main = true,
+            "--single-threaded-render" => cli.single_threaded_render = true,
             // Read by `common::ExampleArgs`; skip its value here.
             "--without" => {
                 args.next();
@@ -272,7 +281,8 @@ fn main() {
         frames: Some(FRAMES),
         screenshot: cli.screenshot.clone(),
         perf: std::env::var_os("BENCH_PERF").is_some(),
-        single_threaded: cli.single_threaded,
+        single_threaded_main: cli.single_threaded_main,
+        single_threaded_render: cli.single_threaded_render,
         ..Default::default()
     }
     .install(&mut app, "bevy_grass: benchmark");

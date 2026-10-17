@@ -130,6 +130,8 @@ $B --single-threaded --no-plugin --no-gpu-timing --no-terrain --no-shadows
 
 If `--single-threaded` still wins on the faster CPU, the cost is scheduling overhead, not compute. If it loses, the faster CPU has enough cores to make Bevy's parallel executor pay off.
 
+To attribute the win to one app, run the same step with `--single-threaded-main` and with `--single-threaded-render` as well. On the i7-11850H the main app changed nothing and the render app owned about 87% of the saving; see [`docs/bevy-baseline-executor.md`](bevy-baseline-executor.md).
+
 ## 5. What to send back
 
 - The machine details from the setup section.

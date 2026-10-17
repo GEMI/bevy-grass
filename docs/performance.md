@@ -597,6 +597,19 @@ The follow-ups show two different limits. Four-core affinity leaves the empty fr
 
 Raw logs are in `target/cpu-floor-ladder.log` and `target/cpu-floor-followups.log` (not committed).
 
+## Which executor owns the CPU floor? (October 17, 2026)
+
+The i7 result above left one question: `--single-threaded` helps the empty frame, but it changes both apps. The example harness now has `--single-threaded-main` and `--single-threaded-render` to attribute it. Five interleaved rounds on the same i7 machine, empty scene:
+
+| Executor | p50 | Paired change |
+| --- | --- | --- |
+| Default multi-threaded | 1.351 ms | — |
+| Main app single-threaded | 1.349 ms | −0.1% |
+| **Render app single-threaded** | **1.029 ms** | **−23.8%** |
+| Both single-threaded | 0.983 ms | −27.3% |
+
+**The render app owns it.** Single-threading the main app changes nothing; single-threading the render app recovers about 87% of the total saving. Pipelined rendering stays on, so this is the render app's multi-threaded schedule executor coordinating small systems, not the two apps' threading. The High-tier control moved only −0.8% (render only) and −1.4% (both), because that frame is GPU-bound on the T1200. Full method, caveats and reproduction are in [`docs/bevy-baseline-executor.md`](bevy-baseline-executor.md), with a draft upstream issue in [`docs/bevy-issue-baseline-executor.md`](bevy-issue-baseline-executor.md).
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
