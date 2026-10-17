@@ -56,11 +56,31 @@ const ROWS: [&[&str]; 5] = [
     ],
 ];
 
-const WINDS: [(&str, GrassWind); 4] = [
+const WINDS: [(&str, GrassWind); 6] = [
     ("calm", GrassWind::CALM),
     ("breeze", GrassWind::BREEZE),
     ("gusty", GrassWind::GUSTY),
     ("storm", GrassWind::STORM),
+    // The breeze with its movement reshaped (see `GrassWind::sway` and the
+    // other multipliers): steady, with no gusts and no sway ...
+    (
+        "steady",
+        GrassWind {
+            sway: 0.0,
+            gust_contrast: 0.0,
+            ..GrassWind::BREEZE
+        },
+    ),
+    // ... and a lively one, with deep waves and blades that sway fast.
+    (
+        "lively",
+        GrassWind {
+            sway: 2.5,
+            sway_speed: 2.0,
+            gust_contrast: 2.5,
+            ..GrassWind::BREEZE
+        },
+    ),
 ];
 
 fn main() {
@@ -93,6 +113,8 @@ fn pick_wind(
         KeyCode::Digit2,
         KeyCode::Digit3,
         KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
     ]
     .iter()
     .position(|key| keys.just_pressed(*key));

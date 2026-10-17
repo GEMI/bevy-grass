@@ -158,6 +158,9 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
         radius: view.radius,
         lod_start: [view.lod1_start, view.lod2_start],
         band: view.lod_band,
+        fade_start: view.lod_density.w,
+        density_at: [view.lod_density.x, view.lod_density.y],
+        mid_range_density: view.lod_density.z,
     };
     let camera = view.camera_position.truncate();
     let origin = view.instance_origin;
@@ -222,11 +225,11 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             let lod = lod_table.lod(distance, mirror::unit(mirror::hash(candidate.seed ^ 0x10d)));
             let width = field.shape.z
                 * (0.75 + 0.5 * mirror::unit(mirror::hash(candidate.seed ^ 0x77)))
-                * mirror::coverage_width(falloff);
+                * mirror::coverage_width(falloff, view.limits.x);
             let relative = root - origin.truncate();
             let qx = quantize(relative.x / (2.0 * origin.w) + 0.5, 65535.0);
             let qz = quantize(relative.z / (2.0 * origin.w) + 0.5, 65535.0);
-            let qy = quantize(relative.y / (2.0 * mirror::HEIGHT_RANGE) + 0.5, 65535.0);
+            let qy = quantize(relative.y / (2.0 * view.limits.w) + 0.5, 65535.0);
             let facing =
                 (mirror::unit(mirror::hash(candidate.seed ^ 0x66)).fract() * 256.0) as u32 & 0xff;
             out.push([
@@ -294,7 +297,32 @@ fn headless_app() -> App {
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_generation_matches_the_cpu_mirror() {
+    generation_matches_the_cpu_mirror(crate::GrassSettings::HIGH);
+}
+
+/// Every distance, density and width a game can set reaches the shaders: the
+/// GPU and the CPU mirror, which reads them back from the view uniform, still
+/// agree blade for blade.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_generation_matches_the_cpu_mirror_with_other_distances_and_densities() {
+    generation_matches_the_cpu_mirror(crate::GrassSettings {
+        radius: 80.0,
+        lod1_start: 0.1,
+        lod2_start: 0.35,
+        fade_start: 0.7,
+        lod_blend: 9.0,
+        lod2_density: 0.7,
+        fade_density: 0.3,
+        mid_range_density: 0.8,
+        max_widening: 1.6,
+        ..crate::GrassSettings::HIGH
+    });
+}
+
+fn generation_matches_the_cpu_mirror(settings: crate::GrassSettings) {
     let mut app = headless_app();
+    app.insert_resource(settings);
 
     // Shaders compile asynchronously; wait until a frame has produced grass.
     let mut result = None;
@@ -308,6 +336,21 @@ fn gpu_generation_matches_the_cpu_mirror() {
         }
     }
     let (view, gpu) = result.expect("the GPU produced no grass in 600 frames");
+    // The shaders were handed what was asked for.
+    assert_eq!(view.radius, settings.radius);
+    assert_eq!(view.lod1_start, settings.radius * settings.lod1_start);
+    assert_eq!(view.lod2_start, settings.radius * settings.lod2_start);
+    assert_eq!(view.lod_band, settings.lod_blend);
+    assert_eq!(
+        view.lod_density,
+        Vec4::new(
+            settings.lod2_density,
+            settings.fade_density,
+            settings.mid_range_density,
+            settings.fade_start
+        )
+    );
+    assert_eq!(view.limits.x, settings.max_widening);
     let tables = app.world().resource::<FieldTables>().clone();
     let cpu = cpu_instances(&tables, &view);
 
@@ -607,6 +650,18 @@ fn view_after(app: &mut App, frames: usize) -> (ViewUniformData, usize) {
     (uniform, instances.len())
 }
 
+/// Updates until the first grass view holds blades: the shaders compile
+/// asynchronously, so how many frames that takes varies.
+fn wait_for_grass(app: &mut App) {
+    for _ in 0..600 {
+        app.update();
+        if gpu_instances(app).is_some_and(|(_, instances)| !instances.is_empty()) {
+            return;
+        }
+    }
+    panic!("no grass in 600 frames");
+}
+
 #[test]
 #[ignore = "needs a GPU: cargo test -- --ignored gpu"]
 fn gpu_every_setting_takes_effect_at_runtime() {
@@ -878,4 +933,491 @@ fn gpu_stats_and_diagnostics_report_what_the_gpu_generated() {
     // What was wanted is still reported: far more than fit.
     let wanted: u32 = app.world().resource::<GrassStats>().gpu.blades.iter().sum();
     assert!(wanted > 2_000 + 1_000 + 1_000, "{wanted}");
+}
+
+/// Blades per level of detail among a view's instances.
+fn blades_per_lod(app: &mut App) -> [usize; 3] {
+    let (_, instances) = gpu_instances(app).expect("a grass view");
+    let mut counts = [0; 3];
+    for words in instances {
+        counts[((words[2] >> 24) & 3) as usize] += 1;
+    }
+    counts
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_distance_and_budget_settings_change_what_is_drawn() {
+    use crate::GrassSettings;
+
+    let mut app = headless_app();
+    let mut start = (ViewUniformData::default(), 0);
+    for _ in 0..600 {
+        start = view_after(&mut app, 1);
+        if start.1 > 0 {
+            break;
+        }
+    }
+    let (_, all) = start;
+    assert!(all > 10_000, "the test scene should place many blades");
+    let lods = blades_per_lod(&mut app);
+    let high = GrassSettings::HIGH;
+
+    // The first level of detail starting sooner leaves fewer full-detail
+    // blades, and the uniform carries the new distance.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        lod1_start: 0.05,
+        ..high
+    };
+    let (view, _) = view_after(&mut app, 4);
+    assert_eq!(view.lod1_start, high.radius * 0.05);
+    let sooner = blades_per_lod(&mut app);
+    assert!(
+        sooner[0] * 2 < lods[0],
+        "{} full-detail blades with LOD 1 at 5 m, {} at 20 m",
+        sooner[0],
+        lods[0]
+    );
+
+    // Keeping all of the mid-range blades draws more of them.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        mid_range_density: 1.0,
+        ..high
+    };
+    let (view, denser) = view_after(&mut app, 4);
+    assert_eq!(view.lod_density.z, 1.0);
+    assert!(
+        denser as f32 > all as f32 * 1.2,
+        "{denser} blades with the whole mid-range, {all} with half"
+    );
+
+    // No thinning at all by distance: nothing is lost before the fade.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        lod2_density: 1.0,
+        fade_density: 1.0,
+        mid_range_density: 1.0,
+        ..high
+    };
+    let (_, unthinned) = view_after(&mut app, 4);
+    assert!(unthinned > denser, "{unthinned} against {denser}");
+
+    // A narrower budget of chunk slices makes buffers of that size and drops
+    // the grass that does not fit.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        max_chunk_slices: 32,
+        ..high
+    };
+    let (view, limited) = view_after(&mut app, 6);
+    assert_eq!(view.max_visible_chunks, 32, "the buffers were not remade");
+    assert!(limited > 0 && limited < all, "{limited} of {all} blades");
+    *app.world_mut().resource_mut::<GrassSettings>() = high;
+    let (view, again) = view_after(&mut app, 6);
+    assert_eq!(view.max_visible_chunks, high.max_chunk_slices);
+    assert_eq!(
+        again, all,
+        "the same grass comes back with the same settings"
+    );
+
+    // How far blades turn toward the camera, and how wide thin ones grow, are
+    // in the view's limits.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        turn_to_camera: 1.0,
+        max_widening: 3.0,
+        ..high
+    };
+    let (view, _) = view_after(&mut app, 4);
+    assert_eq!((view.limits.x, view.limits.z), (3.0, 1.0));
+
+    // Distances given out of order are put in order.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        lod1_start: 0.6,
+        lod2_start: 0.3,
+        fade_start: 0.1,
+        ..high
+    };
+    let (view, _) = view_after(&mut app, 4);
+    assert_eq!(view.lod1_start, high.radius * 0.6);
+    assert_eq!(
+        view.lod2_start,
+        high.radius * 0.6,
+        "LOD 2 cannot precede LOD 1"
+    );
+    assert_eq!(view.lod_density.w, 0.6, "nor the fade precede LOD 2");
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_the_counters_are_read_back_as_often_as_the_settings_say() {
+    use crate::{GrassSettings, GrassStats};
+
+    // A reading every 2 frames: plenty in 90.
+    let mut app = headless_app();
+    app.insert_resource(GrassSettings {
+        readback_interval: 2,
+        ..GrassSettings::HIGH
+    });
+    wait_for_grass(&mut app);
+    for _ in 0..90 {
+        app.update();
+    }
+    let readings = app.world().resource::<GrassStats>().gpu.readings;
+    assert!(readings >= 5, "{readings} readings at one in 2 frames");
+
+    // Never: nothing is read however long the game runs.
+    let mut app = headless_app();
+    app.insert_resource(GrassSettings {
+        readback_interval: 0,
+        ..GrassSettings::HIGH
+    });
+    wait_for_grass(&mut app);
+    for _ in 0..300 {
+        app.update();
+    }
+    let stats = app.world().resource::<GrassStats>();
+    assert_eq!(stats.gpu.readings, 0);
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_trample_settings_decide_how_far_and_how_long_grass_lies_down() {
+    use crate::GrassSettings;
+
+    // A 4 m interactor in still air, and the bends of blades 2.6 to 3.4 m
+    // from its centre, which a 2 m cap leaves alone.
+    let at = Vec2::new(4.0, 12.0);
+    let ring = |app: &mut App| -> Vec<f32> {
+        gpu_bends(app)
+            .into_iter()
+            .filter(|(root, _)| (2.6..3.4).contains(&root.distance(at)))
+            .map(|(_, bend)| bend.length())
+            .collect()
+    };
+    let spawn = |app: &mut App| {
+        app.insert_resource(GrassWind {
+            strength: 0.0,
+            ..GrassWind::CALM
+        });
+        app.world_mut()
+            .spawn((
+                GrassInteractor {
+                    radius: 4.0,
+                    strength: 1.0,
+                    ..Default::default()
+                },
+                Transform::from_xyz(at.x, 0.5, at.y),
+            ))
+            .id()
+    };
+
+    let mut capped = headless_app();
+    spawn(&mut capped);
+    wait_for_grass(&mut capped);
+    for _ in 0..10 {
+        capped.update();
+    }
+    let bends = ring(&mut capped);
+    assert!(bends.len() > 20, "{} blades in the ring", bends.len());
+    assert!(
+        bends.iter().all(|&b| b < 0.1),
+        "a 4 m interactor reached past the 2 m default"
+    );
+
+    let mut wide = headless_app();
+    wide.insert_resource(GrassSettings {
+        max_interactor_radius: 6.0,
+        ..GrassSettings::HIGH
+    });
+    let interactor = spawn(&mut wide);
+    wait_for_grass(&mut wide);
+    for _ in 0..10 {
+        wide.update();
+    }
+    let bends = ring(&mut wide);
+    assert!(bends.len() > 20, "{} blades in the ring", bends.len());
+    assert!(
+        bends.iter().filter(|&&b| b > 0.2).count() * 2 > bends.len(),
+        "most of the ring should lie down: {bends:?}"
+    );
+    // The view was told the cap, and the cells of its window.
+    let (view, _) = gpu_instances(&mut wide).expect("a grass view");
+    assert_eq!(view.limits.y, 6.0);
+    assert_eq!(view.trample_step.x, 0.25);
+
+    // Slower recovery: two seconds after the interactor leaves, the grass is
+    // still down, where at the default 1.5 s it would have stood up again.
+    wide.world_mut().despawn(interactor);
+    *wide.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        max_interactor_radius: 6.0,
+        trample_recovery: 12.0,
+        ..GrassSettings::HIGH
+    };
+    for _ in 0..120 {
+        wide.update();
+    }
+    let (view, _) = gpu_instances(&mut wide).expect("a grass view");
+    assert!((view.trample_step.y - (1.0 / 60.0) / 12.0).abs() < 1e-5);
+    let slow = gpu_bends(&mut wide)
+        .into_iter()
+        .filter(|(root, _)| root.distance(at) < 1.5)
+        .map(|(_, bend)| bend.length())
+        .collect::<Vec<_>>();
+    assert!(!slow.is_empty());
+    assert!(
+        slow.iter().all(|&b| b > 0.5),
+        "grass stood up too soon: {slow:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_trample_cells_of_another_size_make_another_window() {
+    use crate::GrassSettings;
+
+    let mut app = headless_app();
+    wait_for_grass(&mut app);
+    let (default_view, _) = gpu_instances(&mut app).expect("a grass view");
+    assert_eq!(default_view.trample_step.x, 0.25);
+    let camera = default_view.camera_position;
+    let camera = Vec2::new(camera.x, camera.z);
+    // The 64 m window of the default is centred on the camera.
+    let origin = Vec2::new(
+        default_view.trample_origin.x as f32,
+        default_view.trample_origin.y as f32,
+    ) * 0.25;
+    assert!((origin + Vec2::splat(32.0) - camera).abs().max_element() <= 0.5);
+
+    app.insert_resource(GrassSettings {
+        trample_cell_size: 1.0,
+        ..GrassSettings::HIGH
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    let (view, _) = gpu_instances(&mut app).expect("a grass view");
+    assert_eq!(view.trample_step.x, 1.0);
+    // 256 cells of a metre: a 256 m window, centred on the camera.
+    let origin = Vec2::new(view.trample_origin.x as f32, view.trample_origin.y as f32);
+    assert!((origin + Vec2::splat(128.0) - camera).abs().max_element() <= 1.0);
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_an_orthographic_camera_stores_blades_over_the_extent_the_settings_give() {
+    use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
+
+    use crate::GrassSettings;
+
+    // A map camera 600 m above a field 0.5 m high: further down than the
+    // 256 m a default view stores, so only a bigger extent places the grass.
+    let mut app = headless_app();
+    app.insert_resource(GrassSettings {
+        orthographic_extent: 1_024.0,
+        ..GrassSettings::HIGH
+    });
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            320,
+            180,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        ));
+    let map = app
+        .world_mut()
+        .spawn((
+            Camera3d::default(),
+            RenderTarget::Image(target.into()),
+            Camera {
+                order: 1,
+                ..default()
+            },
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical {
+                    viewport_height: 60.0,
+                },
+                far: 2_000.0,
+                ..OrthographicProjection::default_3d()
+            }),
+            Transform::from_xyz(3.0, 600.0, -4.0).looking_to(Vec3::NEG_Y, Vec3::NEG_Z),
+        ))
+        .id();
+
+    let mut seen = None;
+    for _ in 0..600 {
+        app.update();
+        if let Some((view, words)) = gpu_words_of(&mut app, Some(map))
+            && !words.is_empty()
+        {
+            seen = Some((view, words));
+            break;
+        }
+    }
+    let (view, words) = seen.expect("the map camera should draw grass");
+    assert_eq!(view.instance_origin.w, 1_024.0);
+    assert_eq!(view.limits.w, 1_024.0, "the vertical range follows");
+    // Every blade is where the field is: 0.5 m up, within a step or two of
+    // the 16-bit grid (3 cm here).
+    for word in &words {
+        let y = ((word[1] & 0xffff) as f32 / 65535.0 - 0.5) * 2.0 * view.limits.w
+            + view.instance_origin.y;
+        assert!((y - 0.5).abs() < 0.1, "a blade at {y} m");
+    }
+}
+
+/// The index count of each bucket's indirect draw for the first grass view.
+fn draw_index_counts(app: &mut App) -> [u32; 3] {
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let mut views = world.query::<&GrassViewBuffers>();
+    let buffers = views.iter(world).next().expect("a grass view");
+    // Three `DrawIndexedIndirectArgs` of five words; the first is the count.
+    let words = read_buffer(&device, &queue, &buffers.draw_args, 60);
+    [words[0], words[5], words[10]]
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_the_rows_of_a_blade_are_a_setting_and_the_meshes_follow_it() {
+    use crate::GrassSettings;
+
+    let mut app = headless_app();
+    let mut start = (ViewUniformData::default(), 0);
+    for _ in 0..600 {
+        start = view_after(&mut app, 1);
+        if start.1 > 0 {
+            break;
+        }
+    }
+    let (_, all) = start;
+    // A strip of `rows` rows is `2 * rows - 1` triangles: 13, 5 and 1.
+    assert_eq!(draw_index_counts(&mut app), [39, 15, 3]);
+
+    // Fewer rows: the meshes are built again, and the same blades are drawn
+    // with them.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        blade_rows: [4, 2, 1],
+        ..GrassSettings::HIGH
+    };
+    let (_, same) = view_after(&mut app, 4);
+    assert_eq!(draw_index_counts(&mut app), [21, 9, 3]);
+    assert_eq!(same, all, "the rows change the mesh, not the placement");
+
+    // More rows than the default.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        blade_rows: [16, 8, 2],
+        ..GrassSettings::HIGH
+    };
+    view_after(&mut app, 4);
+    assert_eq!(draw_index_counts(&mut app), [93, 45, 9]);
+
+    // And back.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings::HIGH;
+    view_after(&mut app, 4);
+    assert_eq!(draw_index_counts(&mut app), [39, 15, 3]);
+}
+
+/// Standard deviation of the bend along x of every blade the first view
+/// holds.
+fn bend_spread(app: &mut App) -> f32 {
+    let bends: Vec<f32> = gpu_bends(app).into_iter().map(|(_, bend)| bend.x).collect();
+    assert!(
+        bends.len() > 10_000,
+        "the test scene should place many blades"
+    );
+    let mean = bends.iter().sum::<f32>() / bends.len() as f32;
+    (bends.iter().map(|b| (b - mean).powi(2)).sum::<f32>() / bends.len() as f32).sqrt()
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
+    use crate::render::resources::ExtractedGrass;
+
+    let mut app = headless_app();
+    // A steady wind: no gusts to differ, no sway to tell blades apart.
+    app.insert_resource(GrassWind {
+        sway: 0.0,
+        gust_contrast: 0.0,
+        ..GrassWind::BREEZE
+    });
+    wait_for_grass(&mut app);
+    for _ in 0..10 {
+        app.update();
+    }
+    let steady = bend_spread(&mut app);
+    assert!(
+        steady < 0.003,
+        "{steady}: blades bend alike without gusts and sway"
+    );
+
+    // Sway alone tells blades apart, and more of it more so.
+    app.insert_resource(GrassWind {
+        sway: 1.0,
+        gust_contrast: 0.0,
+        ..GrassWind::BREEZE
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    let swaying = bend_spread(&mut app);
+    assert!(swaying > 0.01, "{swaying}");
+    app.insert_resource(GrassWind {
+        sway: 3.0,
+        gust_contrast: 0.0,
+        ..GrassWind::BREEZE
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    let swaying_more = bend_spread(&mut app);
+    assert!(
+        swaying_more > swaying * 2.0,
+        "{swaying_more} against {swaying}"
+    );
+
+    // Gusts alone make the waves across the field, and a higher contrast
+    // makes them deeper.
+    app.insert_resource(GrassWind {
+        sway: 0.0,
+        gust_contrast: 1.0,
+        ..GrassWind::BREEZE
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    let gusting = bend_spread(&mut app);
+    assert!(gusting > 0.02, "{gusting}");
+    app.insert_resource(GrassWind {
+        sway: 0.0,
+        gust_contrast: 3.0,
+        ..GrassWind::BREEZE
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    let gusting_more = bend_spread(&mut app);
+    assert!(
+        gusting_more > gusting * 1.5,
+        "{gusting_more} against {gusting}"
+    );
+
+    // The speed of the sway and the flutter of the tips are in the frame the
+    // shaders read, clamped at zero.
+    app.insert_resource(GrassWind {
+        sway_speed: 0.5,
+        flutter: -3.0,
+        ..GrassWind::BREEZE
+    });
+    for _ in 0..3 {
+        app.update();
+    }
+    let frame = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<ExtractedGrass>()
+        .frame;
+    assert_eq!((frame.sway_speed, frame.flutter), (0.5, 0.0));
+    assert_eq!((frame.sway, frame.gust_contrast), (1.0, 1.0));
 }

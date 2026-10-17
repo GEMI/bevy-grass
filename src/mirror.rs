@@ -14,6 +14,8 @@ use bevy::math::IVec2;
 use bevy::math::Vec2;
 #[cfg(test)]
 use bevy::math::Vec3;
+
+use crate::GrassSettings;
 #[cfg(test)]
 use std::f32::consts::TAU;
 
@@ -26,13 +28,10 @@ pub(crate) const TILE_POINTS: u32 = 1024;
 pub(crate) const HEIGHT_RANGE: f32 = 256.0;
 
 /// An instance's width encodes up to this many times its style's width, room
-/// for the ±25% per-blade variation times the 2.5× coverage widening.
+/// for the ±25% per-blade variation times the coverage widening, up to
+/// `GrassSettings::MAX_WIDENING` (3.2×; 2.5× by default).
 #[cfg(test)]
 pub(crate) const WIDTH_RANGE: f32 = 4.0;
-
-/// Rows per level of detail. A row is two vertices; every blade also has a
-/// single tip vertex, so LOD 0 is 15 vertices and 13 triangles.
-pub(crate) const LOD_ROWS: [u32; 3] = [7, 3, 1];
 
 /// Vertex-index stride between levels of detail.
 ///
@@ -199,16 +198,9 @@ pub(crate) fn keep_fraction(density: f32, scale: f32, layout: &ChunkLayout) -> f
     (density * scale / layout.candidate_density).clamp(0.0, 1.0)
 }
 
-/// The share of blades kept from the start of LOD 1 on, on top of the
-/// architecture's distance thinning; coverage widening makes the survivors
-/// wider. Thin blades waste most of the fragment work on the 2×2 pixel quads
-/// GPUs shade in, so half as many blades at 1.4× the width cost 16% less in
-/// the perspective benchmark and look the same. The WESL twin is
-/// `MID_RANGE_DENSITY`.
-#[cfg(test)]
-pub(crate) const MID_RANGE_DENSITY: f32 = 0.5;
-
-/// Distance-based thinning and level of detail for perspective views.
+/// Distance-based thinning and level of detail for perspective views, from a
+/// [`GrassSettings`]. The tier's own table is the architecture's: 100% to
+/// the start of LOD 1, 50% where LOD 2 starts, 15% where the fade starts.
 ///
 /// Orthographic views use none of it: every blade is the same size on screen,
 /// so they keep full density and one fixed LOD per tier (T3 in the plan).
@@ -220,46 +212,73 @@ pub(crate) struct DistanceLod {
     pub lod_start: [f32; 2],
     /// Width of the dithered band around each LOD boundary, in metres.
     pub band: f32,
+    /// Where the last fade begins, as a share of `radius`.
+    pub fade_start: f32,
+    /// The share of the blades kept where LOD 2 begins, and where the fade
+    /// begins.
+    pub density_at: [f32; 2],
+    /// The share of blades kept from the start of LOD 1 on, on top of the
+    /// thinning; coverage widening makes the survivors wider. Thin blades
+    /// waste most of the fragment work on the 2×2 pixel quads GPUs shade in,
+    /// so half as many blades at 1.4× the width cost 16% less in the
+    /// perspective benchmark and look the same.
+    pub mid_range_density: f32,
 }
 
 impl DistanceLod {
-    /// The High-tier table from the architecture, scaled to `radius`.
-    pub(crate) fn for_radius(radius: f32) -> Self {
+    /// The table `settings` ask for, scaled to its radius.
+    pub(crate) fn from_settings(settings: &GrassSettings) -> Self {
         Self {
-            radius,
-            lod_start: [radius * 0.2, radius * 0.5],
-            band: 4.0,
+            radius: settings.radius,
+            lod_start: [
+                settings.radius * settings.lod1_start,
+                settings.radius * settings.lod2_start,
+            ],
+            band: settings.lod_blend,
+            fade_start: settings.fade_start,
+            density_at: [settings.lod2_density, settings.fade_density],
+            mid_range_density: settings.mid_range_density,
         }
+    }
+
+    /// The High-tier table from the architecture, scaled to `radius`.
+    #[cfg(test)]
+    pub(crate) fn for_radius(radius: f32) -> Self {
+        Self::from_settings(&GrassSettings {
+            radius,
+            ..GrassSettings::HIGH
+        })
     }
 
     /// Share of the full density drawn at `distance`. The architecture's
     /// table (100% to the start of LOD 1, 50% where LOD 2 starts, 15% at 90%
     /// of the radius, then fading to nothing at the radius so the edge never
-    /// shows as a line), times [`MID_RANGE_DENSITY`] from LOD 1's dither band
+    /// shows as a line), times `mid_range_density` from LOD 1's dither band
     /// on. The WESL twin is `density_falloff`.
     #[cfg(test)]
     pub(crate) fn falloff(&self, distance: f32) -> f32 {
         let into_lod1 =
             ((distance - (self.lod_start[0] - self.band * 0.5)) / self.band).clamp(0.0, 1.0);
-        self.distance_thinning(distance) * lerp(1.0, MID_RANGE_DENSITY, into_lod1)
+        self.distance_thinning(distance) * lerp(1.0, self.mid_range_density, into_lod1)
     }
 
     /// The architecture's table alone. The WESL twin is `distance_thinning`.
     #[cfg(test)]
     fn distance_thinning(&self, distance: f32) -> f32 {
         let [lod1, lod2] = self.lod_start;
-        let edge = self.radius * 0.9;
+        let [at_lod2, at_edge] = self.density_at;
+        let edge = self.radius * self.fade_start;
         if distance <= lod1 {
             1.0
         } else if distance <= lod2 {
-            lerp(1.0, 0.5, (distance - lod1) / (lod2 - lod1))
+            lerp(1.0, at_lod2, (distance - lod1) / (lod2 - lod1))
         } else if distance <= edge {
-            lerp(0.5, 0.15, (distance - lod2) / (edge - lod2))
+            lerp(at_lod2, at_edge, (distance - lod2) / (edge - lod2))
         } else {
             lerp(
-                0.15,
+                at_edge,
                 0.0,
-                ((distance - edge) / (self.radius - edge)).min(1.0),
+                ((distance - edge) / (self.radius - edge).max(1e-4)).min(1.0),
             )
         }
     }
@@ -281,11 +300,11 @@ impl DistanceLod {
 }
 
 /// Width multiplier that keeps coverage constant as density thins: blades
-/// widen by the inverse square root of the density drop, at most 2.5×. The
-/// WESL twin is `coverage_width`.
+/// widen by the inverse square root of the density drop, at most `max` times
+/// (2.5 by default). The WESL twin is `coverage_width`.
 #[cfg(test)]
-pub(crate) fn coverage_width(falloff: f32) -> f32 {
-    (1.0 / falloff.max(0.16).sqrt()).min(2.5)
+pub(crate) fn coverage_width(falloff: f32, max: f32) -> f32 {
+    (1.0 / falloff.max(1.0 / (max * max)).sqrt()).min(max)
 }
 
 #[cfg(test)]
@@ -872,9 +891,13 @@ mod tests {
 
     #[test]
     fn coverage_widening_matches_the_architecture() {
-        assert_eq!(coverage_width(1.0), 1.0);
-        assert!((coverage_width(0.5) - 2f32.sqrt()).abs() < 1e-6);
-        assert_eq!(coverage_width(0.01), 2.5);
+        assert_eq!(coverage_width(1.0, 2.5), 1.0);
+        assert!((coverage_width(0.5, 2.5) - 2f32.sqrt()).abs() < 1e-6);
+        assert_eq!(coverage_width(0.01, 2.5), 2.5);
+        // A game can allow more or less widening.
+        assert_eq!(coverage_width(0.01, 1.0), 1.0);
+        assert_eq!(coverage_width(0.01, 3.0), 3.0);
+        assert!((coverage_width(0.25, 3.0) - 2.0).abs() < 1e-6);
     }
 
     #[test]
@@ -1089,17 +1112,20 @@ mod tests {
     #[test]
     fn lods_have_the_planned_vertex_and_triangle_counts() {
         let expected = [(15, 13), (7, 5), (3, 1)];
-        for (rows, (vertices, triangles)) in LOD_ROWS.iter().zip(expected) {
+        for (rows, (vertices, triangles)) in GrassSettings::HIGH.blade_rows.iter().zip(expected) {
             let indices = lod_indices(*rows);
             assert_eq!(indices.len() / 3, triangles);
             assert_eq!(indices.iter().max().copied().unwrap() + 1, vertices);
             assert!(vertices < LOD_VERTEX_STRIDE);
         }
+        // The most rows a game may ask for still fit the stride.
+        let most = lod_indices(GrassSettings::MAX_BLADE_ROWS);
+        assert!(most.iter().max().copied().unwrap() < LOD_VERTEX_STRIDE);
     }
 
     #[test]
     fn width_range_covers_variation_times_widening() {
-        assert!(WIDTH_RANGE >= 1.25 * coverage_width(0.0));
+        assert!(WIDTH_RANGE >= 1.25 * coverage_width(0.0, GrassSettings::MAX_WIDENING));
     }
     #[test]
     fn trample_pushes_round_trip_within_quantization() {

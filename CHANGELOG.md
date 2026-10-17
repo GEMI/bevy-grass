@@ -99,6 +99,51 @@ files are written with the new ones.
 - The `.grass.ron` format is declared once, in one macro, from the settings it
   holds; a new setting is one line there, and a test fails if one is missing.
 
+### The tunables pass (October 17, 2026)
+
+Numbers that were fixed in the code and shaders, and that another game might
+want different, are settings now. **Every default is the number it replaces**,
+so nothing changes unless you set one: the golden images are identical, and a
+GPU test checks the shaders against the CPU mirror at the defaults and at
+other values.
+
+**Added to `GrassSettings`** (the first group are its distances and densities;
+see the README's table for each range and default):
+
+- The blade mesh: `blade_rows` (rows per level of detail, `[7, 3, 1]`).
+- Distance and thinning: `lod1_start`, `lod2_start` and `fade_start` (shares
+  of `radius`), `lod_blend` (width of the dithered band between levels, in
+  metres), `lod2_density`, `fade_density` and `mid_range_density` (how many
+  blades are kept at each distance), `max_widening` (how far thinned blades
+  widen), `turn_to_camera` (how far a blade seen edge-on turns toward the
+  camera).
+- Limits of a view: `orthographic_extent` (the area around an orthographic
+  camera in which blades are stored: it was a fixed 256 m, and a blade
+  further away was misplaced), `max_chunk_slices` (the work list of blade
+  generation, a fixed 8,192) and `readback_interval` (frames between the
+  GPU readbacks behind `GrassStats` and the overflow warnings; 0 turns them
+  off).
+- Trampling: `trample_recovery` (seconds, was 1.5), `trample_cell_size`
+  (metres, was 0.25: the window is 256 cells across, so it was 64 m) and
+  `max_interactor_radius` (metres, was 2).
+
+**Added to `GrassWind`**: `sway`, `sway_speed`, `flutter` and `gust_contrast`,
+multipliers of the wind's movement that are 1 in every preset.
+
+**Breaking**
+
+| Before | Now |
+| --- | --- |
+| `GrassSettings { radius, density_scale, min_width_px, shadows, orthographic_lod, instance_capacity, max_interactors }` written out in full | add `..GrassSettings::HIGH` (or any tier): the struct has more settings, all with defaults. Code that starts from a tier is unaffected |
+| `GrassWind { direction, strength, gust_scale, gust_speed }` written out in full | add `..GrassWind::BREEZE` (or any preset) |
+
+**Internal**
+
+- The CPU mirror of the distance table, `DistanceLod`, is built from the
+  settings; a test runs the GPU against it with other distances.
+- `GrassDebugPlugin` draws the trample window and the interactor discs the
+  settings give, and needs `GrassSettings` (which `GrassPlugin` inserts).
+
 ## 0.1.0
 
 Never released; the version the first milestones were built as. The first

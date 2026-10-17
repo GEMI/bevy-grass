@@ -90,7 +90,7 @@ These are features, not optimizations, so the 10% rule does not apply. Each was 
 
 ### Trampling (step 3.1)
 
-Each camera keeps 256 × 256 cells of 0.25 m (64 m) around what it looks at. Cells are addressed modulo 256, so trails stay in world space without copying when the window moves. The 512-interactor case uses `bench --interactors 512`, with interactors walking rings around the view.
+Each camera keeps 256 × 256 cells of 0.25 m (64 m; `GrassSettings::trample_cell_size`) around what it looks at. Cells are addressed modulo 256, so trails stay in world space without copying when the window moves. The 512-interactor case uses `bench --interactors 512`, with interactors walking rings around the view.
 
 | Version | Blade generation, perspective | Blade generation, DEMO ARPG GAME | Notes |
 | --- | --- | --- | --- |
@@ -287,7 +287,7 @@ The surprise was generation: 3.9 ms at the locked clock (0.35 ms unlocked), almo
 | **512** | **−48.2% / −43.4%** (−3.1 ms, a third of the frame) | **−43.2% / −38.4%** |
 | 1024 | −46.8% / −41.3% | −39.0% / −39.0% |
 
-512 is kept: as fast as 256 within noise, with half the work items. Generation fell from 3.9 to 0.18 ms. The work list holds 8,192 slices; the bench peaks at 420 at High, 739 at Ultra and 270 at DEMO ARPG GAME's camera. The overflow check now also warns when the list overflows.
+512 is kept: as fast as 256 within noise, with half the work items. Generation fell from 3.9 to 0.18 ms. The work list holds 8,192 slices (the default of `GrassSettings::max_chunk_slices`); the bench peaks at 420 at High, 739 at Ultra and 270 at DEMO ARPG GAME's camera. The overflow check now also warns when the list overflows.
 
 At stock clocks the frame stays CPU-bound, so the frame barely moves, but nothing gets worse. Five paired rounds against the pre-G6 build: generation fell from 0.36 to 0.034 ms in perspective and from 0.23 to 0.031 ms at DEMO ARPG GAME's camera. The frame went −3.6% / −4.0% (p50 / p95) in perspective and −4.2% / −3.7% at DEMO ARPG GAME, which is most of what grass cost there. The 22 presets again rendered pixel-identical.
 

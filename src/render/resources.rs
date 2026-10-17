@@ -30,7 +30,7 @@ use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::api::{GrassInteractor, GrassSun, GrassWind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
-use crate::mirror::{self, LOD_ROWS};
+use crate::mirror;
 use crate::sun::{SunCandidate, pick_sun};
 
 /// Side of the gust texture, in texels.
@@ -60,6 +60,11 @@ pub(crate) struct FrameUniform {
     pub wind_direction: Vec2,
     pub gust_offset: Vec2,
     pub previous_gust_offset: Vec2,
+    pub sway: f32,
+    pub sway_speed: f32,
+    pub flutter: f32,
+    pub gust_contrast: f32,
+    pub lod_rows: UVec4,
 }
 
 /// Mirrors `LodTable` in `common.wesl`.
@@ -105,6 +110,7 @@ pub(crate) fn extract_grass(
     settings: Extract<Res<GrassSettings>>,
 ) {
     extracted.settings = settings.sanitized();
+    let rows = extracted.settings.blade_rows;
     if tables.version != extracted.tables.version {
         extracted.tables = tables.clone();
     }
@@ -119,6 +125,11 @@ pub(crate) fn extract_grass(
         wind_direction: wind.direction,
         gust_offset: clock.gust_offset,
         previous_gust_offset: clock.previous_gust_offset,
+        sway: wind.sway.max(0.0),
+        sway_speed: wind.sway_speed.max(0.0),
+        flutter: wind.flutter.max(0.0),
+        gust_contrast: wind.gust_contrast.max(0.0),
+        lod_rows: UVec4::new(rows[0], rows[1], rows[2], 0),
         ..Default::default()
     };
     // The light grass follows: the one marked `GrassSun`, or else the first
@@ -262,6 +273,8 @@ pub(crate) struct GrassShared {
     lods: UniformBuffer<LodTable>,
     /// All three LODs' indices, back to back.
     pub indices: Buffer,
+    /// The rows per LOD `indices` was built for.
+    blade_rows: [u32; 3],
     pub gust_view: TextureView,
     pub gust_sampler: Sampler,
     uploaded_version: u64,
@@ -284,24 +297,9 @@ pub(crate) fn init_shared(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
-    let mut index_data = Vec::new();
-    let mut index_count = UVec4::ZERO;
-    let mut first_index = UVec4::ZERO;
-    for (lod, rows) in LOD_ROWS.iter().enumerate() {
-        let lod_indices = mirror::lod_indices(*rows);
-        first_index[lod] = index_data.len() as u32;
-        index_count[lod] = lod_indices.len() as u32;
-        index_data.extend(lod_indices);
-    }
-    let indices = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("grass_indices"),
-        contents: bytemuck::cast_slice(&index_data),
-        usage: BufferUsages::INDEX,
-    });
-    let mut lods = UniformBuffer::from(LodTable {
-        index_count,
-        first_index,
-    });
+    let rows = GrassSettings::HIGH.blade_rows;
+    let (indices, table) = blade_indices(&device, rows);
+    let mut lods = UniformBuffer::from(table);
     lods.write_buffer(&device, &queue);
 
     let tile_points: Vec<[f32; 2]> = mirror::blue_noise_tile()
@@ -366,6 +364,7 @@ pub(crate) fn init_shared(
         tufts,
         lods,
         indices,
+        blade_rows: rows,
         gust_view,
         gust_sampler,
         uploaded_version: u64::MAX,
@@ -411,6 +410,32 @@ fn upload_tables(
     shared.heights.write_buffer(device, queue);
 }
 
+/// The index buffer of blades with `rows` rows per level of detail, all three
+/// back to back, and the table of where each begins.
+fn blade_indices(device: &RenderDevice, rows: [u32; 3]) -> (Buffer, LodTable) {
+    let mut index_data = Vec::new();
+    let mut index_count = UVec4::ZERO;
+    let mut first_index = UVec4::ZERO;
+    for (lod, rows) in rows.iter().enumerate() {
+        let lod_indices = mirror::lod_indices(*rows);
+        first_index[lod] = index_data.len() as u32;
+        index_count[lod] = lod_indices.len() as u32;
+        index_data.extend(lod_indices);
+    }
+    let indices = device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("grass_indices"),
+        contents: bytemuck::cast_slice(&index_data),
+        usage: BufferUsages::INDEX,
+    });
+    (
+        indices,
+        LodTable {
+            index_count,
+            first_index,
+        },
+    )
+}
+
 /// Uploads rebuilt tables and this frame's uniform.
 pub(crate) fn prepare_shared(
     mut shared: ResMut<GrassShared>,
@@ -420,6 +445,14 @@ pub(crate) fn prepare_shared(
 ) {
     if extracted.tables.version != shared.uploaded_version {
         upload_tables(&mut shared, &extracted.tables, &device, &queue);
+    }
+    // A game that changes the blades' rows gets new meshes, once.
+    if extracted.settings.blade_rows != shared.blade_rows {
+        let (indices, table) = blade_indices(&device, extracted.settings.blade_rows);
+        shared.indices = indices;
+        shared.blade_rows = extracted.settings.blade_rows;
+        shared.lods.set(table);
+        shared.lods.write_buffer(&device, &queue);
     }
     shared.frame.set(extracted.frame);
     shared.frame.write_buffer(&device, &queue);

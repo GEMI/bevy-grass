@@ -9,14 +9,11 @@ const TAU: f32 = 6.283185307;
 /// `clock::TIME_PERIOD`.
 const TIME_PERIOD: f32 = 3600.0;
 const TILE_POINTS: u32 = 1024u;
-const HEIGHT_RANGE: f32 = 256.0;
 const WIDTH_RANGE: f32 = 4.0;
 const LOD_VERTEX_STRIDE: u32 = 64u;
 const NO_MAP: u32 = 0xffffffffu;
 /// Twin of `trample::TEXELS`.
 const TRAMPLE_TEXELS: i32 = 256;
-/// Twin of `trample::MAX_PUSH_RADIUS`.
-const MAX_PUSH_RADIUS: f32 = 2.0;
 
 /// Per frame, shared by every view.
 struct Frame {
@@ -34,6 +31,16 @@ struct Frame {
     /// does not jump when `time` wraps or the wind changes.
     gust_offset: vec2<f32>,
     previous_gust_offset: vec2<f32>,
+    /// `GrassWind`'s `sway`, `sway_speed`, `flutter` and `gust_contrast`: how
+    /// much the blades sway, how fast, how much their tips flutter, and how
+    /// much stronger the gusts are than the wind between them. 1 each by
+    /// default.
+    sway: f32,
+    sway_speed: f32,
+    flutter: f32,
+    gust_contrast: f32,
+    /// Rows in a blade of each LOD (`GrassSettings::blade_rows`), x for LOD 0.
+    lod_rows: vec4<u32>,
 }
 
 /// `frequency` (radians per second) rounded to a whole number of cycles per
@@ -81,6 +88,16 @@ struct View {
     trample_step: vec4<f32>,
     /// xyz: direction to the first directional light; w: 1 when there is one.
     sun: vec4<f32>,
+    /// Density along the distance table (`GrassSettings`): x: the share kept
+    /// where LOD 2 starts; y: the share kept where the last fade starts; z:
+    /// the extra share kept from LOD 1 on; w: where the last fade starts, as
+    /// a share of the radius.
+    lod_density: vec4<f32>,
+    /// x: the most a thinned blade widens; y: the largest interactor radius;
+    /// z: how far an edge-on blade turns toward the camera; w: the vertical
+    /// range instance positions are stored over, in metres either side of
+    /// the origin.
+    limits: vec4<f32>,
 }
 
 /// One field. Mirrors `FieldGpu`.
@@ -149,28 +166,28 @@ fn unit(h: u32) -> f32 {
     return f32(h >> 8u) / 16777216.0;
 }
 
-/// Twin of `mirror::MID_RANGE_DENSITY`.
-const MID_RANGE_DENSITY: f32 = 0.5;
-
 /// Twin of `DistanceLod::falloff`.
 fn density_falloff(view: View, distance: f32) -> f32 {
     let into_lod1 = clamp((distance - (view.lod1_start - view.lod_band * 0.5)) / view.lod_band, 0.0, 1.0);
-    return distance_thinning(view, distance) * mix(1.0, MID_RANGE_DENSITY, into_lod1);
+    return distance_thinning(view, distance) * mix(1.0, view.lod_density.z, into_lod1);
 }
 
-/// The architecture's table, before the mid-range halving.
+/// The distance table, before the mid-range thinning: 1 to the start of LOD 1,
+/// `lod_density.x` where LOD 2 starts, `lod_density.y` where the fade starts,
+/// 0 at the radius. A boundary that coincides with the next (an empty span)
+/// is never divided by.
 fn distance_thinning(view: View, distance: f32) -> f32 {
-    let edge = view.radius * 0.9;
+    let edge = view.radius * view.lod_density.w;
     if distance <= view.lod1_start {
         return 1.0;
     }
     if distance <= view.lod2_start {
-        return mix(1.0, 0.5, clamp((distance - view.lod1_start) / (view.lod2_start - view.lod1_start), 0.0, 1.0));
+        return mix(1.0, view.lod_density.x, clamp((distance - view.lod1_start) / (view.lod2_start - view.lod1_start), 0.0, 1.0));
     }
     if distance <= edge {
-        return mix(0.5, 0.15, clamp((distance - view.lod2_start) / (edge - view.lod2_start), 0.0, 1.0));
+        return mix(view.lod_density.x, view.lod_density.y, clamp((distance - view.lod2_start) / (edge - view.lod2_start), 0.0, 1.0));
     }
-    return mix(0.15, 0.0, clamp((distance - edge) / (view.radius - edge), 0.0, 1.0));
+    return mix(view.lod_density.y, 0.0, clamp((distance - edge) / max(view.radius - edge, 1e-4), 0.0, 1.0));
 }
 
 /// Twin of `DistanceLod::lod`.
@@ -185,9 +202,9 @@ fn select_lod(view: View, distance: f32, dither: f32) -> u32 {
     return lod;
 }
 
-/// Twin of `mirror::coverage_width`.
-fn coverage_width(falloff: f32) -> f32 {
-    return min(1.0 / sqrt(max(falloff, 0.16)), 2.5);
+/// Twin of `mirror::coverage_width`; `widest` is `View::limits.x`.
+fn coverage_width(falloff: f32, widest: f32) -> f32 {
+    return min(1.0 / sqrt(max(falloff, 1.0 / (widest * widest))), widest);
 }
 
 fn quantize(value: f32, max_value: f32) -> u32 {
@@ -234,11 +251,12 @@ struct BladeData {
 }
 
 /// Twin of `mirror::pack`, with positions made relative to the view's origin.
-fn pack(blade: BladeData, origin: vec4<f32>) -> vec4<u32> {
+/// `height_range` is `View::limits.w`.
+fn pack(blade: BladeData, origin: vec4<f32>, height_range: f32) -> vec4<u32> {
     let relative = blade.root - origin.xyz;
     let x = quantize(relative.x / (2.0 * origin.w) + 0.5, 65535.0);
     let z = quantize(relative.z / (2.0 * origin.w) + 0.5, 65535.0);
-    let y = quantize(relative.y / (2.0 * HEIGHT_RANGE) + 0.5, 65535.0);
+    let y = quantize(relative.y / (2.0 * height_range) + 0.5, 65535.0);
     let facing = u32(fract(blade.facing) * 256.0) & 0xffu;
     return vec4<u32>(
         x | (z << 16u),
@@ -264,13 +282,14 @@ struct Instance {
     previous_bend: vec2<f32>,
 }
 
-/// Twin of `mirror::unpack`, scaled by the field's style.
-fn unpack(words: vec4<u32>, origin: vec4<f32>) -> Instance {
+/// Twin of `mirror::unpack`, scaled by the field's style. `height_range` is
+/// `View::limits.w`.
+fn unpack(words: vec4<u32>, origin: vec4<f32>, height_range: f32) -> Instance {
     var out: Instance;
     out.field = (words.z >> 16u) & 0xffu;
     out.root = origin.xyz + vec3<f32>(
         (f32(words.x & 0xffffu) / 65535.0 - 0.5) * 2.0 * origin.w,
-        (f32(words.y & 0xffffu) / 65535.0 - 0.5) * 2.0 * HEIGHT_RANGE,
+        (f32(words.y & 0xffffu) / 65535.0 - 0.5) * 2.0 * height_range,
         (f32(words.x >> 16u) / 65535.0 - 0.5) * 2.0 * origin.w,
     );
     out.facing = f32((words.y >> 16u) & 0xffu) / 256.0;
@@ -323,9 +342,9 @@ fn straw_of(color: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(dot(color, vec3<f32>(0.3, 0.59, 0.11))) * vec3<f32>(1.25, 1.1, 0.6);
 }
 
-/// LOD rows; twin of `mirror::LOD_ROWS`.
-fn lod_rows(lod: u32) -> u32 {
-    return select(select(1u, 3u, lod == 1u), 7u, lod == 0u);
+/// Rows in a blade of level of detail `lod`.
+fn lod_rows(frame: Frame, lod: u32) -> u32 {
+    return frame.lod_rows[lod];
 }
 
 /// Twin of `mirror::trample_pack`. A push is packed with its strength in the

@@ -2,8 +2,9 @@
 //! which interactors it stamps. The GPU side (decay, stamp, sampling) is in
 //! `shaders/generate.wesl`.
 //!
-//! Each camera owns a square of `TEXELS × TEXELS` cells, `TEXEL_SIZE` metres
-//! each, centred near what the camera looks at. Cells are addressed
+//! Each camera owns a square of `TEXELS × TEXELS` cells, each
+//! `GrassSettings::trample_cell_size` metres across (0.25 by default, so the
+//! window covers 64 m), centred near what the camera looks at. Cells are addressed
 //! toroidally (a world cell's slot is its coordinates modulo `TEXELS`), so
 //! when the window moves no data is copied: the decay pass clears only the
 //! slots whose world cell has just come into the window, and trails stay in
@@ -14,18 +15,18 @@ use bevy::math::{IVec2, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 
 /// Cells along each side of the window. The WESL twin is `TRAMPLE_TEXELS`.
+/// It is a power of two, which is what makes a cell's slot a mask.
 pub(crate) const TEXELS: i32 = 256;
-/// Side of one cell, in metres: the window covers 64 m.
-pub(crate) const TEXEL_SIZE: f32 = 0.25;
-/// Seconds of game time a fully flattened cell takes to spring back.
-pub(crate) const RECOVERY_SECONDS: f32 = 1.5;
-/// Largest interactor radius stamped, in metres; the stamp pass covers a
-/// fixed footprint per interactor. The WESL twin is `MAX_PUSH_RADIUS`.
-pub(crate) const MAX_PUSH_RADIUS: f32 = 2.0;
 
-/// The window's lowest cell for a window centred on `center` (world XZ).
-pub(crate) fn window_origin(center: Vec2) -> IVec2 {
-    (center / TEXEL_SIZE).floor().as_ivec2() - IVec2::splat(TEXELS / 2)
+/// Side of the window, in metres, for cells of `cell` metres.
+pub(crate) fn window_side(cell: f32) -> f32 {
+    TEXELS as f32 * cell
+}
+
+/// The window's lowest cell for a window of `cell`-metre cells centred on
+/// `center` (world XZ).
+pub(crate) fn window_origin(center: Vec2, cell: f32) -> IVec2 {
+    (center / cell).floor().as_ivec2() - IVec2::splat(TEXELS / 2)
 }
 
 /// The point the trample window centres on, in world XZ.
@@ -82,16 +83,23 @@ pub(crate) fn reach(max_height: Option<f32>, feet: f32, ground: Option<f32>) -> 
     1.0 - t * t * (3.0 - 2.0 * t)
 }
 
-/// The interactors a camera stamps: those whose disc reaches its window,
-/// nearest to `center` first, at most `max`. Each is `(x, z, radius,
-/// strength)` with the radius clamped to [`MAX_PUSH_RADIUS`].
-pub(crate) fn select_interactors(all: &[Vec4], center: Vec2, max: u32) -> Vec<Vec4> {
-    let half = TEXELS as f32 * TEXEL_SIZE * 0.5;
+/// The interactors a camera stamps: those whose disc reaches its window of
+/// `cell`-metre cells, nearest to `center` first, at most `max`. Each is
+/// `(x, z, radius, strength)` with the radius clamped to `max_radius`
+/// (`GrassSettings::max_interactor_radius`).
+pub(crate) fn select_interactors(
+    all: &[Vec4],
+    center: Vec2,
+    max: u32,
+    cell: f32,
+    max_radius: f32,
+) -> Vec<Vec4> {
+    let half = window_side(cell) * 0.5;
     let mut near: Vec<(f32, Vec4)> = all
         .iter()
         .filter(|i| i.z > 0.0 && i.w > 0.0)
         .map(|&i| {
-            let radius = i.z.min(MAX_PUSH_RADIUS);
+            let radius = i.z.min(max_radius);
             (Vec4::new(i.x, i.y, radius, i.w.min(1.0)), radius)
         })
         .filter(|(i, radius)| {
@@ -111,6 +119,10 @@ pub(crate) fn select_interactors(all: &[Vec4], center: Vec2, max: u32) -> Vec<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The default cell and interactor radius.
+    const CELL: f32 = 0.25;
+    const MAX_RADIUS: f32 = 2.0;
 
     #[test]
     fn an_interactor_fades_out_as_it_rises_above_the_grass() {
@@ -137,19 +149,24 @@ mod tests {
 
     #[test]
     fn the_window_contains_its_centre_with_room_on_every_side() {
-        for center in [Vec2::ZERO, Vec2::new(-3.3, 1000.1), Vec2::new(12.6, -0.124)] {
-            let origin = window_origin(center).as_vec2() * TEXEL_SIZE;
-            let side = TEXELS as f32 * TEXEL_SIZE;
-            let into = center - origin;
-            assert!(
-                into.cmpge(Vec2::splat(side * 0.5 - TEXEL_SIZE)).all(),
-                "{center}"
-            );
-            assert!(
-                into.cmple(Vec2::splat(side * 0.5 + TEXEL_SIZE)).all(),
-                "{center}"
-            );
+        // The default cells, finer ones, and coarser ones for a wider window.
+        for cell in [CELL, 0.05, 1.0, 2.0] {
+            for center in [Vec2::ZERO, Vec2::new(-3.3, 1000.1), Vec2::new(12.6, -0.124)] {
+                let origin = window_origin(center, cell).as_vec2() * cell;
+                let side = window_side(cell);
+                let into = center - origin;
+                assert!(
+                    into.cmpge(Vec2::splat(side * 0.5 - cell)).all(),
+                    "{center} at {cell}"
+                );
+                assert!(
+                    into.cmple(Vec2::splat(side * 0.5 + cell)).all(),
+                    "{center} at {cell}"
+                );
+            }
         }
+        assert_eq!(window_side(CELL), 64.0, "256 cells of 25 cm");
+        assert_eq!(window_side(2.0), 512.0);
     }
 
     #[test]
@@ -170,7 +187,7 @@ mod tests {
         let all: Vec<Vec4> = (0..100)
             .map(|i| Vec4::new(i as f32 * 0.3, 0.0, 0.5, 1.0))
             .collect();
-        let kept = select_interactors(&all, Vec2::ZERO, 10);
+        let kept = select_interactors(&all, Vec2::ZERO, 10, CELL, MAX_RADIUS);
         assert_eq!(kept.len(), 10);
         assert!(kept.iter().all(|i| i.x < 3.0), "{kept:?}");
     }
@@ -184,8 +201,27 @@ mod tests {
             Vec4::new(1.0, 1.0, 0.5, 0.0),
             Vec4::new(2.0, 2.0, 9.0, 3.0),
         ];
-        let kept = select_interactors(&all, Vec2::ZERO, 64);
+        let kept = select_interactors(&all, Vec2::ZERO, 64, CELL, MAX_RADIUS);
         assert_eq!(kept.len(), 2);
-        assert!(kept.contains(&Vec4::new(2.0, 2.0, MAX_PUSH_RADIUS, 1.0)));
+        assert!(kept.contains(&Vec4::new(2.0, 2.0, MAX_RADIUS, 1.0)));
+    }
+
+    #[test]
+    fn the_radius_cap_and_the_window_follow_the_settings() {
+        let all = [
+            Vec4::new(0.0, 0.0, 6.0, 1.0),
+            // 50 m away: outside a 64 m window, inside a 512 m one.
+            Vec4::new(50.0, 0.0, 0.5, 1.0),
+        ];
+        let kept = select_interactors(&all, Vec2::ZERO, 64, CELL, 8.0);
+        assert_eq!(
+            kept,
+            vec![Vec4::new(0.0, 0.0, 6.0, 1.0)],
+            "6 m fits under 8"
+        );
+        let kept = select_interactors(&all, Vec2::ZERO, 64, CELL, 1.0);
+        assert_eq!(kept, vec![Vec4::new(0.0, 0.0, 1.0, 1.0)], "cut to 1 m");
+        let kept = select_interactors(&all, Vec2::ZERO, 64, 2.0, 1.0);
+        assert_eq!(kept.len(), 2, "a coarser window reaches further");
     }
 }

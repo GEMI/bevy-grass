@@ -10,10 +10,13 @@
 //!   which is `size` times the scale, wherever the field really is. A
 //!   heightmap field also gets its highest level.
 //! - **chunks** (blue, off by default): the 16 m squares the GPU culls.
-//! - **interactors** (yellow): the disc an interactor flattens, at most 2 m
-//!   across; red where the radius asked for is cut off.
-//! - **trample windows** (magenta): the 64 m square around each camera's
-//!   focus where interactors leave trails. Interactors outside it leave none.
+//! - **interactors** (yellow): the disc an interactor flattens, at most
+//!   [`GrassSettings::max_interactor_radius`] (2 m by default); red where the
+//!   radius asked for is cut off.
+//! - **trample windows** (magenta): the square around each camera's focus
+//!   where interactors leave trails, 64 m across by default
+//!   ([`GrassSettings::trample_cell_size`]). Interactors outside it leave
+//!   none.
 
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::camera::{Camera3d, Projection};
@@ -29,10 +32,10 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
-use crate::GrassSystems;
 use crate::api::{GrassInteractor, NoGrass};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::render::trample;
+use crate::{GrassSettings, GrassSystems};
 
 /// Adds the grass debug gizmos. Toggle what they show with [`GrassDebug`].
 ///
@@ -160,13 +163,16 @@ pub(crate) fn chunk_shapes(tables: &FieldTables, max: usize) -> Vec<Shape> {
 }
 
 /// The disc each interactor flattens: `(position, radius, strength)`. Grass
-/// is pushed at most [`trample::MAX_PUSH_RADIUS`] away, so a bigger radius
+/// is pushed at most `largest` away (`GrassSettings::max_interactor_radius`), so a bigger radius
 /// is drawn cut off, with the radius asked for in red; one that flattens
 /// nothing (no radius or strength) is grey.
-pub(crate) fn interactor_shapes(interactors: impl Iterator<Item = (Vec3, f32, f32)>) -> Vec<Shape> {
+pub(crate) fn interactor_shapes(
+    interactors: impl Iterator<Item = (Vec3, f32, f32)>,
+    largest: f32,
+) -> Vec<Shape> {
     let mut shapes = Vec::new();
     for (position, radius, strength) in interactors {
-        let effective = radius.min(trample::MAX_PUSH_RADIUS);
+        let effective = radius.min(largest);
         let center = Vec2::new(position.x, position.z);
         let color = if radius > 0.0 && strength > 0.0 {
             css::YELLOW.into()
@@ -179,7 +185,7 @@ pub(crate) fn interactor_shapes(interactors: impl Iterator<Item = (Vec3, f32, f3
             y: position.y,
             color,
         });
-        if radius > trample::MAX_PUSH_RADIUS {
+        if radius > largest {
             shapes.push(Shape::Circle {
                 center,
                 radius,
@@ -196,6 +202,7 @@ pub(crate) fn interactor_shapes(interactors: impl Iterator<Item = (Vec3, f32, f3
 pub(crate) fn trample_shapes(
     cameras: impl Iterator<Item = (Vec3, Vec3, bool)>,
     tables: &FieldTables,
+    cell: f32,
 ) -> Vec<Shape> {
     let ground = tables
         .fields
@@ -204,10 +211,10 @@ pub(crate) fn trample_shapes(
     cameras
         .map(|(position, forward, orthographic)| {
             let center = trample::focus(position, forward, orthographic, tables);
-            let origin = trample::window_origin(center);
+            let origin = trample::window_origin(center, cell);
             Shape::Rect {
-                min: origin.as_vec2() * trample::TEXEL_SIZE,
-                size: Vec2::splat(trample::TEXELS as f32 * trample::TEXEL_SIZE),
+                min: origin.as_vec2() * cell,
+                size: Vec2::splat(trample::window_side(cell)),
                 y: ground,
                 color: css::MAGENTA.into(),
             }
@@ -259,6 +266,7 @@ pub(crate) fn draw(buffer: &mut GizmoBuffer<GrassGizmos, ()>, shapes: &[Shape]) 
 /// Everything the debug view shows this frame.
 pub(crate) fn shapes(
     debug: &GrassDebug,
+    settings: &GrassSettings,
     tables: &FieldTables,
     interactors: impl Iterator<Item = (Vec3, f32, f32)>,
     cameras: impl Iterator<Item = (Vec3, Vec3, bool)>,
@@ -274,10 +282,13 @@ pub(crate) fn shapes(
         shapes.extend(chunk_shapes(tables, debug.max_chunks));
     }
     if debug.interactors {
-        shapes.extend(interactor_shapes(interactors));
+        shapes.extend(interactor_shapes(
+            interactors,
+            settings.max_interactor_radius,
+        ));
     }
     if debug.trample_windows {
-        shapes.extend(trample_shapes(cameras, tables));
+        shapes.extend(trample_shapes(cameras, tables, settings.trample_cell_size));
     }
     shapes
 }
@@ -286,12 +297,16 @@ pub(crate) fn shapes(
 fn draw_debug(
     mut gizmos: Gizmos<GrassGizmos>,
     debug: Res<GrassDebug>,
+    settings: Res<GrassSettings>,
     tables: Res<FieldTables>,
     interactors: Query<(&GlobalTransform, &GrassInteractor)>,
     cameras: Query<(&GlobalTransform, &Projection), (With<Camera3d>, Without<NoGrass>)>,
 ) {
+    // The renderer clamps the settings; so do the gizmos, to show what it does.
+    let settings = settings.sanitized();
     let shapes = shapes(
         &debug,
+        &settings,
         &tables,
         interactors.iter().map(|(transform, interactor)| {
             (
@@ -334,6 +349,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<GrassStyle>()
             .init_asset::<Image>()
+            .init_resource::<GrassSettings>()
             .add_plugins(crate::fields::plugin);
         app
     }
@@ -491,6 +507,7 @@ mod tests {
                 (at, 0.6, 0.0), // flattens nothing: grey
             ]
             .into_iter(),
+            GrassSettings::HIGH.max_interactor_radius,
         );
         let circle = |i: usize| match shapes[i] {
             Shape::Circle {
@@ -506,7 +523,11 @@ mod tests {
             circle(0),
             (Vec2::new(4.0, -2.0), 0.6, 0.5, css::YELLOW.into())
         );
-        assert_eq!(circle(1).1, trample::MAX_PUSH_RADIUS, "what is flattened");
+        assert_eq!(
+            circle(1).1,
+            GrassSettings::HIGH.max_interactor_radius,
+            "what is flattened"
+        );
         assert_eq!(circle(1).3, Color::from(css::YELLOW));
         assert_eq!(circle(2).1, 4.0, "what was asked for");
         assert_eq!(circle(2).3, Color::from(css::RED));
@@ -531,7 +552,11 @@ mod tests {
 
         // A perspective camera stands in its window.
         let position = Vec3::new(100.0, 1.7, -30.0);
-        let window = trample_shapes([(position, Vec3::NEG_Z, false)].into_iter(), &tables);
+        let window = trample_shapes(
+            [(position, Vec3::NEG_Z, false)].into_iter(),
+            &tables,
+            GrassSettings::HIGH.trample_cell_size,
+        );
         let [(min, size, y, _)] = rects(&window)[..] else {
             panic!("one window");
         };
@@ -545,7 +570,11 @@ mod tests {
         // window where its view meets the ground, not under the camera.
         let high = Vec3::new(0.0, 40.0, 40.0);
         let forward = Vec3::new(0.0, -1.0, -1.0).normalize();
-        let window = trample_shapes([(high, forward, true)].into_iter(), &tables);
+        let window = trample_shapes(
+            [(high, forward, true)].into_iter(),
+            &tables,
+            GrassSettings::HIGH.trample_cell_size,
+        );
         let [(min, size, ..)] = rects(&window)[..] else {
             panic!("one window");
         };
@@ -554,6 +583,35 @@ mod tests {
             center.y.abs() < 1.0,
             "centred on the ground it looks at: {center}"
         );
+    }
+
+    #[test]
+    fn the_gizmos_follow_the_settings_that_move_the_limits() {
+        let tables = FieldTables::default();
+        // Cells of 50 cm make a window of 128 m.
+        let window = trample_shapes(
+            [(Vec3::new(10.0, 1.7, 10.0), Vec3::NEG_Z, false)].into_iter(),
+            &tables,
+            0.5,
+        );
+        let [(min, size, ..)] = rects(&window)[..] else {
+            panic!("one window");
+        };
+        assert_eq!(size, Vec2::splat(128.0));
+        assert_eq!(min, Vec2::splat(10.0 - 64.0));
+
+        // An interactor of 3 m is cut at 2 m, and not at all at 4.
+        let at = Vec3::ZERO;
+        assert_eq!(
+            interactor_shapes([(at, 3.0, 1.0)].into_iter(), 2.0).len(),
+            2
+        );
+        let uncut = interactor_shapes([(at, 3.0, 1.0)].into_iter(), 4.0);
+        assert_eq!(uncut.len(), 1, "nothing is cut, so no red disc");
+        let Shape::Circle { radius, .. } = uncut[0] else {
+            panic!("a circle");
+        };
+        assert_eq!(radius, 3.0);
     }
 
     #[test]
@@ -573,7 +631,9 @@ mod tests {
         let tables = tables(&mut app);
         let camera = || [(Vec3::new(0.0, 1.7, 0.0), Vec3::NEG_Z, false)].into_iter();
         let bunny = || [(Vec3::ZERO, 0.6, 1.0)].into_iter();
-        let count = |debug: GrassDebug| shapes(&debug, &tables, bunny(), camera()).len();
+        let count = |debug: GrassDebug| {
+            shapes(&debug, &GrassSettings::HIGH, &tables, bunny(), camera()).len()
+        };
 
         let none = GrassDebug {
             enabled: true,

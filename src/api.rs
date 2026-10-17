@@ -3,12 +3,12 @@
 use bevy::asset::Handle;
 use bevy::camera::visibility::Visibility;
 use bevy::color::Color;
+use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::Changed;
 use bevy::ecs::reflect::{ReflectComponent, ReflectResource};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Local, Query};
+use bevy::ecs::system::{Local, Query, Res};
 use bevy::image::Image;
 use bevy::log::warn;
 use bevy::math::{Dir2, Vec2};
@@ -19,7 +19,7 @@ use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
 use bevy::transform::components::Transform;
 
-use crate::GrassShadows;
+use crate::{GrassSettings, GrassShadows};
 
 pub use crate::style::{GrassBlade, GrassSpecies, GrassStyle, GrassVariation, GroundTint};
 
@@ -130,6 +130,11 @@ pub enum GrassGround {
 ///
 /// The presets are constants, so a wind is changed like a style, by struct
 /// update: `GrassWind { strength: 0.8, ..GrassWind::GUSTY }`.
+///
+/// `strength` and the gusts decide how far the grass leans; the last four
+/// settings shape how it moves, and are 1 in every preset (the wind as it
+/// was designed). `GrassWind { sway: 2.0, ..GrassWind::BREEZE }` is a field
+/// that shivers more, `flutter: 0.0` one whose tips hold still.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
 pub struct GrassWind {
@@ -143,6 +148,22 @@ pub struct GrassWind {
     pub gust_scale: f32,
     /// How fast gusts travel across the field, in metres per second.
     pub gust_speed: f32,
+    /// How far each blade sways on its own, as a multiple of the default; 0
+    /// (blades move only with the gusts) and up. The sway is what keeps
+    /// neighbouring blades from moving in lockstep.
+    pub sway: f32,
+    /// How fast blades sway, as a multiple of the default (stiff blades
+    /// sway faster than soft ones), 0 and up. Slow it for heavy wheat, speed
+    /// it up for reeds.
+    pub sway_speed: f32,
+    /// How much the tips of full-detail blades flutter, as a multiple of the
+    /// default, 0 (no flutter) and up. Flutter grows with `strength`.
+    pub flutter: f32,
+    /// How much stronger the gusts are than the wind between them, as a
+    /// multiple of the default, 0 and up. At 0 the wind is steady and the
+    /// grass leans the same everywhere; higher, the waves that roll across the
+    /// field are deeper.
+    pub gust_contrast: f32,
 }
 
 impl GrassWind {
@@ -161,6 +182,10 @@ impl GrassWind {
         strength: 0.1,
         gust_scale: 40.0,
         gust_speed: 2.0,
+        sway: 1.0,
+        sway_speed: 1.0,
+        flutter: 1.0,
+        gust_contrast: 1.0,
     };
     /// Visible rolling waves. The default.
     pub const BREEZE: Self = Self {
@@ -168,6 +193,10 @@ impl GrassWind {
         strength: 0.35,
         gust_scale: 25.0,
         gust_speed: 4.0,
+        sway: 1.0,
+        sway_speed: 1.0,
+        flutter: 1.0,
+        gust_contrast: 1.0,
     };
     /// Fast, uneven gusts.
     pub const GUSTY: Self = Self {
@@ -175,6 +204,10 @@ impl GrassWind {
         strength: 0.6,
         gust_scale: 15.0,
         gust_speed: 7.0,
+        sway: 1.0,
+        sway_speed: 1.0,
+        flutter: 1.0,
+        gust_contrast: 1.0,
     };
     /// Heavy bending and fast flutter.
     pub const STORM: Self = Self {
@@ -182,6 +215,10 @@ impl GrassWind {
         strength: 1.0,
         gust_scale: 8.0,
         gust_speed: 12.0,
+        sway: 1.0,
+        sway_speed: 1.0,
+        flutter: 1.0,
+        gust_contrast: 1.0,
     };
 }
 
@@ -280,7 +317,9 @@ pub struct GrassSun;
 /// Anything that flattens grass: the player, monsters, vehicles, items on
 /// the ground. Grass within `radius` of the entity's position lies down away
 /// from it and springs back over about 1.5 s of game time after it leaves, so
-/// moving interactors leave trails.
+/// moving interactors leave trails. (The 1.5 s is
+/// [`GrassSettings::trample_recovery`](crate::GrassSettings::trample_recovery),
+/// and the limits below are settings too.)
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
@@ -297,23 +336,31 @@ pub struct GrassSun;
 ///
 /// # Limits
 ///
-/// - **Radius: 2 m.** A bigger `radius` is cut to 2 m, and the plugin warns
-///   once about the entity. (Each interactor is stamped in a fixed footprint,
-///   which is why a hundred cost what one does.) For something bigger, use
-///   several interactors around it.
+/// The numbers are the defaults of [`GrassSettings`](crate::GrassSettings).
+///
+/// - **Radius: 2 m**
+///   ([`max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
+///   A bigger `radius` is cut to it, and the plugin warns once about the
+///   entity. (Each interactor is stamped in a fixed footprint, which is why a
+///   hundred cost what one does.) For something bigger, use several
+///   interactors around it, or raise the setting: the cost of an interactor
+///   grows with the square of its radius.
 /// - **Count: [`GrassSettings::max_interactors`](crate::GrassSettings::max_interactors).**
 ///   A camera stamps that many a frame, the ones nearest to it first.
-/// - **Distance: a 64 m window.** Each camera tracks a 64 × 64 m square of
-///   ground, centred on the camera (on the ground it looks at, for an
-///   orthographic one). Interactors outside it do nothing, and trails
-///   outside it are forgotten.
+/// - **Distance: a 64 m window**
+///   ([`trample_cell_size`](crate::GrassSettings::trample_cell_size) × 256
+///   cells). Each camera tracks a 64 × 64 m square of ground, centred on the
+///   camera (on the ground it looks at, for an orthographic one).
+///   Interactors outside it do nothing, and trails outside it are forgotten.
 /// - **Height.** Interaction is horizontal: with `max_height` at `None`, an
 ///   interactor flattens the grass below it at any height.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform)]
 pub struct GrassInteractor {
-    /// Radius of the flattened disc, in metres. Pushes beyond 2 m are clipped.
+    /// Radius of the flattened disc, in metres. Pushes beyond
+    /// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)
+    /// (2 m by default) are clipped.
     pub radius: f32,
     /// How flat the grass lies at the centre, 0 (untouched) to 1 (flat).
     pub strength: f32,
@@ -343,16 +390,25 @@ impl Default for GrassInteractor {
 /// Warns, once per entity, about an interactor bigger than the grass can
 /// stamp.
 pub(crate) fn warn_oversized_interactors(
-    interactors: Query<(Entity, &GrassInteractor), Changed<GrassInteractor>>,
+    interactors: Query<(Entity, Ref<GrassInteractor>)>,
+    settings: Res<GrassSettings>,
     mut warned: Local<HashSet<Entity>>,
 ) {
+    let largest = settings.sanitized().max_interactor_radius;
+    let settings_changed = settings.is_changed();
     for (entity, interactor) in &interactors {
-        let too_big = interactor.radius > crate::render::trample::MAX_PUSH_RADIUS;
+        // New and changed interactors are checked; so is every interactor
+        // when the limit may have moved.
+        if !(settings_changed || interactor.is_changed()) {
+            continue;
+        }
+        let too_big = interactor.radius > largest;
         if too_big && warned.insert(entity) {
             warn!(
-                "bevy_grass: the GrassInteractor on {entity} has radius {} m, but interactors                  push at most {} m; the rest is ignored. Use several interactors for something                  bigger.",
+                "bevy_grass: the GrassInteractor on {entity} has radius {} m, but interactors \
+                 push at most {largest} m (GrassSettings::max_interactor_radius); the rest is \
+                 ignored. Use several interactors for something bigger.",
                 interactor.radius,
-                crate::render::trample::MAX_PUSH_RADIUS,
             );
         } else if !too_big {
             warned.remove(&entity);

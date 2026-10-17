@@ -8,7 +8,10 @@
 //! is no seam where the blades end. `--no-far` uses a plain ground to compare
 //! with, and `--no-fog` clears the mist that would otherwise hide the seam.
 //!
-//! WASD and the mouse fly the camera (hold the left button to look).
+//! WASD and the mouse fly the camera (hold the left button to look). F3 shows
+//! what grass thinks (fields, interactors, trample windows), and F4 steps
+//! through settings that were once fixed numbers: where the levels of detail
+//! begin, how many blades are kept at a distance, how many rows a blade has.
 //!
 //! ```text
 //! cargo run --example meadow
@@ -36,8 +39,68 @@ fn main() {
             ..default()
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, toggle_debug)
+        .add_systems(Update, (toggle_debug, cycle_settings))
         .run();
+}
+
+/// What F4 steps through: a name and the settings it shows. Each is a tier
+/// with a few settings changed, the way a game would write it.
+const PROFILES: [(&str, GrassSettings); 5] = [
+    ("defaults", GrassSettings::HIGH),
+    // Full detail twice as far, and no fade until nearly the edge.
+    (
+        "sharp: LOD 1 at 40 m, LOD 2 at 70 m, fade at 95 m",
+        GrassSettings {
+            lod1_start: 0.4,
+            lod2_start: 0.7,
+            fade_start: 0.95,
+            ..GrassSettings::HIGH
+        },
+    ),
+    // Keep every mid-range blade: lusher, and dearer.
+    (
+        "lush mid-range: no extra thinning",
+        GrassSettings {
+            mid_range_density: 1.0,
+            lod2_density: 0.8,
+            ..GrassSettings::HIGH
+        },
+    ),
+    // Low-poly blades.
+    (
+        "low-poly: 3, 2 and 1 rows",
+        GrassSettings {
+            blade_rows: [3, 2, 1],
+            ..GrassSettings::HIGH
+        },
+    ),
+    // Short reach, hard edge, no blades turning toward the camera.
+    (
+        "short and plain: 40 m, no fade, no turning",
+        GrassSettings {
+            radius: 40.0,
+            fade_start: 1.0,
+            turn_to_camera: 0.0,
+            ..GrassSettings::HIGH
+        },
+    ),
+];
+
+fn cycle_settings(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut grass: ResMut<GrassSettings>,
+    mut windows: Query<&mut Window>,
+    mut at: Local<usize>,
+) {
+    if keys.just_pressed(KeyCode::F4) {
+        *at = (*at + 1) % PROFILES.len();
+        let (name, settings) = &PROFILES[*at];
+        *grass = *settings;
+        info!("grass settings: {name}");
+        for mut window in &mut windows {
+            window.title = format!("bevy_grass: meadow ({name})");
+        }
+    }
 }
 
 fn toggle_debug(keys: Res<ButtonInput<KeyCode>>, mut debug: ResMut<GrassDebug>) {

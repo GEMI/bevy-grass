@@ -161,9 +161,73 @@ fn apply_graphics_menu(mut grass: ResMut<GrassSettings>) {
 }
 ```
 
-Raising `instance_capacity` or `max_interactors` makes each camera allocate
-its buffers again, once. Values out of range are clamped, with a warning that
-names the setting.
+Raising `instance_capacity`, `max_interactors` or `max_chunk_slices` makes each
+camera allocate its buffers again, once. Values out of range are clamped, with
+a warning that names the setting.
+
+### Tune the distances, the blades, the wind and the trampling
+
+Nothing about how far grass reaches, how it thins, how it moves or how it is
+trampled is fixed in the code. The tier presets set the first seven settings
+below; every other setting is the same in all of them, and **its default is
+the number the crate was designed and measured with**, so you only set one
+when your game is not that game. A small-grass game seen from a few metres, a
+strategy map seen from a kilometre, and a stylized low-poly meadow want
+different numbers:
+
+```rust
+app.insert_resource(GrassSettings {
+    // A third-person camera that rarely looks far: full detail twice as far,
+    // and no fade-out until nearly the edge.
+    lod1_start: 0.4,
+    lod2_start: 0.7,
+    fade_start: 0.95,
+    // Low-poly blades: 3, 2 and 1 rows (7, 5 and 3 vertices).
+    blade_rows: [3, 2, 1],
+    // Deep snow: trails take 6 s to fill in, and a vehicle flattens 5 m.
+    trample_recovery: 6.0,
+    max_interactor_radius: 5.0,
+    ..GrassSettings::HIGH
+});
+
+app.insert_resource(GrassWind {
+    sway: 0.5,          // calmer individual blades
+    gust_contrast: 2.0, // but deeper waves across the field
+    ..GrassWind::BREEZE
+});
+```
+
+**`GrassSettings`**, the first seven set by the tier:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `radius` | 100 m | How far grass reaches from a perspective camera (1 and up). Orthographic cameras ignore it |
+| `density_scale` | 1 | Multiplies every style's density (0 and up) |
+| `min_width_px` | 1 | Narrowest a blade is drawn, in pixels |
+| `shadows` | `Near` | `Off`, `Near` or `Full` |
+| `orthographic_lod` | 1 | The level of detail orthographic cameras draw at, 0 to 2 |
+| `instance_capacity` | 600,000 | Visible blades each camera's buffers hold (32 bytes each), up to 4,000,000 |
+| `max_interactors` | 64 | Interactors a camera stamps a frame, up to 65,536 |
+| `blade_rows` | `[7, 3, 1]` | Rows in a blade of LOD 0, 1 and 2, 1 to 31 each. A row is two vertices, plus one for the tip |
+| `lod1_start`, `lod2_start` | 0.2, 0.5 | Where LOD 1 and LOD 2 begin, as shares of `radius` (0 to 1, in order) |
+| `fade_start` | 0.9 | Where the last fade to nothing begins, as a share of `radius`; 1 ends abruptly |
+| `lod_blend` | 4 m | Width of the dithered band around each LOD boundary |
+| `lod2_density`, `fade_density` | 0.5, 0.15 | Share of blades kept where LOD 2 begins and where the fade begins (density falls in a line from 1 at `lod1_start`) |
+| `mid_range_density` | 0.5 | A further share kept from LOD 1 on; the survivors widen to cover. Raise it for lusher mid-distance at a price |
+| `max_widening` | 2.5 | The most thinned blades widen, as a multiple of their width (1 to 3.2) |
+| `turn_to_camera` | 0.4 | How far an edge-on blade turns toward the camera: 0 thins to lines, 1 always faces it |
+| `orthographic_extent` | 256 m | Half the side of the square around an orthographic camera in which blades are stored (8 to 4,096). Blades further away are misplaced, so a map camera that sees a kilometre raises it; positions take 16 bits, so a bigger extent is coarser (8 mm at 256 m, 12 cm at 4,096 m) |
+| `max_chunk_slices` | 8,192 | Slices of visible chunks a camera generates a frame (1 to 65,535; 16 bytes each). A very dense style or a long radius needs more; `GrassStats::gpu.slices` shows what is used |
+| `readback_interval` | 120 | Frames between the GPU counter readbacks behind `GrassStats` and the overflow warnings; 0 never reads them |
+| `trample_recovery` | 1.5 s | Time a fully flattened blade takes to spring back (0.01 and up) |
+| `trample_cell_size` | 0.25 m | Cell of the trample window, 0.05 to 2. The window is 256 cells across: 64 m by default, 512 m at 2 |
+| `max_interactor_radius` | 2 m | Largest interactor radius stamped, 0.1 to 16; the cost grows with its square |
+
+**`GrassWind`**: `direction`, `strength`, `gust_scale` and `gust_speed`, as
+before, and four multipliers that are 1 in every preset: `sway` (how far each
+blade sways on its own), `sway_speed` (how fast), `flutter` (the shiver of the
+tips of near blades) and `gust_contrast` (how much stronger the gusts are than
+the wind between them; 0 is a steady wind).
 
 ### Draw differently on one camera
 
@@ -303,7 +367,7 @@ their CPU copy (Bevy's default for loaded images).
 ```rust
 commands.spawn((
     Transform::from_xyz(0.0, 0.0, 0.0),
-    GrassInteractor { radius: 0.5, strength: 1.0 },
+    GrassInteractor { radius: 0.5, strength: 1.0, ..default() },
 ));
 ```
 
@@ -311,14 +375,20 @@ Grass within `radius` lies down away from the entity. When it leaves, the
 grass springs back over about 1.5 s, so moving things leave trails. The cost
 is the same for one interactor or 512.
 
-The limits, which are also in the type's documentation:
+The limits, which are also in the type's documentation. The numbers are the
+defaults of `GrassSettings`, and each can be changed:
 
-- **Radius, 2 m.** A bigger radius is cut to 2 m, with one warning naming the
-  entity. Use several interactors for something bigger.
-- **Count.** A camera stamps `GrassSettings::max_interactors`, the ones
-  nearest to it first.
-- **Distance, 64 m.** Each camera tracks a 64 × 64 m square of ground around
-  what it looks at; interactors outside it do nothing.
+- **Radius, 2 m** (`max_interactor_radius`). A bigger radius is cut to it, with
+  one warning naming the entity. Use several interactors for something bigger,
+  or raise the setting (to 16 m at most): the cost grows with the square of
+  the radius.
+- **Count** (`max_interactors`). A camera stamps that many, the ones nearest
+  to it first.
+- **Distance, 64 m** (`trample_cell_size`, 256 cells across). Each camera
+  tracks a 64 × 64 m square of ground around what it looks at; interactors
+  outside it do nothing. Cells of 0.5 m make the window 128 m.
+- **Recovery, 1.5 s** (`trample_recovery`). How long flattened grass takes to
+  stand again.
 - **Height.** Interaction is horizontal, so a bird flying over the meadow
   flattens it like a person walking in it. Give the bird
   `max_height: Some(1.0)`: it flattens grass only within a metre of the
@@ -351,7 +421,8 @@ without a profiler.
 **`GrassStats`** is a resource with the numbers: blades per level of detail,
 visible chunk slices, buffer overflows, table rebuilds and how long the last
 one took, and fields or species a limit left out. The GPU numbers are read
-back every 120 frames, summed over cameras.
+back every 120 frames (`GrassSettings::readback_interval`; 0 turns the
+readback off), summed over cameras.
 
 ```rust
 fn hud(stats: Res<GrassStats>) {
@@ -371,8 +442,9 @@ the constants of `GrassDiagnostics`.
 
 **`GrassDebugPlugin`** draws gizmos for what grass has: every field's
 rectangle (grey while hidden, so scale, rotation and visibility problems show),
-the 16 m chunks, each interactor's disc (red where a radius over 2 m is cut
-off) and each camera's 64 m trample window. Toggle parts with the `GrassDebug`
+the 16 m chunks, each interactor's disc (red where a radius over the 2 m limit is cut
+off) and each camera's trample window (64 m by default). Both follow the
+settings. Toggle parts with the `GrassDebug`
 resource; `enabled` is the master switch (the `meadow` example binds it to F3).
 It needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`, so
 adding this crate never changes how Bevy is compiled:
@@ -610,9 +682,9 @@ cargo run --release --example meadow
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
 | `showcase` | Twelve presets in small square patches under an ARPG camera, each with its name under it: the picture at the top of this page (`--fixed-time --screenshot PATH` takes it) |
-| `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare) |
+| `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
-| `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–4 pick the wind, S toggles grass shadows |
+| `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures themselves (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a fixed flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |
@@ -633,7 +705,7 @@ Everything a game needs is in `bevy_grass::prelude`.
 | --- | --- | --- |
 | `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
 | `GrassPlugin` | Plugin | The grass itself (fields, styles, wind, interaction, rendering). One field, `settings: GrassSettings` (`High` by default) |
-| `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`. Presets `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
+| `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`, and the settings that were once fixed numbers: `blade_rows`, `lod1_start`, `lod2_start`, `fade_start`, `lod_blend`, `lod2_density`, `fade_density`, `mid_range_density`, `max_widening`, `turn_to_camera`, `orthographic_extent`, `max_chunk_slices`, `readback_interval`, `trample_recovery`, `trample_cell_size`, `max_interactor_radius` (all in [the table above](#tune-the-distances-the-blades-the-wind-and-the-trampling)). Presets `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
 | `GrassQuality` | Enum | `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
 | `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |
 
@@ -645,8 +717,9 @@ Everything a game needs is in `bevy_grass::prelude`.
 | `Ultra` | RTX 4070 and up | 150 m | 1,200,000 | 100% | Full |
 
 These are the presets of `GrassSettings`; `orthographic_lod` (the detail level
-orthographic cameras use: 3-row blades, or 7-row at Ultra) is the one column
-not shown. `GrassQuality` has a `const fn` for each column as well:
+orthographic cameras use: 3-row blades, or 7-row at Ultra) and `max_interactors`
+are not shown, and the [other settings](#tune-the-distances-the-blades-the-wind-and-the-trampling)
+are the same in every tier. `GrassQuality` has a `const fn` for each column as well:
 `settings()`, `radius()`, `instance_capacity()`, `density_scale()`,
 `shadows()` and `orthographic_lod()`.
 
@@ -658,8 +731,8 @@ not shown. `GrassQuality` has a `const fn` for each column as well:
 | `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier) |
 | `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
 | `GrassFieldOverrides` | Component | On a field: `tint: Option<Color>` (multiplies blade colours), `density_scale`, `height_scale`, for one field without a style of its own |
-| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to 2), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground) |
-| `GrassWind` | Resource | `direction: Vec2` (XZ; any length, normalized on use; `.toward(Dir2)` sets it from a `Dir2`), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
+| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `GrassSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground) |
+| `GrassWind` | Resource | `direction: Vec2` (XZ; any length, normalized on use; `.toward(Dir2)` sets it from a `Dir2`), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s), and the multipliers `sway`, `sway_speed`, `flutter`, `gust_contrast` (1 in every preset). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
 | `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped) and `gpu` (blades per level of detail, slices, overflows) |
 | `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |
 | `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (feature `debug`) | Gizmos for fields, chunks, interactors and trample windows |
@@ -777,14 +850,14 @@ records both kinds with numbers.
 3. **Three indirect draws per camera**, whatever the number of fields or
    chunks. There is no vertex buffer: the vertex shader builds each blade from
    its instance and a shared index buffer.
-4. **Three levels of detail**: 7, 3 and 1 rows (15, 7 and 3 vertices). Each
-   blade picks its level by its own dither value inside a 4 m band, so the
-   change never shows as a ring.
+4. **Three levels of detail**: 7, 3 and 1 rows by default (15, 7 and 3
+   vertices; `blade_rows`). Each blade picks its level by its own dither value
+   inside a 4 m band (`lod_blend`), so the change never shows as a ring.
 5. **Fewer, wider blades with distance.** Density thins with distance, in a
    fixed order per blade, and the survivors widen to keep the same coverage.
    GPUs shade pixels in 2 × 2 quads, so one wider blade is cheaper than two
-   thin ones covering the same area. Halving mid-range density cut grass cost
-   by 16.5% with no visible change.
+   thin ones covering the same area. Halving mid-range density (the default of
+   `mid_range_density`) cut grass cost by 16.5% with no visible change.
 6. **Coarser blades for top-down cameras.** Orthographic cameras draw every
    blade at the same size, so they use 3-row blades. That was 9% faster and
    indistinguishable at 1:1.
@@ -800,7 +873,7 @@ records both kinds with numbers.
     up in tables built at startup (one load per blade) instead of searched per
     blade. The search cost 15 times as much.
 11. **One trample texture per camera.** Interactors are stamped into 256 ×
-    256 cells of 25 cm around what the camera sees, addressed with power-of-two masks so trails
+    256 cells of 25 cm (`trample_cell_size`) around what the camera sees, addressed with power-of-two masks so trails
     stay in world space without copying. Each blade reads one cell. The whole
     pass costs about 0.02 ms, the same for 1 or 512 interactors.
 12. **You pay only for what you use.** Optional terms (sheen, ground tint,
@@ -820,7 +893,7 @@ records both kinds with numbers.
 2. **Rounded normals.** Normals tilt across the blade's width, so a flat strip
    shades like a curved leaf. Back faces are lit as well as front faces.
 3. **No paper-thin blades.** A blade turning edge-on to the camera rotates
-   slightly toward it. Blades never get narrower than
+   slightly toward it (`GrassSettings::turn_to_camera`). Blades never get narrower than
    `GrassSettings::min_width_px` (1 pixel by default) on screen, which removes
    most shimmer.
 4. **Even, natural spacing.** Positions come from a blue-noise tile, with no
@@ -832,7 +905,8 @@ records both kinds with numbers.
 6. **Three layers of wind.** Rolling gusts from a noise texture that scrolls
    across the world. Each blade also sways at its own phase and at a
    frequency set by its stiffness, so neighbours never move in lockstep. Near
-   tips get a small flutter.
+   tips get a small flutter. `GrassWind::sway`, `sway_speed`, `flutter` and
+   `gust_contrast` turn each layer up or down.
 7. **Bevy's own lighting.** Grass goes through Bevy's PBR functions, so it
    gets every light type, cascaded shadows, environment maps and fog, and
    matches everything else in the scene.
@@ -854,7 +928,7 @@ records both kinds with numbers.
     across, on noise turned 34° so it never lines up with the world's axes,
     with dry tips and dead blades among the living.
 14. **Trampling with trails.** Grass parts around anything with a
-    `GrassInteractor` and recovers over about 1.5 s, in world space, so trails
+    `GrassInteractor` and recovers over about 1.5 s (`trample_recovery`), in world space, so trails
     stay put while the camera moves.
 15. **No seam at the horizon.** `FarGrassMaterial` turns the ground the grass
     colour as the blades thin out, with the same gusts rolling across it.
@@ -904,13 +978,15 @@ predate that change.
   thinning only removes blades, species shares, blade length under bend). An
   opt-in GPU test reads blades back and compares them with the mirror:
   `cargo test -- --ignored gpu`.
-- **Behaviour.** 106 unit tests and 11 doctests cover settings and presets,
+- **Behaviour.** 127 unit tests and 16 doctests cover settings and presets,
   the style file format, visibility and render layers, reflection (scene-style
   inserts and inspector-style edits), the sun and cascade warnings, statistics,
   and incremental table updates: after every kind of change the incremental
   tables must equal tables built from scratch. GPU tests (`cargo test -- --ignored gpu`)
   also cover layers and visibility, runtime settings, two cameras at different
-  settings, and buffer overflow reporting.
+  settings, buffer overflow reporting, and the tunables: the GPU against the
+  CPU mirror at other distances and densities, blade rows, wind shaping,
+  trample limits and orthographic extents.
 - **Lints.** `unsafe_code` is forbidden; clippy's pedantic set and rustdoc's
   missing-docs check pass.
 

@@ -10,7 +10,7 @@
 //! declares only what it uses.
 
 import package::shaders::common::{
-    View, TRAMPLE_TEXELS, MAX_PUSH_RADIUS, trample_pack, trample_slot, trample_cell,
+    View, TRAMPLE_TEXELS, trample_pack, trample_slot, trample_cell,
     in_trample_window,
 };
 
@@ -54,7 +54,7 @@ fn trample_stamp(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocat
     }
     let interactor = interactors[group.x];
     let center = interactor.xy;
-    let radius = min(interactor.z, MAX_PUSH_RADIUS);
+    let radius = min(interactor.z, view.limits.y);
     let texel = view.trample_step.x;
     let low = vec2<i32>(floor((center - radius) / texel));
     let side = i32(ceil(2.0 * radius / texel)) + 2;

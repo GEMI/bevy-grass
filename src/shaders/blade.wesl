@@ -36,7 +36,11 @@ fn blade_ref(vertex_index: u32, instance_index: u32) -> BladeRef {
     var out: BladeRef;
     out.lod = code % 3u;
     out.local = vertex_index % LOD_VERTEX_STRIDE;
-    out.instance = unpack(instances[grass_view.bucket_base[bucket] + instance_index], grass_view.instance_origin);
+    out.instance = unpack(
+        instances[grass_view.bucket_base[bucket] + instance_index],
+        grass_view.instance_origin,
+        grass_view.limits.w,
+    );
     return out;
 }
 
@@ -72,7 +76,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     let height = instance.height * field.shape.y;
     let root_width = instance.width * WIDTH_RANGE * field.shape.z;
 
-    let rows = lod_rows(blade.lod);
+    let rows = lod_rows(frame, blade.lod);
     let is_tip = blade.local >= 2u * rows;
     let row = select(blade.local / 2u, rows, is_tip);
     var t = f32(row) / f32(rows);
@@ -108,7 +112,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     var face = vec2<f32>(sin(yaw), cos(yaw));
     let facing_eye = dot(face, to_eye);
     let edge_on = 1.0 - abs(facing_eye);
-    face = normalize(mix(face, to_eye * select(-1.0, 1.0, facing_eye >= 0.0), edge_on * 0.4));
+    face = normalize(mix(face, to_eye * select(-1.0, 1.0, facing_eye >= 0.0), edge_on * grass_view.limits.z));
     // The blade leans and bends one way along its length; twist turns only
     // its cross-section, and a head turns to face the eye.
     var turned = face;
@@ -128,7 +132,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // Flutter: a small, fast shiver near the tip of full-detail blades.
     if blade.lod == 0u {
         let time = select(frame.time, frame.previous_time, eye.previous);
-        let flutter = sin(time * periodic(11.0) + instance.seed * 37.0 + t * 4.0) * 0.012 * frame.wind_strength;
+        let flutter = sin(time * periodic(11.0) + instance.seed * 37.0 + t * 4.0) * 0.012 * frame.wind_strength * frame.flutter;
         point += across * flutter * t * t * height;
     }
 

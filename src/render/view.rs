@@ -30,13 +30,10 @@ const INSTANCE_SIZE: u64 = 16;
 pub(crate) const DRAW_ARGS_SIZE: u64 = 20;
 /// `fixed_lod` value meaning "pick by distance".
 const DISTANCE_LOD: u32 = 3;
-/// Frames between overflow checks.
-const READBACK_INTERVAL: u32 = 120;
-
-/// Slices of visible chunks one camera can generate in a frame. A dense chunk
-/// is several slices of 512 candidates (`generate.wesl`); the bench peaks at
-/// 739 at Ultra, so 8,192 leaves room for styles ten times as dense.
-const MAX_VISIBLE_CHUNKS: u32 = 8192;
+/// The vertical range instance positions are stored over, in metres either
+/// side of the view's origin, at least: a view whose horizontal extent is
+/// larger uses that instead.
+const MIN_HEIGHT_RANGE: f32 = 256.0;
 
 impl crate::GrassShadows {
     /// Directional cascades grass is drawn into, counted from the nearest.
@@ -87,6 +84,14 @@ pub(crate) struct ViewUniformData {
     pub trample_step: Vec4,
     /// Direction to the first directional light, w 1 when there is one.
     pub sun: Vec4,
+    /// The distance table's densities: the share kept where LOD 2 starts and
+    /// where the last fade starts, the extra share kept from LOD 1 on, and
+    /// where the last fade starts as a share of the radius.
+    pub lod_density: Vec4,
+    /// The most a thinned blade widens, the largest interactor radius, how
+    /// far an edge-on blade turns toward the camera, and the vertical range
+    /// of stored positions.
+    pub limits: Vec4,
 }
 
 /// Where the overflow check is in its cycle.
@@ -112,11 +117,16 @@ pub(crate) struct GrassViewBuffers {
     pub interactor_count: u32,
     /// The window's lowest cell last frame; `None` before the first frame.
     trample_origin: Option<IVec2>,
+    /// The side of a window cell last frame, in metres. When it changes, the
+    /// old cells mean something else and the window starts again.
+    trample_cell: f32,
     /// Copy of `counters`, read back every few seconds to warn about overflow.
     pub readback: Buffer,
     pub readback_state: Arc<AtomicU8>,
     readback_values: Arc<Mutex<[u32; 4]>>,
     frames_since_readback: u32,
+    /// Frames between readbacks; 0 for never. Follows the settings.
+    readback_interval: u32,
     capacities: [u32; 3],
     /// Interactors `interactors` has room for.
     max_interactors: u32,
@@ -154,7 +164,7 @@ impl GrassViewBuffers {
             visible: buffer(
                 "grass_visible_chunks",
                 // A `VisibleChunk`: one slice of a visible chunk, 16 bytes.
-                u64::from(MAX_VISIBLE_CHUNKS) * 16,
+                u64::from(settings.max_chunk_slices) * 16,
                 BufferUsages::STORAGE,
             ),
             counters: buffer(
@@ -180,7 +190,12 @@ impl GrassViewBuffers {
             draw_args: buffer(
                 "grass_draw_args",
                 3 * DRAW_ARGS_SIZE,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                // The GPU readback test copies the arguments out.
+                if cfg!(test) {
+                    BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC
+                } else {
+                    BufferUsages::STORAGE | BufferUsages::INDIRECT
+                },
             ),
             // Zeroed on creation: nothing is flattened yet.
             trample: buffer(
@@ -195,6 +210,7 @@ impl GrassViewBuffers {
             ),
             interactor_count: 0,
             trample_origin: None,
+            trample_cell: settings.trample_cell_size,
             readback: buffer(
                 "grass_readback",
                 16,
@@ -203,9 +219,10 @@ impl GrassViewBuffers {
             readback_state: Arc::new(AtomicU8::new(READBACK_IDLE)),
             readback_values: Arc::new(Mutex::new([0; 4])),
             frames_since_readback: 0,
+            readback_interval: settings.readback_interval,
             capacities,
             max_interactors: settings.max_interactors,
-            max_slices: MAX_VISIBLE_CHUNKS,
+            max_slices: settings.max_chunk_slices,
             warned: false,
         }
     }
@@ -215,6 +232,7 @@ impl GrassViewBuffers {
     fn fits(&self, settings: &GrassSettings) -> bool {
         self.capacities[0] == settings.instance_capacity
             && self.max_interactors == settings.max_interactors
+            && self.max_slices == settings.max_chunk_slices
     }
 
     /// The instance buffer, for the GPU readback test.
@@ -225,7 +243,8 @@ impl GrassViewBuffers {
 
     /// Whether this frame's compute should copy the counters for the check.
     pub(crate) fn wants_readback(&self) -> bool {
-        self.frames_since_readback >= READBACK_INTERVAL
+        self.readback_interval > 0
+            && self.frames_since_readback >= self.readback_interval
             && self.readback_state.load(Ordering::Acquire) == READBACK_IDLE
     }
 
@@ -318,6 +337,7 @@ pub(crate) fn prepare_views(
         update_trample(&mut buffers, &mut data, view, settings, &extracted, &queue);
         buffers.uniform.set(data);
         buffers.uniform.write_buffer(&device, &queue);
+        buffers.readback_interval = settings.readback_interval;
         buffers.frames_since_readback += 1;
         check_readback(&mut buffers, entity, &readings);
     }
@@ -338,15 +358,16 @@ fn view_uniform(
     let forward = view.world_from_view.forward().as_vec3();
     let pixel_scale = 2.0 / (view.clip_from_view.x_axis.x * view.viewport.z.max(1) as f32);
 
-    let lod = DistanceLod::for_radius(settings.radius);
+    let lod = DistanceLod::from_settings(settings);
     // Positions are quantized to 16 bits over ±extent around an origin that
     // moves in whole quantization steps, so blades never shimmer as the
-    // camera moves.
+    // camera moves. Heights use the same steps, over at least 256 m.
     let extent = if orthographic {
-        256.0
+        settings.orthographic_extent
     } else {
         settings.radius + 16.0
     };
+    let height_range = extent.max(MIN_HEIGHT_RANGE);
     let step = 2.0 * extent / 65_535.0;
     let snap = step * 128.0;
     let origin = (position / snap).round() * snap;
@@ -376,7 +397,7 @@ fn view_uniform(
         lod_band: lod.band,
         density_scale: settings.density_scale,
         fixed_lod,
-        max_visible_chunks: MAX_VISIBLE_CHUNKS,
+        max_visible_chunks: settings.max_chunk_slices,
         interactor_count: 0,
         layers: 1,
         min_width_px: settings.min_width_px,
@@ -386,6 +407,18 @@ fn view_uniform(
         trample_origin: IVec4::ZERO,
         trample_step: Vec4::ZERO,
         sun: Vec4::ZERO,
+        lod_density: Vec4::new(
+            lod.density_at[0],
+            lod.density_at[1],
+            lod.mid_range_density,
+            lod.fade_start,
+        ),
+        limits: Vec4::new(
+            settings.max_widening,
+            settings.max_interactor_radius,
+            settings.turn_to_camera,
+            height_range,
+        ),
     }
 }
 
@@ -406,16 +439,26 @@ fn update_trample(
         orthographic,
         &extracted.tables,
     );
-    let origin = trample::window_origin(center);
-    // Before the first frame every slot counts as newly in the window, which
-    // clears it.
+    let cell = settings.trample_cell_size;
+    let origin = trample::window_origin(center, cell);
+    // Before the first frame, and when the cells change size, every slot
+    // counts as newly in the window, which clears it.
+    if buffers.trample_cell != cell {
+        buffers.trample_cell = cell;
+        buffers.trample_origin = None;
+    }
     let previous = buffers
         .trample_origin
         .unwrap_or(origin + IVec2::splat(trample::TEXELS * 4));
     buffers.trample_origin = Some(origin);
 
-    let stamped =
-        trample::select_interactors(&extracted.interactors, center, settings.max_interactors);
+    let stamped = trample::select_interactors(
+        &extracted.interactors,
+        center,
+        settings.max_interactors,
+        cell,
+        settings.max_interactor_radius,
+    );
     if !stamped.is_empty() {
         queue.write_buffer(&buffers.interactors, 0, bytemuck::cast_slice(&stamped));
     }
@@ -424,12 +467,7 @@ fn update_trample(
     let elapsed = (extracted.frame.time - extracted.frame.previous_time).max(0.0);
     data.interactor_count = buffers.interactor_count;
     data.trample_origin = IVec4::new(origin.x, origin.y, previous.x, previous.y);
-    data.trample_step = Vec4::new(
-        trample::TEXEL_SIZE,
-        elapsed / trample::RECOVERY_SECONDS,
-        0.0,
-        0.0,
-    );
+    data.trample_step = Vec4::new(cell, elapsed / settings.trample_recovery, 0.0, 0.0);
 }
 
 /// Advances the overflow check: maps a copied buffer, or reports a mapped one.
@@ -494,7 +532,8 @@ fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuRe
                 buffers.warned = true;
                 warn!(
                     "bevy_grass: {} visible chunk slices for {}; the grass of the rest is \
-                     dropped. Lower the style density or the grass radius.",
+                     dropped. Lower the style density or the grass radius, or raise \
+                     GrassSettings::max_chunk_slices.",
                     counts[3], buffers.max_slices
                 );
             }

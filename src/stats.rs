@@ -23,7 +23,9 @@ use crate::GrassSystems;
 /// HUD, a log line or a test.
 ///
 /// The `gpu` numbers come from reading counters back from the GPU, which is
-/// done every couple of seconds (120 frames) per camera, not every frame:
+/// done every couple of seconds (120 frames by default, see
+/// [`GrassSettings::readback_interval`](crate::GrassSettings::readback_interval))
+/// per camera, not every frame:
 /// they are the latest reading, summed over cameras.
 ///
 /// ```no_run

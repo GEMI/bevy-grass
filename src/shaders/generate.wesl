@@ -288,11 +288,11 @@ fn wind_bend(
     let uv = root / max(frame.gust_scale, 0.01) - gust_offset;
     let gust = textureSampleLevel(gust_texture, gust_sampler, uv, 0.0).r;
     let softness = 1.0 - 0.75 * stiffness;
-    let frequency = periodic(mix(1.1, 2.4, stiffness) * (0.85 + 0.3 * seed));
+    let frequency = periodic(mix(1.1, 2.4, stiffness) * (0.85 + 0.3 * seed) * frame.sway_speed);
     let sway = sin(time * frequency + seed * TAU);
     let across = vec2<f32>(-direction.y, direction.x);
-    let push = strength * (0.15 + 1.4 * gust * gust);
-    let wobble = (direction * 0.5 + across * 0.5) * sway * (0.04 + 0.14 * strength);
+    let push = strength * (0.15 + 1.4 * frame.gust_contrast * gust * gust);
+    let wobble = (direction * 0.5 + across * 0.5) * sway * (0.04 + 0.14 * strength) * frame.sway;
     return clamp((direction * push + wobble) * softness, vec2<f32>(-1.0), vec2<f32>(1.0));
 }
 
@@ -379,7 +379,7 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     if lod == 3u {
         lod = select_lod(view, distance_to_eye, unit(hash(seed ^ 0x10du)));
     }
-    let width = look.shape.z * (0.75 + 0.5 * unit(hash(seed ^ 0x77u))) * coverage_width(falloff);
+    let width = look.shape.z * (0.75 + 0.5 * unit(hash(seed ^ 0x77u))) * coverage_width(falloff, view.limits.x);
     let seed_unit = f32(seed >> 24u) / 255.0;
 
     var blade: BladeData;
@@ -409,7 +409,7 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
 
     out.keep = true;
     out.bucket = select(lod, 0u, view.fixed_lod != 3u);
-    out.words = pack(blade, view.instance_origin);
+    out.words = pack(blade, view.instance_origin, view.limits.w);
     return out;
 }
 
