@@ -973,6 +973,19 @@ perspective scene at 3.61 ms p95 and misses the ARPG scene at 4.33 ms p95
 against the 4.167 ms budget. That is the remaining gap the meshlet/clump
 proposal is meant to close.
 
+On the RTX 4070 Ti with its 2013 quad-core CPU, both tiers pass in both scenes
+(frame p95 at most 3.00 ms, `release-lto`, median of three rounds):
+
+| Scene | No grass p95 | `High` p95 | `Competitive` p95 |
+| --- | --- | --- | --- |
+| Perspective | 2.96 ms | 3.00 ms | 2.99 ms |
+| Top-down ARPG camera | 2.76 ms | 2.82 ms | 2.80 ms |
+
+Read this as "grass is not what stops a game reaching 240 FPS here", not as
+"a game runs at 240 FPS here". The test scene has no game in it, and its
+`no-grass` floor of 2.4–2.8 ms (Bevy on this old CPU) already takes about two
+thirds of the 4.167 ms budget, leaving about 1.2 ms for everything else.
+
 To measure on your machine, run `cargo run --release --example bench` (add
 `--ortho` for the top-down camera) and compare with a `--no-grass` run.
 `tools/bench_ab.py` runs paired A/B rounds of two builds;

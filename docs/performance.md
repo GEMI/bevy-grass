@@ -93,6 +93,8 @@ with the measurements. Do not record a run whose log contains a shader error.
 | --- | --- | --- | --- | ---: | ---: | ---: | :---: | :---: |
 | 2026-10-17 | T1200 laptop | dev, 3, no GPU timing | perspective | 2.384 / 2.840 ms | 5.622 / 6.394 ms | 2.960 / 3.611 ms | FAIL | **PASS** |
 | 2026-10-17 | T1200 laptop | dev, 3, no GPU timing | ARPG | 2.177 / 2.539 ms | 4.990 / 5.709 ms | 3.254 / 4.328 ms | FAIL | FAIL (4.328 vs 4.167) |
+| 2026-10-17 | RTX 4070 Ti + i5-4570S (Linux) | release-lto, 3, no GPU timing | perspective | 2.611 / 2.956 ms | 2.651 / 3.000 ms | 2.649 / 2.994 ms | **PASS** | **PASS** |
+| 2026-10-17 | RTX 4070 Ti + i5-4570S (Linux) | release-lto, 3, no GPU timing | ARPG | 2.428 / 2.755 ms | 2.519 / 2.823 ms | 2.495 / 2.801 ms | **PASS** | **PASS** |
 
 The first real gate run says two useful things. `High` is still far from the
 240 Hz budget in both scenes. `Competitive` **passes in perspective** on the
@@ -111,6 +113,8 @@ That is the number the optimization work has to move, and the gate makes
 success or failure unambiguous. The `High` row is the default-quality
 baseline; the Competitive row is the 240 Hz target that the clump/meshlet
 work is meant to improve.
+
+**RTX 4070 Ti note.** The 4070 Ti rows pass because the scene is empty, not because the frame is roomy. Their `no-grass` floor is 2.4–2.6 ms p50 (Bevy on a 2013 i5), about 60–65% of the 4.167 ms budget, and grass adds only 0.04–0.1 ms at p50 (about 0.3 ms of GPU time, mostly overlapped with the CPU). A real game's own frame has to fit in the remaining 1.2 ms at p95. So the gate shows that grass is not what stops a game reaching 240 FPS on this card; it does not show that a game reaches it. A faster CPU should lower the floor, but that has not been measured. `High` and `Competitive` are indistinguishable in frame time here (the run had no GPU timing), so the tier difference needs a run with GPU timing on.
 
 ## Where the time goes
 
