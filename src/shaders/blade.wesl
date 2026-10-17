@@ -3,7 +3,7 @@
 //! Bindings are group 2 in every grass draw pipeline.
 
 import package::shaders::common::{
-    Frame, View, Field, Instance, TAU, WIDTH_RANGE, LOD_VERTEX_STRIDE, unpack, blade_curve, lod_rows,
+    Frame, View, Field, Instance, TAU, WIDTH_RANGE, periodic, LOD_VERTEX_STRIDE, unpack, blade_curve, lod_rows,
     instance_random,
 };
 
@@ -128,7 +128,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // Flutter: a small, fast shiver near the tip of full-detail blades.
     if blade.lod == 0u {
         let time = select(frame.time, frame.previous_time, eye.previous);
-        let flutter = sin(time * 11.0 + instance.seed * 37.0 + t * 4.0) * 0.012 * frame.wind_strength;
+        let flutter = sin(time * periodic(11.0) + instance.seed * 37.0 + t * 4.0) * 0.012 * frame.wind_strength;
         point += across * flutter * t * t * height;
     }
 

@@ -56,17 +56,17 @@ const ROWS: [&[&str]; 5] = [
     ],
 ];
 
-const WINDS: [(&str, Wind); 4] = [
-    ("calm", Wind::CALM),
-    ("breeze", Wind::BREEZE),
-    ("gusty", Wind::GUSTY),
-    ("storm", Wind::STORM),
+const WINDS: [(&str, GrassWind); 4] = [
+    ("calm", GrassWind::CALM),
+    ("breeze", GrassWind::BREEZE),
+    ("gusty", GrassWind::GUSTY),
+    ("storm", GrassWind::STORM),
 ];
 
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "bevy_grass: styles (wind: breeze)");
-    app.add_plugins((GrassPlugin::default(), FreeCameraPlugin))
+    app.add_plugins((GrassPlugins, FreeCameraPlugin))
         .add_systems(Startup, setup)
         .add_systems(Update, (toggle_shadows, pick_wind))
         .run();
@@ -85,7 +85,7 @@ fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettin
 
 fn pick_wind(
     keys: Res<ButtonInput<KeyCode>>,
-    mut wind: ResMut<Wind>,
+    mut wind: ResMut<GrassWind>,
     mut windows: Query<&mut Window>,
 ) {
     let picked = [
@@ -98,7 +98,7 @@ fn pick_wind(
     .position(|key| keys.just_pressed(*key));
     if let Some(index) = picked {
         let (name, preset) = &WINDS[index];
-        *wind = preset.clone();
+        *wind = *preset;
         for mut window in &mut windows {
             window.title = format!("bevy_grass: styles (wind: {name})");
         }

@@ -24,19 +24,20 @@ struct FarGrass {
     area: vec4<f32>,
     /// xy: wind direction; z: gust size in metres; w: gust speed in m/s.
     wind: vec4<f32>,
-    /// x: wind strength.
+    /// x: wind strength; yz: how far the gusts have scrolled, in repeats of
+    /// the gust texture (the offset `GrassClock` keeps).
     strength: vec4<f32>,
 }
 
 /// The ground's colour `ground` at `world_position`, tinted toward the far
-/// grass seen from `eye` at `time` (Bevy's `globals.time`, which the grass's
-/// wind also runs on). `gusts` is the grass's gust texture.
+/// grass seen from `eye`, with the gusts where `far.strength.yz` has scrolled
+/// them (kept equal to the blades' by `FarGrassPlugin`). `gusts` is the
+/// grass's gust texture.
 fn grass_far_color(
     world_position: vec3<f32>,
     eye: vec3<f32>,
     ground: vec3<f32>,
     far: FarGrass,
-    time: f32,
     gusts: texture_2d<f32>,
     gust_sampler: sampler,
 ) -> vec3<f32> {
@@ -48,9 +49,7 @@ fn grass_far_color(
     }
     // The gust texture the blades bend by, scrolled the same way: where a
     // gust presses the grass down its paler, sunlit side shows.
-    let raw = far.wind.xy;
-    let direction = select(vec2<f32>(1.0, 0.0), normalize(raw), dot(raw, raw) > 1e-8);
-    let uv = (world_position.xz - direction * time * far.wind.w) / max(far.wind.z, 0.01);
+    let uv = world_position.xz / max(far.wind.z, 0.01) - far.strength.yz;
     let gust = textureSampleLevel(gusts, gust_sampler, uv, 0.0).r;
     let sheen = 1.0 + far.fade.z * far.strength.x * (1.4 * gust * gust - 0.35);
     return mix(ground, far.color.rgb * sheen, amount);

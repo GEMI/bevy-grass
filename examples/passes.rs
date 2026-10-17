@@ -48,17 +48,14 @@ fn main() {
     if deferred {
         app.insert_resource(DefaultOpaqueRendererMethod::deferred());
     }
-    app.add_plugins((
-        GrassPlugin::default(),
-        MaterialPlugin::<ShowPrepass>::default(),
-    ))
-    .insert_resource(if args.has("--storm") {
-        Wind::STORM
-    } else {
-        Wind::GUSTY
-    })
-    .add_systems(Startup, setup)
-    .add_systems(Update, (pan, fit_overlay));
+    app.add_plugins((GrassPlugins, MaterialPlugin::<ShowPrepass>::default()))
+        .insert_resource(if args.has("--storm") {
+            GrassWind::STORM
+        } else {
+            GrassWind::GUSTY
+        })
+        .add_systems(Startup, setup)
+        .add_systems(Update, (pan, fit_overlay));
     app.run();
 }
 

@@ -73,13 +73,13 @@ fn main() {
             .disable::<WinitPlugin>(),
     )
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO))
-    .add_plugins(GrassPlugin {
+    .add_plugins(GrassPlugins.set(GrassPlugin {
         settings: GrassSettings {
             // Fourteen cameras; each sees one small patch.
             instance_capacity: 60_000,
             ..default()
         },
-    })
+    }))
     // The wind's clock stands still at 0, so the picture is the same however
     // long the GPU takes.
     .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))

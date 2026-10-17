@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::clock::GrassClock;
 use bevy::asset::Handle;
 use bevy::ecs::prelude::*;
 use bevy::light::DirectionalLight;
@@ -22,12 +23,12 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::view::{ViewUniform, ViewUniforms};
 use bevy::shader::Shader;
-use bevy::time::Time;
 use bevy::transform::components::GlobalTransform;
 
+use super::trample;
 use super::view::ViewUniformData;
 use crate::GrassSettings;
-use crate::api::{GrassInteractor, GrassSun, Wind};
+use crate::api::{GrassInteractor, GrassSun, GrassWind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
 use crate::mirror::{self, LOD_ROWS};
 use crate::sun::{SunCandidate, pick_sun};
@@ -57,7 +58,8 @@ pub(crate) struct FrameUniform {
     pub chunk_count: u32,
     pub _pad0: u32,
     pub wind_direction: Vec2,
-    pub _pad1: Vec2,
+    pub gust_offset: Vec2,
+    pub previous_gust_offset: Vec2,
 }
 
 /// Mirrors `LodTable` in `common.wesl`.
@@ -96,8 +98,8 @@ type SunLight = (
 pub(crate) fn extract_grass(
     mut extracted: ResMut<ExtractedGrass>,
     tables: Extract<Res<FieldTables>>,
-    wind: Extract<Res<Wind>>,
-    time: Extract<Res<Time>>,
+    wind: Extract<Res<GrassWind>>,
+    clock: Extract<Res<GrassClock>>,
     lights: Extract<Query<SunLight>>,
     interactors: Extract<Query<(&GrassInteractor, &GlobalTransform)>>,
     settings: Extract<Res<GrassSettings>>,
@@ -106,16 +108,17 @@ pub(crate) fn extract_grass(
     if tables.version != extracted.tables.version {
         extracted.tables = tables.clone();
     }
-    let now = time.elapsed_secs_wrapped();
     extracted.frame = FrameUniform {
-        time: now,
-        previous_time: now - time.delta_secs(),
+        time: clock.time,
+        previous_time: clock.previous_time,
         wind_strength: wind.strength,
         gust_scale: wind.gust_scale,
         gust_speed: wind.gust_speed,
         chunk_size: CHUNK_SIZE,
         chunk_count: extracted.tables.chunks.len() as u32,
         wind_direction: wind.direction,
+        gust_offset: clock.gust_offset,
+        previous_gust_offset: clock.previous_gust_offset,
         ..Default::default()
     };
     // The light grass follows: the one marked `GrassSun`, or else the first
@@ -134,12 +137,20 @@ pub(crate) fn extract_grass(
     extracted.shadow_light = shadow_light;
     extracted.sun = sun.map(|shines| -shines);
     extracted.interactors.clear();
-    extracted
-        .interactors
-        .extend(interactors.iter().map(|(interactor, transform)| {
+    let tables = &extracted.tables;
+    let stamps: Vec<Vec4> = interactors
+        .iter()
+        .map(|(interactor, transform)| {
             let at = transform.translation();
-            Vec4::new(at.x, at.z, interactor.radius, interactor.strength)
-        }));
+            // Only an interactor with a height limit needs the ground.
+            let ground = interactor
+                .max_height
+                .and_then(|_| tables.highest_ground_at(Vec2::new(at.x, at.z)));
+            let reach = trample::reach(interactor.max_height, at.y, ground);
+            Vec4::new(at.x, at.z, interactor.radius, interactor.strength * reach)
+        })
+        .collect();
+    extracted.interactors = stamps;
 }
 
 /// Bind group layouts, shared by the pipelines and the bind groups.

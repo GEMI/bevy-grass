@@ -5,6 +5,9 @@
 //! `src/mirror.rs`, which is where their properties are tested.
 
 const TAU: f32 = 6.283185307;
+/// Seconds after which `Frame::time` starts again. Twin of
+/// `clock::TIME_PERIOD`.
+const TIME_PERIOD: f32 = 3600.0;
 const TILE_POINTS: u32 = 1024u;
 const HEIGHT_RANGE: f32 = 256.0;
 const WIDTH_RANGE: f32 = 4.0;
@@ -26,7 +29,19 @@ struct Frame {
     chunk_count: u32,
     _pad0: u32,
     wind_direction: vec2<f32>,
-    _pad1: vec2<f32>,
+    /// How far the gusts have scrolled, in repeats of the gust texture,
+    /// now and a frame ago, each in [0, 1). Accumulated on the CPU, so it
+    /// does not jump when `time` wraps or the wind changes.
+    gust_offset: vec2<f32>,
+    previous_gust_offset: vec2<f32>,
+}
+
+/// `frequency` (radians per second) rounded to a whole number of cycles per
+/// `TIME_PERIOD`, so that `sin(time * periodic(f))` is continuous where
+/// `time` wraps. The rounding is below 0.1% for any frequency above 1.
+fn periodic(frequency: f32) -> f32 {
+    let step = TAU / TIME_PERIOD;
+    return round(frequency / step) * step;
 }
 
 /// Per view.

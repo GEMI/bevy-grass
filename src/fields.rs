@@ -22,7 +22,9 @@ use bevy::render::render_resource::ShaderType;
 use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
 
-use crate::api::{GrassBlade, GrassField, GrassGround, GrassSpecies, GrassStyle};
+use crate::api::{
+    GrassBlade, GrassField, GrassFieldOverrides, GrassGround, GrassSpecies, GrassStyle,
+};
 use crate::mirror::{self, ChunkLayout};
 use crate::packed::{self, PackedImages};
 use crate::stats::TableStats;
@@ -130,6 +132,28 @@ pub(crate) struct FieldTables {
     pub features: LookFeatures,
 }
 
+impl FieldTables {
+    /// The highest ground under `point` (world X and Z) in the chunk of the
+    /// field that holds it, or `None` outside every field. A flat field is
+    /// exact; on a heightmap it is the top of the 16 m chunk.
+    pub(crate) fn highest_ground_at(&self, point: Vec2) -> Option<f32> {
+        let mut first_chunk = 0usize;
+        for slot in self.slots.iter() {
+            let field = self.fields.get(slot.first)?;
+            let size = Vec2::new(field.extent.x, field.extent.y);
+            let counts = (size / CHUNK_SIZE).ceil().as_uvec2().max(UVec2::ONE);
+            let local = point - Vec2::new(field.min_corner.x, field.min_corner.z);
+            if local.cmpge(Vec2::ZERO).all() && local.cmplt(size).all() {
+                let cell = (local / CHUNK_SIZE).as_uvec2().min(counts - UVec2::ONE);
+                let index = first_chunk + (cell.y * counts.x + cell.x) as usize;
+                return self.chunks.get(index).map(|chunk| chunk.bounds.w);
+            }
+            first_chunk += (counts.x * counts.y) as usize;
+        }
+        None
+    }
+}
+
 /// The entries of one field in [`FieldTables::fields`], and what they were
 /// built from, so a rebuild can tell what has to be built again.
 #[derive(Debug, Clone, PartialEq)]
@@ -154,6 +178,7 @@ struct EntryKey {
     /// The heightmap, its offset in the height table and its scale.
     height: Option<(AssetId<Image>, u32, f32)>,
     species: usize,
+    overrides: GrassFieldOverrides,
 }
 
 /// Everything a field's chunks depend on besides the contents of its
@@ -194,11 +219,11 @@ impl LookFeatures {
         if style.toon_bands > 0 {
             features.0 |= Self::TOON.0;
         }
-        if look.twist > 0.0 || look.droop > 0.0 || look.fold > 0.0 || look.head > 0.0 {
+        if look.twist > 0.0 || look.droop > 0.0 || look.fold > 0.0 || look.head_length > 0.0 {
             features.0 |= Self::SHAPE.0;
         }
         let variation = &style.variation;
-        if variation.patch_amount > 0.0 || variation.dry_tips > 0.0 || variation.dead_blades > 0.0 {
+        if variation.patch_amount > 0.0 || variation.dry_tips > 0.0 || variation.dead_share > 0.0 {
             features.0 |= Self::VARIATION.0;
         }
         features
@@ -285,7 +310,11 @@ impl TablesDirty {
 /// without it, every moving camera or character would rebuild the tables.
 type FieldChanged = (
     With<GrassField>,
-    Or<(Changed<GrassField>, Changed<GlobalTransform>)>,
+    Or<(
+        Changed<GrassField>,
+        Changed<GlobalTransform>,
+        Changed<GrassFieldOverrides>,
+    )>,
 );
 
 /// A field shown, hidden, or moved to other render layers.
@@ -390,7 +419,10 @@ pub(crate) fn detect_changes(
     mut dirty: ResMut<TablesDirty>,
     changed: Query<(), FieldChanged>,
     access_changed: Query<(), AccessChanged>,
-    mut removed: RemovedComponents<GrassField>,
+    (mut removed, mut removed_overrides): (
+        RemovedComponents<GrassField>,
+        RemovedComponents<GrassFieldOverrides>,
+    ),
     mut styles: MessageReader<AssetEvent<GrassStyle>>,
     mut images: MessageReader<AssetEvent<Image>>,
     fields: Query<&GrassField>,
@@ -405,14 +437,18 @@ pub(crate) fn detect_changes(
     for event in images.read() {
         let id = event_id(event);
         let used = fields.iter().any(|field| {
-            field.density.as_ref().is_some_and(|mask| mask.id() == id)
+            field
+                .density_map
+                .as_ref()
+                .is_some_and(|mask| mask.id() == id)
                 || matches!(&field.ground, GrassGround::Heightmap { image, .. } if image.id() == id)
         });
         if used {
             dirty.images.insert(id);
         }
     }
-    if !changed.is_empty() || removed.read().count() > 0 {
+    let (gone, overrides_gone) = (removed.read().count(), removed_overrides.read().count());
+    if !changed.is_empty() || gone > 0 || overrides_gone > 0 {
         dirty.fields = true;
     }
     if !access_changed.is_empty() {
@@ -427,6 +463,7 @@ type FieldInputs<'a> = (
     &'a GlobalTransform,
     &'a InheritedVisibility,
     Option<&'a RenderLayers>,
+    Option<&'a GrassFieldOverrides>,
 );
 
 /// Where a field is and which views draw it.
@@ -460,7 +497,7 @@ fn patch_access(tables: &mut FieldTables, fields: &Query<FieldInputs>) {
     let mut entries = tables.fields.as_ref().clone();
     let mut slots = tables.slots.as_ref().clone();
     for slot in &mut slots {
-        let Ok((_, _, _, visibility, layers)) = fields.get(slot.entity) else {
+        let Ok((_, _, _, visibility, layers, _)) = fields.get(slot.entity) else {
             continue;
         };
         let bits = access(visibility.get(), layers);
@@ -478,6 +515,7 @@ fn patch_access(tables: &mut FieldTables, fields: &Query<FieldInputs>) {
 struct Input<'a> {
     entity: Entity,
     placement: Placement,
+    overrides: GrassFieldOverrides,
     style_id: AssetId<GrassStyle>,
     style: &'a GrassStyle,
     mask: Option<(AssetId<Image>, &'a Image)>,
@@ -510,6 +548,7 @@ impl Plan<'_> {
                 .height
                 .map(|(id, _, scale)| (id, self.height_offset, scale)),
             species: self.species.len(),
+            overrides: input.overrides,
         }
     }
 
@@ -548,8 +587,8 @@ fn gather<'a>(
     images: &'a Assets<Image>,
 ) -> Option<Vec<Input<'a>>> {
     let mut inputs = Vec::with_capacity(sorted.len());
-    for (entity, field, transform, visibility, layers) in sorted {
-        let mask = match &field.density {
+    for (entity, field, transform, visibility, layers, overrides) in sorted {
+        let mask = match &field.density_map {
             Some(handle) => Some((handle.id(), images.get(handle)?)),
             None => None,
         };
@@ -563,6 +602,7 @@ fn gather<'a>(
         inputs.push(Input {
             entity: *entity,
             placement: Placement::of(field, transform, visibility, *layers),
+            overrides: overrides.copied().unwrap_or_default(),
             style_id: field.style.id(),
             style: styles.get(&field.style)?,
             mask,
@@ -871,16 +911,26 @@ fn look_entry(
     field_entry: &FieldGpu,
     style: &GrassStyle,
     look: &GrassBlade,
+    overrides: &GrassFieldOverrides,
     mix: Vec4,
 ) -> FieldGpu {
-    let tip = linear(look.tip_color);
+    let (root, tip) = (linear(look.root_color), linear(look.tip_color));
     let patch = linear(style.variation.patch_color).truncate();
+    let tint = overrides
+        .tint
+        .map_or(Vec3::ONE, |tint| linear(tint).truncate());
+    let height = overrides.height_scale.max(0.0);
     FieldGpu {
-        shape: Vec4::new(look.height.x, look.height.y, look.width, style.density),
+        shape: Vec4::new(
+            look.height.x * height,
+            look.height.y * height,
+            look.width,
+            style.density * overrides.density_scale.max(0.0),
+        ),
         motion: Vec4::new(look.lean, look.stiffness, 0.0, look.root_occlusion),
-        root_color: linear(look.root_color),
+        root_color: (root.truncate() * tint).extend(root.w),
         // The tip colour's alpha carries the translucency.
-        tip_color: tip.truncate().extend(look.translucency),
+        tip_color: (tip.truncate() * tint).extend(look.translucency),
         look: Vec4::new(
             look.specular.clamp(0.0, 1.0),
             style.toon_bands as f32,
@@ -892,7 +942,7 @@ fn look_entry(
             look.twist.max(0.0),
             look.droop.clamp(0.0, 1.0),
             look.fold.clamp(0.0, 1.0),
-            look.head.clamp(0.0, 0.9),
+            look.head_length.clamp(0.0, 0.9),
         ),
         head: linear(look.head_color)
             .truncate()
@@ -920,7 +970,9 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
         corner,
         access,
     } = *placement;
-    let layout = ChunkLayout::for_density(CHUNK_SIZE, style.density);
+    let overrides = &plan.input.overrides;
+    let layout =
+        ChunkLayout::for_density(CHUNK_SIZE, style.density * overrides.density_scale.max(0.0));
     let (mask_offset, mask_size) = match mask {
         Some((_, image)) => (plan.mask_offset, image.size()),
         None => (NO_MAP, UVec2::ZERO),
@@ -949,14 +1001,14 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
         variation: Vec4::new(
             variation.patch_size.max(0.01),
             variation.dry_tips.clamp(0.0, 1.0),
-            variation.dead_blades.clamp(0.0, 1.0),
+            variation.dead_share.clamp(0.0, 1.0),
             0.0,
         ),
         tufts: Vec4::new(
             variation.tufts.clamp(0.0, 1.0),
-            variation.tuft_size.max(0.01),
-            if variation.bare_patches > 0.0 {
-                mirror::bare_threshold(variation.bare_patches)
+            variation.tuft_spacing.max(0.01),
+            if variation.bare_share > 0.0 {
+                mirror::bare_threshold(variation.bare_share)
             } else {
                 -1.0
             },
@@ -969,7 +1021,8 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
         .species
         .iter()
         .map(|species| species.blade.height.y)
-        .fold(style.blade.height.y, f32::max);
+        .fold(style.blade.height.y, f32::max)
+        * overrides.height_scale.max(0.0);
     let chances = species_chances(plan.species);
     let looks = std::iter::once((&style.blade, 1.0, 0.0)).chain(
         plan.species
@@ -985,7 +1038,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
                 (1 + plan.species.len()) as f32,
                 tallest,
             );
-            look_entry(&field_entry, style, look, mix)
+            look_entry(&field_entry, style, look, overrides, mix)
         })
         .collect()
 }
@@ -1248,7 +1301,7 @@ mod tests {
         // The seed heads' entry has their look and the field's placement.
         let heads = tables.fields[1];
         assert_eq!(heads.shape.y, GrassBlade::SEED_HEADS.height.y);
-        assert_eq!(heads.form.w, GrassBlade::SEED_HEADS.head);
+        assert_eq!(heads.form.w, GrassBlade::SEED_HEADS.head_length);
         assert_eq!(heads.placement, first.placement);
         assert_eq!(heads.tufts, first.tufts);
         assert!(tables.features.contains(LookFeatures::SHAPE));
@@ -1657,7 +1710,7 @@ mod tests {
             GrassField {
                 size: Vec2::splat(32.0),
                 style: style.clone(),
-                density: Some(mask.clone()),
+                density_map: Some(mask.clone()),
                 ground: GrassGround::Heightmap {
                     image: heightmap.clone(),
                     height_scale: 5.0,
@@ -1728,7 +1781,7 @@ mod tests {
             GrassField {
                 size: Vec2::splat(64.0),
                 style: style.clone(),
-                density: Some(mask),
+                density_map: Some(mask),
                 ..Default::default()
             },
         );
@@ -1764,7 +1817,7 @@ mod tests {
             GrassField {
                 size: Vec2::splat(16.0),
                 style: style.clone(),
-                density: Some(mask_a.clone()),
+                density_map: Some(mask_a.clone()),
                 ..Default::default()
             },
         );
@@ -1773,7 +1826,7 @@ mod tests {
             GrassField {
                 size: Vec2::splat(16.0),
                 style: style.clone(),
-                density: Some(mask_b),
+                density_map: Some(mask_b),
                 ground: GrassGround::Heightmap {
                     image: heightmap_b,
                     height_scale: 3.0,
@@ -1953,6 +2006,136 @@ mod tests {
         assert!(up.chunks[0].bounds.z > sideways.chunks[0].bounds.z);
     }
 
+    #[test]
+    fn a_field_can_differ_from_its_style_without_a_style_of_its_own() {
+        let mut app = app();
+        let style = add_style(&mut app, GrassStyle::MEADOW);
+        let spawn = |app: &mut App| {
+            spawn_with(
+                app,
+                GrassField {
+                    size: Vec2::splat(32.0),
+                    style: style.clone(),
+                    ..Default::default()
+                },
+            )
+        };
+        let (plain, changed) = (spawn(&mut app), spawn(&mut app));
+        settle(&mut app);
+        let entry_of = |app: &App, entity: Entity| {
+            let tables = tables_now(app);
+            let slot = tables.slots.iter().find(|s| s.entity == entity).unwrap();
+            tables.fields[slot.first]
+        };
+        let before = entry_of(&app, changed);
+        assert_eq!(before.shape, entry_of(&app, plain).shape);
+
+        app.world_mut()
+            .entity_mut(changed)
+            .insert(GrassFieldOverrides {
+                tint: Some(Color::linear_rgb(2.0, 1.0, 0.5)),
+                density_scale: 0.5,
+                height_scale: 0.5,
+            });
+        app.update();
+        let now = entry_of(&app, changed);
+        let blade = GrassStyle::MEADOW.blade;
+        assert_eq!(now.shape.x, blade.height.x * 0.5);
+        assert_eq!(now.shape.y, blade.height.y * 0.5);
+        assert_eq!(now.shape.z, before.shape.z, "widths are not scaled");
+        assert_eq!(now.shape.w, GrassStyle::MEADOW.density * 0.5);
+        assert_eq!(
+            now.mix.w,
+            before.mix.w * 0.5,
+            "the tallest blade, for culling"
+        );
+        let (root, tip) = (linear(blade.root_color), linear(blade.tip_color));
+        assert_eq!(
+            now.root_color.truncate(),
+            root.truncate() * Vec3::new(2.0, 1.0, 0.5)
+        );
+        assert_eq!(
+            now.tip_color.truncate(),
+            tip.truncate() * Vec3::new(2.0, 1.0, 0.5)
+        );
+        assert_eq!(now.tip_color.w, before.tip_color.w, "translucency is kept");
+        assert_eq!(now.head, before.head, "heads are not tinted");
+        assert_eq!(
+            now.placement.y,
+            ChunkLayout::for_density(CHUNK_SIZE, GrassStyle::MEADOW.density * 0.5).tiles_per_side,
+            "fewer blades need fewer tiles"
+        );
+        assert_eq!(entry_of(&app, plain), before, "the other field");
+
+        // Nothing else was rewritten: one field's entry, no images.
+        let rewritten = stats(&app).entries_rewritten;
+        app.world_mut()
+            .get_mut::<GrassFieldOverrides>(changed)
+            .unwrap()
+            .tint = None;
+        app.update();
+        assert_eq!(stats(&app).entries_rewritten, rewritten + 1);
+        assert_eq!(entry_of(&app, changed).root_color, before.root_color);
+
+        // Taking the component off puts the field back as it was.
+        app.world_mut()
+            .entity_mut(changed)
+            .remove::<GrassFieldOverrides>();
+        app.update();
+        assert_eq!(entry_of(&app, changed), before);
+
+        // Nonsense is clamped, not drawn.
+        app.world_mut()
+            .entity_mut(changed)
+            .insert(GrassFieldOverrides {
+                tint: None,
+                density_scale: -1.0,
+                height_scale: -3.0,
+            });
+        app.update();
+        let clamped = entry_of(&app, changed);
+        assert_eq!((clamped.shape.y, clamped.shape.w), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_highest_ground_under_a_point_is_found_in_the_right_chunk() {
+        let mut app = app();
+        let style = add_style(&mut app, GrassStyle::MEADOW);
+        let field = |app: &mut App, size: Vec2, x: f32, y: f32| {
+            let id = spawn_with(
+                app,
+                GrassField {
+                    size,
+                    style: style.clone(),
+                    ..Default::default()
+                },
+            );
+            *app.world_mut().get_mut::<GlobalTransform>(id).unwrap() =
+                GlobalTransform::from_xyz(x, y, 0.0);
+            id
+        };
+        // 40 × 20 m (3 × 2 chunks) at height 3, and 16 × 16 m at height 7.
+        field(&mut app, Vec2::new(40.0, 20.0), 0.0, 3.0);
+        field(&mut app, Vec2::splat(16.0), 100.0, 7.0);
+        settle(&mut app);
+        let tables = tables_now(&app);
+        let at = |x: f32, z: f32| tables.highest_ground_at(Vec2::new(x, z));
+        // Which field is first in the tables depends on the entities; either
+        // way each point finds its own field's height.
+        assert_eq!(at(0.0, 0.0), Some(3.0));
+        assert_eq!(
+            at(19.9, 9.9),
+            Some(3.0),
+            "the far corner of the first field"
+        );
+        assert_eq!(at(-19.9, -9.9), Some(3.0), "and the near one");
+        assert_eq!(at(100.0, 0.0), Some(7.0));
+        assert_eq!(at(107.9, -7.9), Some(7.0));
+        assert_eq!(at(20.1, 0.0), None, "beside the first field");
+        assert_eq!(at(0.0, 10.1), None, "past its edge");
+        assert_eq!(at(0.0, 50.0), None);
+    }
+
     /// The tables worked out from nothing, for what the app holds now.
     fn from_scratch(app: &mut App) -> FieldTables {
         let kept = tables_now(app);
@@ -1996,7 +2179,7 @@ mod tests {
             GrassField {
                 size: Vec2::new(48.0, 20.0),
                 style: wild.clone(),
-                density: Some(small_mask.clone()),
+                density_map: Some(small_mask.clone()),
                 ..Default::default()
             },
         );
@@ -2050,12 +2233,12 @@ mod tests {
         app.world_mut()
             .get_mut::<GrassField>(second)
             .unwrap()
-            .density = Some(bigger);
+            .density_map = Some(bigger);
         check(&mut app, "mask swapped for a bigger one");
         app.world_mut()
             .get_mut::<GrassField>(second)
             .unwrap()
-            .density = None;
+            .density_map = None;
         check(&mut app, "mask removed");
 
         let third = spawn_with(
@@ -2063,11 +2246,28 @@ mod tests {
             GrassField {
                 size: Vec2::splat(24.0),
                 style: plain.clone(),
-                density: Some(small_mask),
+                density_map: Some(small_mask),
                 ..Default::default()
             },
         );
         check(&mut app, "a field added, sharing a mask");
+        app.world_mut()
+            .entity_mut(second)
+            .insert(GrassFieldOverrides {
+                tint: Some(Color::srgb(1.2, 1.0, 0.6)),
+                density_scale: 0.5,
+                height_scale: 1.5,
+            });
+        check(&mut app, "overrides added");
+        app.world_mut()
+            .get_mut::<GrassFieldOverrides>(second)
+            .unwrap()
+            .tint = None;
+        check(&mut app, "tint taken off");
+        app.world_mut()
+            .entity_mut(second)
+            .remove::<GrassFieldOverrides>();
+        check(&mut app, "overrides removed");
         app.world_mut().entity_mut(rich).despawn();
         check(&mut app, "a field removed");
         app.world_mut().entity_mut(third).insert(Visibility::Hidden);

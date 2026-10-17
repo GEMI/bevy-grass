@@ -2,11 +2,17 @@
 
 use bevy::asset::Handle;
 use bevy::camera::visibility::Visibility;
+use bevy::color::Color;
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::query::Changed;
 use bevy::ecs::reflect::{ReflectComponent, ReflectResource};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Local, Query};
 use bevy::image::Image;
-use bevy::math::Vec2;
+use bevy::log::warn;
+use bevy::math::{Dir2, Vec2};
+use bevy::platform::collections::HashSet;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::render::RenderApp;
@@ -35,8 +41,8 @@ pub use crate::style::{GrassBlade, GrassSpecies, GrassStyle, GrassVariation, Gro
 /// - **[`RenderLayers`](bevy::camera::visibility::RenderLayers):** a camera draws the field only if the two share a
 ///   layer. A field or camera without the component is on layer 0, as for
 ///   meshes. Layers 0 to 31 are supported.
-#[derive(Component, Debug, Clone, Default, Reflect)]
-#[reflect(Component, Default, Debug)]
+#[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
+#[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform, Visibility)]
 pub struct GrassField {
     /// Width (X) and depth (Z) of the field, in metres, before the
@@ -49,12 +55,61 @@ pub struct GrassField {
     /// Optional density mask covering the whole field: red is density
     /// (0 bare, 1 full), green is a height multiplier. `None` means full
     /// density everywhere. The first row of the image is the field's −Z edge.
-    pub density: Option<Handle<Image>>,
+    pub density_map: Option<Handle<Image>>,
+}
+
+/// Changes how one field looks without a style asset of its own: "this
+/// meadow, a bit drier" for one area of a level, while the other fields keep
+/// sharing the style.
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// # fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
+/// let meadow = styles.add(GrassStyle::MEADOW);
+/// commands.spawn(GrassField { size: Vec2::splat(64.0), style: meadow.clone(), ..default() });
+/// // The same style, yellower, shorter and sparser, near the road.
+/// commands.spawn((
+///     GrassField { size: Vec2::splat(32.0), style: meadow, ..default() },
+///     GrassFieldOverrides {
+///         tint: Some(Color::srgb(1.3, 1.1, 0.7)),
+///         height_scale: 0.6,
+///         density_scale: 0.5,
+///     },
+/// ));
+/// # }
+/// ```
+///
+/// The overrides are applied when the field's entries are built, so they cost
+/// nothing per frame, and changing one rewrites that field's entries only.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default, Debug, PartialEq)]
+pub struct GrassFieldOverrides {
+    /// Multiplies the root and tip colours of every blade of the field, in
+    /// linear light: white or `None` leaves them as they are. Heads, the
+    /// ground tint and the style's colour patches are not tinted.
+    pub tint: Option<Color>,
+    /// Multiplies the style's [`density`](GrassStyle::density): 0.5 is half
+    /// as many blades. Below 0 is 0.
+    pub density_scale: f32,
+    /// Multiplies the height of every blade, and the height multiplier of
+    /// the density map still applies on top. Below 0 is 0.
+    pub height_scale: f32,
+}
+
+impl Default for GrassFieldOverrides {
+    fn default() -> Self {
+        Self {
+            tint: None,
+            density_scale: 1.0,
+            height_scale: 1.0,
+        }
+    }
 }
 
 /// Where blade roots sit.
-#[derive(Debug, Clone, Default, Reflect)]
-#[reflect(Default, Debug)]
+#[derive(Debug, Clone, Default, PartialEq, Reflect)]
+#[reflect(Default, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum GrassGround {
     /// A flat plane at the field's height.
@@ -72,10 +127,15 @@ pub enum GrassGround {
 }
 
 /// The wind, shared by every field.
-#[derive(Resource, Debug, Clone, Reflect)]
-#[reflect(Resource, Default, Debug)]
-pub struct Wind {
-    /// Direction the wind blows toward, in the XZ plane (X, Z). Normalized on use.
+///
+/// The presets are constants, so a wind is changed like a style, by struct
+/// update: `GrassWind { strength: 0.8, ..GrassWind::GUSTY }`.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Resource, Default, Debug, PartialEq)]
+pub struct GrassWind {
+    /// Direction the wind blows toward, in the XZ plane (X, Z). Any length:
+    /// it is normalized on use, and (0, 0) blows along +X. To set it from a
+    /// `Dir2`, use [`GrassWind::toward`].
     pub direction: Vec2,
     /// Overall strength, 0 (still) to 1 (storm).
     pub strength: f32,
@@ -85,7 +145,16 @@ pub struct Wind {
     pub gust_speed: f32,
 }
 
-impl Wind {
+impl GrassWind {
+    /// The same wind, blowing toward `direction` (X and Z of the world).
+    #[must_use]
+    pub fn toward(self, direction: Dir2) -> Self {
+        Self {
+            direction: direction.as_vec2(),
+            ..self
+        }
+    }
+
     /// Barely moving, a gentle sway.
     pub const CALM: Self = Self {
         direction: Vec2::new(1.0, 0.3),
@@ -116,7 +185,7 @@ impl Wind {
     };
 }
 
-impl Default for Wind {
+impl Default for GrassWind {
     fn default() -> Self {
         Self::BREEZE
     }
@@ -213,10 +282,33 @@ pub struct GrassSun;
 /// from it and springs back over about 1.5 s of game time after it leaves, so
 /// moving interactors leave trails.
 ///
-/// Every interactor costs the same whatever its size, and a camera stamps at
-/// most `GrassSettings::max_interactors` of them a frame, nearest first.
-/// Interaction is horizontal only: an interactor flattens the grass below it
-/// at any height.
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// # fn setup(mut commands: Commands) {
+/// commands.spawn((
+///     Transform::from_xyz(0.0, 0.0, 0.0),
+///     // A walking person, who steps on the grass; a bird that flies higher
+///     // than a metre above the ground does not.
+///     GrassInteractor { radius: 0.5, max_height: Some(1.0), ..default() },
+/// ));
+/// # }
+/// ```
+///
+/// # Limits
+///
+/// - **Radius: 2 m.** A bigger `radius` is cut to 2 m, and the plugin warns
+///   once about the entity. (Each interactor is stamped in a fixed footprint,
+///   which is why a hundred cost what one does.) For something bigger, use
+///   several interactors around it.
+/// - **Count: [`GrassSettings::max_interactors`](crate::GrassSettings::max_interactors).**
+///   A camera stamps that many a frame, the ones nearest to it first.
+/// - **Distance: a 64 m window.** Each camera tracks a 64 × 64 m square of
+///   ground, centred on the camera (on the ground it looks at, for an
+///   orthographic one). Interactors outside it do nothing, and trails
+///   outside it are forgotten.
+/// - **Height.** Interaction is horizontal: with `max_height` at `None`, an
+///   interactor flattens the grass below it at any height.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform)]
@@ -225,6 +317,17 @@ pub struct GrassInteractor {
     pub radius: f32,
     /// How flat the grass lies at the centre, 0 (untouched) to 1 (flat).
     pub strength: f32,
+    /// How high above the ground the entity's position may be and still
+    /// flatten grass, in metres: the highest blade, for a creature that
+    /// steps on the grass and should not flatten it while it flies or is
+    /// carried. The push fades out over the upper half of the range. `None`
+    /// is any height.
+    ///
+    /// The ground is the highest ground in the 16 m chunk of a field below
+    /// the entity, so on a steep heightmap a flier is judged against the top
+    /// of the slope. Outside every field there is no ground, and the
+    /// interactor always pushes.
+    pub max_height: Option<f32>,
 }
 
 impl Default for GrassInteractor {
@@ -232,6 +335,27 @@ impl Default for GrassInteractor {
         Self {
             radius: 0.6,
             strength: 1.0,
+            max_height: None,
+        }
+    }
+}
+
+/// Warns, once per entity, about an interactor bigger than the grass can
+/// stamp.
+pub(crate) fn warn_oversized_interactors(
+    interactors: Query<(Entity, &GrassInteractor), Changed<GrassInteractor>>,
+    mut warned: Local<HashSet<Entity>>,
+) {
+    for (entity, interactor) in &interactors {
+        let too_big = interactor.radius > crate::render::trample::MAX_PUSH_RADIUS;
+        if too_big && warned.insert(entity) {
+            warn!(
+                "bevy_grass: the GrassInteractor on {entity} has radius {} m, but interactors                  push at most {} m; the rest is ignored. Use several interactors for something                  bigger.",
+                interactor.radius,
+                crate::render::trample::MAX_PUSH_RADIUS,
+            );
+        } else if !too_big {
+            warned.remove(&entity);
         }
     }
 }

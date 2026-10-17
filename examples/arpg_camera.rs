@@ -29,8 +29,8 @@ const SUN_ELEVATION_DEGREES: f32 = 22.5;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "bevy_grass: ARPG camera");
-    app.add_plugins(GrassPlugin::default())
-        .insert_resource(Wind::BREEZE)
+    app.add_plugins(GrassPlugins)
+        .insert_resource(GrassWind::BREEZE)
         .add_systems(Startup, setup)
         .add_systems(Update, walk)
         .run();
@@ -136,6 +136,7 @@ fn setup(
         GrassInteractor {
             radius: 0.5,
             strength: 1.0,
+            ..default()
         },
     ));
     let monster = meshes.add(Capsule3d::new(0.3, 0.4));
@@ -156,6 +157,7 @@ fn setup(
             GrassInteractor {
                 radius: 0.6,
                 strength: 1.0,
+                ..default()
             },
         ));
     }

@@ -26,7 +26,7 @@ use bevy::winit::WinitPlugin;
 
 use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
-use crate::api::{GrassField, GrassInteractor, GrassStyle, Wind};
+use crate::api::{GrassField, GrassInteractor, GrassStyle, GrassWind};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::mirror::{self, ChunkLayout, DistanceLod, TILE_POINTS};
 
@@ -371,9 +371,9 @@ fn gpu_generation_matches_the_cpu_mirror() {
 fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
     let mut app = headless_app();
     // Without wind an untouched blade stands nearly straight.
-    app.insert_resource(Wind {
+    app.insert_resource(GrassWind {
         strength: 0.0,
-        ..Wind::CALM
+        ..GrassWind::CALM
     });
     let at = Vec2::new(4.0, 12.0);
     let interactor = app
@@ -382,6 +382,7 @@ fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
             GrassInteractor {
                 radius: 1.0,
                 strength: 1.0,
+                ..Default::default()
             },
             Transform::from_xyz(at.x, 0.5, at.y),
         ))
@@ -456,6 +457,68 @@ fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
     assert!(
         recovered.iter().all(|(_, bend)| bend.length() < 0.1),
         "flattened grass did not recover"
+    );
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_an_interactor_with_a_height_limit_only_tramples_near_the_ground() {
+    let mut app = headless_app();
+    app.insert_resource(GrassWind {
+        strength: 0.0,
+        ..GrassWind::CALM
+    });
+    let at = Vec2::new(4.0, 12.0);
+    // A bird: five metres up, where the grass is a few tens of centimetres.
+    let bird = app
+        .world_mut()
+        .spawn((
+            GrassInteractor {
+                radius: 1.0,
+                max_height: Some(1.0),
+                ..Default::default()
+            },
+            Transform::from_xyz(at.x, 5.0, at.y),
+        ))
+        .id();
+    let bends_near = |app: &mut App| -> Vec<f32> {
+        gpu_bends(app)
+            .into_iter()
+            .filter(|(root, _)| root.distance(at) < 0.5)
+            .map(|(_, bend)| bend.length())
+            .collect()
+    };
+    let mut seen = 0;
+    for _ in 0..600 {
+        app.update();
+        seen = bends_near(&mut app).len();
+        if seen > 20 {
+            break;
+        }
+    }
+    assert!(seen > 20, "no grass appeared under the bird in 600 frames");
+    for _ in 0..10 {
+        app.update();
+    }
+    assert!(
+        bends_near(&mut app).iter().all(|&bend| bend < 0.1),
+        "a bird flying over the grass flattened it"
+    );
+
+    // It lands.
+    app.world_mut()
+        .get_mut::<Transform>(bird)
+        .unwrap()
+        .translation
+        .y = 0.2;
+    for _ in 0..10 {
+        app.update();
+    }
+    let landed = bends_near(&mut app);
+    assert!(!landed.is_empty());
+    assert!(
+        landed.iter().all(|&bend| bend > 0.8),
+        "a bird on the ground did not flatten the grass"
     );
 }
 

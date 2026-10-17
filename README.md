@@ -72,7 +72,9 @@ Requirements:
 
 ## Quick start
 
-Add `GrassPlugin` after `DefaultPlugins` and spawn a `GrassField`:
+Add `GrassPlugins` after `DefaultPlugins`, and spawn a `GrassField`. This whole
+program is [`examples/minimal.rs`](examples/minimal.rs); `cargo run --release
+--example minimal` runs it:
 
 ```rust
 use bevy::prelude::*;
@@ -80,12 +82,32 @@ use bevy_grass::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GrassPlugin::default()))
+        .add_plugins((DefaultPlugins, GrassPlugins))
         .add_systems(Startup, setup)
         .run();
 }
 
-fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut styles: ResMut<Assets<GrassStyle>>,
+) {
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 1.5, 6.0).looking_at(Vec3::new(0.0, 0.4, 0.0), Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
+        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
+    ));
     commands.spawn(GrassField {
         size: Vec2::splat(64.0),
         style: styles.add(GrassStyle::MEADOW),
@@ -94,8 +116,17 @@ fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
 }
 ```
 
-A field is a rectangle centred on its `Transform`, lying in the XZ plane. Your
-scene still needs a camera, a light and something to stand on.
+A field is a rectangle centred on its `Transform`, lying in the XZ plane. A
+scene needs a camera, a light and something to stand on, as here.
+
+`GrassPlugins` is a plugin group: `GrassPlugin` (the grass itself),
+`FarGrassPlugin` (the terrain material for ground past the last blade) and
+`GrassStyleFilePlugin` (`.grass.ron` files, and the presets as assets). Leave
+out what you do not use:
+
+```rust
+app.add_plugins(GrassPlugins.build().disable::<FarGrassPlugin>());
+```
 
 ## Usage
 
@@ -107,13 +138,13 @@ has a preset per hardware tier, and you change what you like with struct
 update syntax, the same as for styles and wind:
 
 ```rust
-app.add_plugins(GrassPlugin {
+app.add_plugins(GrassPlugins.set(GrassPlugin {
     settings: GrassSettings {
         shadows: GrassShadows::Off,
         max_interactors: 512,
         ..GrassSettings::MEDIUM
     },
-});
+}));
 ```
 
 Every setting can change at runtime, so a graphics menu can offer them. The
@@ -209,6 +240,26 @@ sideways rewrites only its entry. A change no field shows costs nothing.
 `GrassStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
 and the expensive `layout_rebuilds`.
 
+### Change one field without a style of its own
+
+"This meadow, a bit drier" for one area does not need another asset.
+`GrassFieldOverrides` on a field tints its blades, scales their height and
+thins or thickens them, while the style stays shared:
+
+```rust
+commands.spawn((
+    GrassField { size: Vec2::splat(32.0), style: meadow.clone(), ..default() },
+    GrassFieldOverrides {
+        tint: Some(Color::srgb(1.3, 1.1, 0.7)), // multiplies root and tip colours
+        height_scale: 0.6,
+        density_scale: 0.5,
+    },
+));
+```
+
+The overrides are applied when the field's entries are built, so they cost
+nothing per frame, and changing one rewrites that field's entries only.
+
 ### Grow grass on a heightmap, with a density mask
 
 ```rust
@@ -231,7 +282,7 @@ fn setup(
             image: linear("terrain/height.png"),
             height_scale: 40.0,
         },
-        density: Some(linear("terrain/grass_mask.png")),
+        density_map: Some(linear("terrain/grass_mask.png")),
     });
 }
 ```
@@ -256,11 +307,26 @@ Grass within `radius` lies down away from the entity. When it leaves, the
 grass springs back over about 1.5 s, so moving things leave trails. The cost
 is the same for one interactor or 512.
 
+The limits, which are also in the type's documentation:
+
+- **Radius, 2 m.** A bigger radius is cut to 2 m, with one warning naming the
+  entity. Use several interactors for something bigger.
+- **Count.** A camera stamps `GrassSettings::max_interactors`, the ones
+  nearest to it first.
+- **Distance, 64 m.** Each camera tracks a 64 × 64 m square of ground around
+  what it looks at; interactors outside it do nothing.
+- **Height.** Interaction is horizontal, so a bird flying over the meadow
+  flattens it like a person walking in it. Give the bird
+  `max_height: Some(1.0)`: it flattens grass only within a metre of the
+  ground, fading out over the upper half. (The ground is the highest ground in
+  the 16 m chunk of the field below it, so on a steep heightmap a flier is
+  judged against the top of the slope.)
+
 ### Change the wind, or turn grass shadows off at runtime
 
 ```rust
-fn storm(mut wind: ResMut<Wind>) {
-    *wind = Wind { direction: Vec2::new(1.0, 0.3), ..Wind::STORM };
+fn storm(mut wind: ResMut<GrassWind>) {
+    *wind = GrassWind { direction: Vec2::new(1.0, 0.3), ..GrassWind::STORM };
 }
 
 fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
@@ -315,10 +381,10 @@ bevy_grass = { version = "0.1", features = ["debug"] }
 
 Every public type is reflected, with the type data tools look for:
 `ReflectComponent` on `GrassField`, `GrassInteractor`, `GrassCamera` and
-`NoGrass`; `ReflectResource` on `Wind` and `GrassSettings`; `ReflectAsset` on
+`NoGrass`; `ReflectResource` on `GrassWind` and `GrassSettings`; `ReflectAsset` on
 `GrassStyle` (the plugin calls `register_asset_reflect`). So fields can be
 spawned from `.scn.ron` scenes, BSN or Blender exporters such as Skein and
-Blenvy, `Wind`, `GrassSettings` and styles show up in resource and asset
+Blenvy, `GrassWind`, `GrassSettings` and styles show up in resource and asset
 panels of inspectors such as `bevy-inspector-egui`, and a designer can tune a
 meadow live there instead of editing RON. A reflected `GrassField` takes its
 style from a handle, so give it one in code after loading the scene.
@@ -401,7 +467,7 @@ let wild = GrassStyle {
     },
     variation: GrassVariation {
         tufts: 0.3,         // gather blades into tufts
-        bare_patches: 0.05, // 5% of the ground bare
+        bare_share: 0.05, // 5% of the ground bare
         patch_amount: 0.4,  // colour drifts in patches several metres across
         dry_tips: 0.2,
         ..field.variation
@@ -433,15 +499,24 @@ commands.spawn(GrassField {
 });
 ```
 
+Every preset is also an asset that ships inside the crate, so a game can load
+one without copying anything (the names are the lower-case preset names):
+
+```rust
+style: assets.load("embedded://bevy_grass/styles/summer_tall.grass.ron"),
+```
+
 Every field is optional, and a missing one comes from `base`, a preset name.
-A variant lists only what differs, and colours are sRGB. The file is flat:
+A variant lists only what differs. Colours are sRGB, written as a tuple,
+`(0.70, 0.72, 0.74)`, or as the hex string a colour picker copies,
+`"#b3b8bd"`. The file is flat:
 the blade's settings and the field's sit side by side, as in the tables below.
 A species lists its blade settings only:
 
 ```ron
 (
     base: "SUMMER_TALL",
-    tip_color: (0.70, 0.72, 0.74),
+    tip_color: "#b3b8bd",
     tufts: 0.3,
     species: [
         (share: 0.10, style: (base: "SEED_HEADS")),
@@ -473,7 +548,7 @@ fn ground(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
         MeshMaterial3d(materials.add(FarGrassMaterial {
             base: StandardMaterial::from_color(Color::srgb(0.20, 0.15, 0.09)),
-            extension: FarGrass::new(&GrassStyle::MEADOW, GrassQuality::High),
+            extension: FarGrass::new(&GrassStyle::MEADOW),
         })),
     ));
 }
@@ -529,6 +604,7 @@ cargo run --release --example meadow
 
 | Example | Shows |
 | --- | --- |
+| `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–4 pick the wind, S toggles grass shadows |
@@ -550,7 +626,8 @@ Everything a game needs is in `bevy_grass::prelude`.
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `GrassPlugin` | Plugin | Registers everything. One field, `settings: GrassSettings` (`High` by default) |
+| `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
+| `GrassPlugin` | Plugin | The grass itself (fields, styles, wind, interaction, rendering). One field, `settings: GrassSettings` (`High` by default) |
 | `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`. Presets `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
 | `GrassQuality` | Enum | `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
 | `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |
@@ -573,10 +650,11 @@ not shown. `GrassQuality` has a `const fn` for each column as well:
 | Item | Kind | What it does |
 | --- | --- | --- |
 | `GrassSystems` | System set | `DetectChanges`, then `Rebuild`, in `PostUpdate`: order your systems against them |
-| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density: Option<Handle<Image>>` (mask: red density, green height multiplier) |
+| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier) |
 | `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
-| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to 2), `strength` (0–1, default 1) |
-| `Wind` | Resource | `direction: Vec2` (XZ), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
+| `GrassFieldOverrides` | Component | On a field: `tint: Option<Color>` (multiplies blade colours), `density_scale`, `height_scale`, for one field without a style of its own |
+| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to 2), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground) |
+| `GrassWind` | Resource | `direction: Vec2` (XZ; any length, normalized on use; `.toward(Dir2)` sets it from a `Dir2`), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
 | `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped) and `gpu` (blades per level of detail, slices, overflows) |
 | `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |
 | `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (feature `debug`) | Gizmos for fields, chunks, interactors and trample windows |
@@ -605,7 +683,7 @@ side.
 | `twist` | Twist along the blade, in turns at the tip; each blade its own way |
 | `droop` | How far blades arch over and hang, 0–1; tall blades the most |
 | `fold` | How far blades fold along the midrib, 0–1 |
-| `head`, `head_width`, `head_color` | A seed head or flower at the top: its share of the length, width and colour. It turns toward the camera |
+| `head_length`, `head_width`, `head_color` | A seed head or flower at the top: its share of the length, width and colour. It turns toward the camera |
 
 **The field's settings:**
 
@@ -616,12 +694,12 @@ side.
 | `toon_bands` | Flat toon shading with this many bands; 0 is physically based |
 | `variation.patch_color`, `patch_amount`, `patch_size` | Large patches where blades drift toward another colour |
 | `variation.dry_tips` | How far the tops of blades dry toward straw, 0–1 |
-| `variation.dead_blades` | Share of blades that are dead and straw-coloured |
-| `variation.tufts`, `tuft_size` | How strongly blades gather into tufts (0–1), and the distance between tufts. The blade count stays the same |
-| `variation.bare_patches`, `bare_patch_size` | Share of the ground left bare, in patches whose edges thin out, and their size |
+| `variation.dead_share` | Share of blades that are dead and straw-coloured |
+| `variation.tufts`, `tuft_spacing` | How strongly blades gather into tufts (0–1), and the distance between tufts. The blade count stays the same |
+| `variation.bare_share`, `bare_patch_size` | Share of the ground left bare, in patches whose edges thin out, and their size |
 | `species` | Other plants among the blades, a list of `GrassSpecies` (up to 15) |
 
-Every variation setting (`twist` through `bare_patches`, and `species`) is
+Every variation setting (`twist` through `bare_share`, and `species`) is
 off at 0 or empty, and costs nothing while no field uses it.
 
 | Method | What it does |
@@ -657,8 +735,10 @@ off at 0 or empty, and costs nothing while no field uses it.
 | Item | What it does |
 | --- | --- |
 | `FarGrassMaterial` | `ExtendedMaterial<StandardMaterial, FarGrass>` for terrain, forward and deferred |
-| `FarGrass` | `color`, `amount` (0–1), `fade: Vec2` (where the tint starts and is full), `sheen` (gusts brighten it, 0–1), `area: Option<Rect>`. Its wind follows the `Wind` resource |
-| `FarGrass::new(&style, quality)` | Colour from the style, fade matched to the tier's grass radius |
+| `FarGrassPlugin` | Registers the material. Part of `GrassPlugins` |
+| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1), `area: Option<Rect>`. Its wind follows the `GrassWind` resource, and its gusts the blades' |
+| `FarGrass::new(&style)` | Colour from the style; the fade follows the grass radius, also when it changes |
+| `.with_fade(Vec2)` | A fade of your own, whatever the radius |
 | `.with_area(rect)` | Only inside this world-XZ rectangle |
 | `FarGrassUniform` | The material's GPU data (for custom materials) |
 | `grass_far_color` (WESL) | `bevy_grass::shaders::far::grass_far_color`, for your own terrain shader |
@@ -667,7 +747,8 @@ off at 0 or empty, and costs nothing while no field uses it.
 
 | Item | What it does |
 | --- | --- |
-| `GrassStyleLoader` | Asset loader for `.grass.ron`, registered by the plugin |
+| `GrassStyleFilePlugin` | Registers the loader and the presets as `embedded://bevy_grass/styles/<name>.grass.ron` assets. Part of `GrassPlugins` |
+| `GrassStyleLoader` | Asset loader for `.grass.ron` |
 | `GrassStyleFileError` | `Io`, `Parse`, `UnknownBase`, `Invalid`, `SpeciesFieldSettings`: why a file could not be read |
 
 ## How it is fast

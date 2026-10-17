@@ -150,12 +150,12 @@ fn main() {
     }
     .install(&mut app, "bevy_grass: benchmark");
     if plugin {
-        app.add_plugins(GrassPlugin {
+        app.add_plugins(GrassPlugins.set(GrassPlugin {
             settings: GrassSettings {
                 max_interactors: interactors.max(64),
                 ..quality.settings()
             },
-        });
+        }));
     }
     if gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -293,9 +293,10 @@ fn bench_style(bench: &Bench) -> GrassStyle {
     }
     if bench.tufts {
         let variation = &mut style.variation;
-        (variation.tufts, variation.tuft_size) = (wild.variation.tufts, wild.variation.tuft_size);
-        (variation.bare_patches, variation.bare_patch_size) =
-            (wild.variation.bare_patches, wild.variation.bare_patch_size);
+        (variation.tufts, variation.tuft_spacing) =
+            (wild.variation.tufts, wild.variation.tuft_spacing);
+        (variation.bare_share, variation.bare_patch_size) =
+            (wild.variation.bare_share, wild.variation.bare_patch_size);
     }
     if bench.shape {
         let blade = &mut style.blade;
@@ -306,8 +307,8 @@ fn bench_style(bench: &Bench) -> GrassStyle {
         let variation = &mut style.variation;
         (variation.patch_color, variation.patch_amount) =
             (wild.variation.patch_color, wild.variation.patch_amount);
-        (variation.dry_tips, variation.dead_blades) =
-            (wild.variation.dry_tips, wild.variation.dead_blades);
+        (variation.dry_tips, variation.dead_share) =
+            (wild.variation.dry_tips, wild.variation.dead_share);
     }
     style
 }

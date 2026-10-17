@@ -41,7 +41,7 @@ use crate::render::trample;
 /// # use bevy_grass::prelude::*;
 /// # use bevy_grass::GrassDebugPlugin;
 /// # let mut app = App::new();
-/// app.add_plugins((DefaultPlugins, GrassPlugin::default(), GrassDebugPlugin));
+/// app.add_plugins((DefaultPlugins, GrassPlugins, GrassDebugPlugin));
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GrassDebugPlugin;

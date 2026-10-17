@@ -29,7 +29,7 @@ use bevy_grass::prelude::*;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "bevy_grass: meadow");
-    app.add_plugins((GrassPlugin::default(), FreeCameraPlugin, GrassDebugPlugin))
+    app.add_plugins((GrassPlugins, FreeCameraPlugin, GrassDebugPlugin))
         // F3 shows what grass thinks: fields, interactors, trample windows.
         .insert_resource(GrassDebug {
             enabled: false,
@@ -129,7 +129,7 @@ fn setup(
             MeshMaterial3d(
                 far_materials.add(FarGrassMaterial {
                     base: soil,
-                    extension: FarGrass::new(&GrassStyle::MEADOW, GrassQuality::High)
+                    extension: FarGrass::new(&GrassStyle::MEADOW)
                         .with_area(Rect::new(-half, -half, half, half)),
                 }),
             ),
@@ -146,7 +146,7 @@ fn setup(
     commands.spawn(GrassField {
         size: Vec2::splat(MEADOW),
         style: styles.add(GrassStyle::MEADOW),
-        density: Some(images.add(clearing_mask(1024, Vec2::splat(0.5), 6.0 / MEADOW))),
+        density_map: Some(images.add(clearing_mask(1024, Vec2::splat(0.5), 6.0 / MEADOW))),
         ..default()
     });
     // A patch of tall prairie beyond the clearing.

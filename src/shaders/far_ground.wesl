@@ -5,7 +5,7 @@
 import bevy_pbr::render::{
     pbr_functions::alpha_discard,
     pbr_fragment::pbr_input_from_standard_material,
-    mesh_view_bindings::{view, globals},
+    mesh_view_bindings::view,
 };
 import package::shaders::far::{FarGrass, grass_far_color};
 
@@ -34,7 +34,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     );
     let ground = pbr_input.material.base_color.rgb;
     pbr_input.material.base_color = vec4<f32>(
-        grass_far_color(in.world_position.xyz, view.world_position, ground, far, globals.time, gust_texture, gust_sampler),
+        grass_far_color(in.world_position.xyz, view.world_position, ground, far, gust_texture, gust_sampler),
         pbr_input.material.base_color.a,
     );
 

@@ -6,7 +6,7 @@
 //!
 //! fn main() {
 //!     App::new()
-//!         .add_plugins((DefaultPlugins, GrassPlugin::default()))
+//!         .add_plugins((DefaultPlugins, GrassPlugins))
 //!         .add_systems(Startup, setup)
 //!         .run();
 //! }
@@ -19,6 +19,13 @@
 //!     });
 //! }
 //! ```
+//!
+//! [`GrassPlugins`] is a plugin group: [`GrassPlugin`] (the grass itself),
+//! [`FarGrassPlugin`] (the terrain material for ground past the last blade)
+//! and [`GrassStyleFilePlugin`] (`.grass.ron` files and the presets as
+//! assets). Turn one off with `GrassPlugins.build().disable::<FarGrassPlugin>()`,
+//! or add only the ones you want. `GrassDebugPlugin` (cargo feature
+//! `debug`) is always added by hand.
 //!
 //! Every camera draws grass unless it carries [`NoGrass`]. A camera with a
 //! depth, normal or motion-vector prepass gets grass in it too, so SSAO, TAA
@@ -39,7 +46,8 @@
 //! The design, and what each milestone adds, is in
 //! `bevy-grass-architecture-plan.md` at the repository root.
 
-pub mod api;
+mod api;
+mod clock;
 #[cfg(feature = "debug")]
 mod debug;
 mod far;
@@ -53,14 +61,18 @@ mod style;
 mod style_file;
 mod sun;
 
+pub use api::{
+    GrassBlade, GrassCamera, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
+    GrassSpecies, GrassStyle, GrassSun, GrassVariation, GrassWind, GroundTint, NoGrass,
+};
 #[cfg(feature = "debug")]
 pub use debug::{GrassDebug, GrassDebugPlugin, GrassGizmos};
-pub use far::{FarGrass, FarGrassMaterial, FarGrassUniform};
+pub use far::{FarGrass, FarGrassMaterial, FarGrassPlugin, FarGrassUniform};
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
 pub use stats::{GpuStats, GrassDiagnostics, GrassStats, TableStats};
-pub use style_file::{GrassStyleFileError, GrassStyleLoader};
+pub use style_file::{GrassStyleFileError, GrassStyleFilePlugin, GrassStyleLoader};
 
-use bevy::app::{App, Plugin, PostUpdate, PreStartup, Update};
+use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, PostUpdate, Update};
 use bevy::asset::{AssetApp, embedded_asset, load_embedded_asset};
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
@@ -68,24 +80,14 @@ use bevy::ecs::system::Res;
 use bevy::log::warn;
 use bevy::shader::load_shader_library;
 
-use crate::api::{
-    GrassBlade, GrassCamera, GrassField, GrassGround, GrassInteractor, GrassSpecies, GrassStyle,
-    GrassSun, GrassVariation, GroundTint, NoGrass, Wind,
-};
-
 /// The things a game needs, in one import.
 pub mod prelude {
-    pub use crate::GrassPlugin;
-    pub use crate::GrassQuality;
-    pub use crate::GrassSettings;
-    pub use crate::GrassShadows;
-    pub use crate::GrassStats;
-    pub use crate::GrassSystems;
-    pub use crate::api::{
-        GrassBlade, GrassCamera, GrassField, GrassGround, GrassInteractor, GrassSpecies,
-        GrassStyle, GrassSun, GrassVariation, GroundTint, NoGrass, Wind,
+    pub use crate::{
+        FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassCamera, GrassField,
+        GrassFieldOverrides, GrassGround, GrassInteractor, GrassPlugin, GrassPlugins, GrassQuality,
+        GrassSettings, GrassShadows, GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin,
+        GrassSun, GrassSystems, GrassVariation, GrassWind, GroundTint, NoGrass,
     };
-    pub use crate::far::{FarGrass, FarGrassMaterial};
     #[cfg(feature = "debug")]
     pub use crate::{GrassDebug, GrassDebugPlugin};
 }
@@ -142,7 +144,49 @@ pub enum GrassSystems {
     Rebuild,
 }
 
-/// Registers grass rendering. Add it after `DefaultPlugins`.
+/// Everything a game needs to draw grass, as a plugin group. Add it after
+/// `DefaultPlugins`:
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// App::new()
+///     .add_plugins((DefaultPlugins, GrassPlugins))
+///     .run();
+///
+/// // Start from other settings, and leave out the far-grass material:
+/// App::new()
+///     .add_plugins(DefaultPlugins)
+///     .add_plugins(
+///         GrassPlugins
+///             .set(GrassPlugin { settings: GrassSettings::MEDIUM })
+///             .disable::<FarGrassPlugin>(),
+///     )
+///     .run();
+/// ```
+///
+/// - [`GrassPlugin`]: fields, styles, wind, interaction and the rendering.
+///   The only one that is required.
+/// - [`FarGrassPlugin`]: [`FarGrassMaterial`], for ground past the last blade.
+/// - [`GrassStyleFilePlugin`]: `.grass.ron` files, and the presets as assets.
+///
+/// `GrassDebugPlugin` (cargo feature `debug`)
+/// is not in the group; add it by hand.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GrassPlugins;
+
+impl PluginGroup for GrassPlugins {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(GrassPlugin::default())
+            .add(FarGrassPlugin)
+            .add(GrassStyleFilePlugin)
+    }
+}
+
+/// Registers grass rendering: fields, styles, wind, interaction, settings and
+/// the passes that draw them. Part of [`GrassPlugins`]; add it alone to leave
+/// out the far-grass material or the style files.
 ///
 /// The settings are the [`GrassSettings`] resource from then on; change that
 /// to change them at runtime.
@@ -159,7 +203,6 @@ impl Plugin for GrassPlugin {
         load_shader_library!(app, "shaders/common.wesl");
         load_shader_library!(app, "shaders/look.wesl");
         load_shader_library!(app, "shaders/far.wesl");
-        embedded_asset!(app, "shaders/far_ground.wesl");
         embedded_asset!(app, "shaders/grass.wesl");
         embedded_asset!(app, "shaders/grass_prepass.wesl");
         embedded_asset!(app, "shaders/grass_shadow.wesl");
@@ -173,17 +216,16 @@ impl Plugin for GrassPlugin {
             trample: load_embedded_asset!(app, "shaders/trample.wesl"),
         };
         register_types(app);
-        app.init_asset_loader::<GrassStyleLoader>()
-            .init_resource::<Wind>()
+        app.init_resource::<GrassWind>()
+            .init_resource::<clock::GrassClock>()
+            .add_systems(Update, clock::tick)
             .init_resource::<sun::ShadowSetupReport>()
             .insert_resource(self.settings)
             .add_plugins((stats::GrassDiagnosticsPlugin, fields::plugin))
-            .add_plugins(bevy::pbr::MaterialPlugin::<FarGrassMaterial>::default())
-            .add_systems(PreStartup, far::add_gust_texture)
-            .add_systems(Update, far::sync_wind)
             .add_systems(
                 PostUpdate,
                 (
+                    api::warn_oversized_interactors,
                     warn_about_settings.run_if(resource_changed::<GrassSettings>),
                     sun::check_shadow_setup.after(GrassSystems::Rebuild),
                 ),
@@ -203,12 +245,13 @@ fn register_types(app: &mut App) {
         .register_type::<GroundTint>()
         .register_type::<GrassSpecies>()
         .register_type::<GrassField>()
+        .register_type::<GrassFieldOverrides>()
         .register_type::<GrassGround>()
         .register_type::<GrassInteractor>()
         .register_type::<NoGrass>()
         .register_type::<GrassSun>()
         .register_type::<GrassCamera>()
-        .register_type::<Wind>()
+        .register_type::<GrassWind>()
         .register_type::<GrassSettings>()
         .register_type::<GrassQuality>()
         .register_type::<GrassShadows>();
@@ -257,6 +300,74 @@ mod tests {
     }
 
     #[test]
+    fn the_readme_quick_start_is_the_minimal_example() {
+        // The first thing a new user copies must be a program that runs, so
+        // the README holds the example's text and a test keeps them equal.
+        let example = include_str!("../examples/minimal.rs");
+        let code = example
+            .split(
+                "
+
+",
+            )
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join(
+                "
+
+",
+            );
+        let readme = include_str!("../README.md");
+        let section = readme
+            .split("## Quick start")
+            .nth(1)
+            .expect("a quick start");
+        let block = section
+            .split(
+                "```rust
+",
+            )
+            .nth(1)
+            .and_then(|rest| rest.split("```").next())
+            .expect("a code block");
+        assert_eq!(
+            block.trim(),
+            code.trim(),
+            "update the README from examples/minimal.rs"
+        );
+    }
+
+    #[test]
+    fn fields_and_styles_can_be_compared() {
+        // `set_if_neq` and plain `==` in games and tests.
+        let style = GrassField {
+            size: Vec2::splat(8.0),
+            ..Default::default()
+        };
+        assert_eq!(style, style.clone());
+        assert_ne!(
+            style,
+            GrassField {
+                size: Vec2::splat(9.0),
+                ..style.clone()
+            }
+        );
+        assert_ne!(
+            GrassGround::Flat,
+            GrassGround::Heightmap {
+                image: bevy::asset::Handle::default(),
+                height_scale: 1.0
+            }
+        );
+        assert_eq!(GrassStyle::MEADOW, GrassStyle::MEADOW.clone());
+        assert_ne!(GrassStyle::MEADOW, GrassStyle::WHEAT);
+        assert_eq!(
+            GrassStyle::SUMMER_WILD.species[0],
+            GrassStyle::SUMMER_WILD.species[0]
+        );
+    }
+
+    #[test]
     fn every_public_type_has_the_type_data_tools_look_for() {
         let app = app();
         let registry = app.world().resource::<AppTypeRegistry>().read();
@@ -275,11 +386,12 @@ mod tests {
         }
         // Components: scenes, BSN, Blender exporters and inspectors.
         check!(GrassField: ReflectComponent, ReflectDefault);
+        check!(GrassFieldOverrides: ReflectComponent, ReflectDefault);
         check!(GrassInteractor: ReflectComponent, ReflectDefault);
         check!(NoGrass: ReflectComponent, ReflectDefault);
         check!(GrassCamera: ReflectComponent, ReflectDefault);
         // Resources: inspector resource panels.
-        check!(Wind: ReflectResource, ReflectComponent, ReflectDefault);
+        check!(GrassWind: ReflectResource, ReflectComponent, ReflectDefault);
         check!(GrassSettings: ReflectResource, ReflectComponent, ReflectDefault);
         // The style asset: inspector asset panels.
         check!(GrassStyle: ReflectAsset, ReflectDefault);
@@ -333,6 +445,7 @@ mod tests {
         let interactor = GrassInteractor {
             radius: 1.5,
             strength: 0.5,
+            max_height: Some(1.0),
         };
         let read = through_ron(interactor.as_partial_reflect(), &registry);
         assert_eq!(
@@ -347,10 +460,10 @@ mod tests {
         let read = through_ron(settings.as_partial_reflect(), &registry);
         assert_eq!(GrassSettings::from_reflect(read.as_ref()), Some(settings));
 
-        let read = through_ron(Wind::STORM.as_partial_reflect(), &registry);
-        let wind = Wind::from_reflect(read.as_ref()).expect("a wind");
-        assert_eq!(wind.strength, Wind::STORM.strength);
-        assert_eq!(wind.gust_speed, Wind::STORM.gust_speed);
+        let read = through_ron(GrassWind::STORM.as_partial_reflect(), &registry);
+        let wind = GrassWind::from_reflect(read.as_ref()).expect("a wind");
+        assert_eq!(wind.strength, GrassWind::STORM.strength);
+        assert_eq!(wind.gust_speed, GrassWind::STORM.gust_speed);
 
         let read = through_ron(NoGrass.as_partial_reflect(), &registry);
         assert!(NoGrass::from_reflect(read.as_ref()).is_some());
@@ -399,11 +512,11 @@ mod tests {
 
     #[test]
     fn a_resource_is_edited_through_reflection_like_an_inspector_does() {
-        let mut wind = Wind::BREEZE;
-        let storm = Wind::STORM;
+        let mut wind = GrassWind::BREEZE;
+        let storm = GrassWind::STORM;
         // An inspector applies a reflected value onto the live one.
         wind.apply(storm.as_partial_reflect());
-        assert_eq!(wind.strength, Wind::STORM.strength);
+        assert_eq!(wind.strength, GrassWind::STORM.strength);
         *wind
             .reflect_path_mut("gust_scale")
             .unwrap()

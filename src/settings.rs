@@ -16,19 +16,19 @@ use crate::api::GrassCamera;
 /// `max_interactors` also reallocates each camera's buffers, once.
 ///
 /// Start from a tier and change what you want, as with
-/// [`GrassStyle`](crate::GrassStyle) and [`Wind`](crate::Wind):
+/// [`GrassStyle`](crate::GrassStyle) and [`GrassWind`](crate::GrassWind):
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
 /// # use bevy_grass::prelude::*;
 /// // High density, but a longer reach for a camera high above the ground.
 /// # let mut app = App::new();
-/// app.add_plugins(GrassPlugin {
+/// app.add_plugins(GrassPlugins.set(GrassPlugin {
 ///     settings: GrassSettings {
 ///         radius: 140.0,
 ///         ..GrassSettings::HIGH
 ///     },
-/// });
+/// }));
 ///
 /// // And later, from the graphics menu:
 /// fn apply(mut grass: ResMut<GrassSettings>) {

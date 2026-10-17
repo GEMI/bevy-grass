@@ -5,6 +5,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
+repository = "https://github.com/GEMI/bevy-grass"
+readme = "README.md"
 keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
 categories = ["game-development", "rendering"]
 
@@ -47,6 +49,10 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 ] }
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# docs.rs documents the optional debug plugin too.
+[package.metadata.docs.rs]
+features = ["debug"]
 
 [lints.rust]
 unsafe_code = "forbid"

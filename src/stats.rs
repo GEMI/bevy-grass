@@ -103,7 +103,7 @@ pub struct GpuStats {
 /// # use bevy::diagnostic::LogDiagnosticsPlugin;
 /// # use bevy_grass::prelude::*;
 /// # let mut app = App::new();
-/// app.add_plugins((GrassPlugin::default(), LogDiagnosticsPlugin::default()));
+/// app.add_plugins((GrassPlugins, LogDiagnosticsPlugin::default()));
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct GrassDiagnostics;

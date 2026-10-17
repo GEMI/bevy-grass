@@ -62,7 +62,7 @@ pub struct GrassBlade {
     pub fold: f32,
     /// A head at the top of each blade, a seed head or a flower, as a share
     /// of the blade's length; 0 for none. The head turns toward the camera.
-    pub head: f32,
+    pub head_length: f32,
     /// Width of the head, in metres.
     pub head_width: f32,
     /// Colour of the head.
@@ -97,16 +97,16 @@ pub struct GrassVariation {
     /// to 1; some blades dry more than others.
     pub dry_tips: f32,
     /// Share of blades that are dead and straw-coloured, 0 to 1.
-    pub dead_blades: f32,
+    pub dead_share: f32,
     /// How strongly blades gather into tufts, 0 (spread evenly) to 1
     /// (tight tufts with bare ground between them). Tufted blades also lean
     /// out from the tuft's centre. The number of blades does not change.
     pub tufts: f32,
     /// Distance between tufts, in metres.
-    pub tuft_size: f32,
+    pub tuft_spacing: f32,
     /// Share of the ground left bare, in patches, 0 to 1. The grass thins
     /// out toward a patch's edge rather than stopping at a line.
-    pub bare_patches: f32,
+    pub bare_share: f32,
     /// Size of the bare patches, in metres.
     pub bare_patch_size: f32,
 }
@@ -211,7 +211,7 @@ impl GrassStyle {
             twist: 0.0,
             droop: 0.0,
             fold: 0.0,
-            head: 0.0,
+            head_length: 0.0,
             head_width: 0.03,
             head_color: Color::srgb(0.85, 0.80, 0.60),
         },
@@ -221,10 +221,10 @@ impl GrassStyle {
             patch_amount: 0.0,
             patch_size: 12.0,
             dry_tips: 0.0,
-            dead_blades: 0.0,
+            dead_share: 0.0,
             tufts: 0.0,
-            tuft_size: 0.6,
-            bare_patches: 0.0,
+            tuft_spacing: 0.6,
+            bare_share: 0.0,
             bare_patch_size: 3.0,
         },
         ground_tint: GroundTint {
@@ -251,7 +251,7 @@ impl GrassStyle {
             twist: 0.0,
             droop: 0.0,
             fold: 0.0,
-            head: 0.0,
+            head_length: 0.0,
             head_width: 0.03,
             head_color: Color::srgb(0.85, 0.80, 0.60),
         },
@@ -261,10 +261,10 @@ impl GrassStyle {
             patch_amount: 0.0,
             patch_size: 12.0,
             dry_tips: 0.0,
-            dead_blades: 0.0,
+            dead_share: 0.0,
             tufts: 0.0,
-            tuft_size: 0.6,
-            bare_patches: 0.0,
+            tuft_spacing: 0.6,
+            bare_share: 0.0,
             bare_patch_size: 3.0,
         },
         ground_tint: GroundTint {
@@ -396,7 +396,7 @@ impl GrassStyle {
             twist: 0.0,
             droop: 0.0,
             fold: 0.0,
-            head: 0.0,
+            head_length: 0.0,
             head_width: 0.03,
             head_color: Color::srgb(0.85, 0.80, 0.60),
         },
@@ -406,10 +406,10 @@ impl GrassStyle {
             patch_amount: 0.0,
             patch_size: 12.0,
             dry_tips: 0.0,
-            dead_blades: 0.0,
+            dead_share: 0.0,
             tufts: 0.0,
-            tuft_size: 0.6,
-            bare_patches: 0.0,
+            tuft_spacing: 0.6,
+            bare_share: 0.0,
             bare_patch_size: 3.0,
         },
         ground_tint: GroundTint {
@@ -479,7 +479,7 @@ impl GrassStyle {
             twist: 0.0,
             droop: 0.0,
             fold: 0.0,
-            head: 0.0,
+            head_length: 0.0,
             head_width: 0.03,
             head_color: Color::srgb(0.85, 0.80, 0.60),
         },
@@ -489,10 +489,10 @@ impl GrassStyle {
             patch_amount: 0.0,
             patch_size: 12.0,
             dry_tips: 0.0,
-            dead_blades: 0.0,
+            dead_share: 0.0,
             tufts: 0.0,
-            tuft_size: 0.6,
-            bare_patches: 0.0,
+            tuft_spacing: 0.6,
+            bare_share: 0.0,
             bare_patch_size: 3.0,
         },
         ground_tint: GroundTint {
@@ -618,9 +618,9 @@ impl GrassStyle {
             patch_color: Color::srgb(0.56, 0.58, 0.22),
             patch_amount: 0.45,
             dry_tips: 0.2,
-            dead_blades: 0.04,
+            dead_share: 0.04,
             tufts: 0.35,
-            bare_patches: 0.06,
+            bare_share: 0.06,
             ..Self::SUMMER_TALL.variation
         },
         species: Cow::Borrowed(&[
@@ -661,9 +661,9 @@ impl GrassStyle {
             patch_color: Color::srgb(0.50, 0.30, 0.14),
             patch_amount: 0.4,
             dry_tips: 0.35,
-            dead_blades: 0.12,
+            dead_share: 0.12,
             tufts: 0.35,
-            bare_patches: 0.08,
+            bare_share: 0.08,
             ..Self::AUTUMN_TALL.variation
         },
         species: Cow::Borrowed(&[
@@ -805,7 +805,7 @@ impl GrassBlade {
         root_color: Color::srgb(0.07, 0.12, 0.04),
         tip_color: Color::srgb(0.40, 0.50, 0.20),
         translucency: 0.5,
-        head: 0.2,
+        head_length: 0.2,
         head_width: 0.022,
         head_color: Color::srgb(0.62, 0.56, 0.36),
         ..GrassStyle::SUMMER_TALL.blade
@@ -820,7 +820,7 @@ impl GrassBlade {
         root_color: Color::srgb(0.05, 0.11, 0.03),
         tip_color: Color::srgb(0.24, 0.42, 0.12),
         translucency: 0.4,
-        head: 0.12,
+        head_length: 0.12,
         head_width: 0.05,
         head_color: Color::srgb(0.92, 0.92, 0.86),
         ..GrassStyle::SUMMER_TALL.blade
@@ -829,7 +829,7 @@ impl GrassBlade {
     /// Small yellow flowers, like buttercups.
     pub const YELLOW_FLOWERS: Self = Self {
         height: Vec2::new(0.3, 0.6),
-        head: 0.1,
+        head_length: 0.1,
         head_width: 0.035,
         head_color: Color::srgb(0.95, 0.78, 0.12),
         ..GrassBlade::WHITE_FLOWERS

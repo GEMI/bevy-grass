@@ -69,6 +69,19 @@ fn chunk_height_at(tables: &FieldTables, point: Vec2) -> Option<f32> {
     })
 }
 
+/// How strongly an interactor pushes, as a share of its own strength, given
+/// the highest `ground` under it (if it is over a field) and the `max_height`
+/// it may be above that: 1 at the ground, fading to 0 over the upper half of
+/// the range, 1 when the interactor has no limit or no ground is known.
+pub(crate) fn reach(max_height: Option<f32>, feet: f32, ground: Option<f32>) -> f32 {
+    let (Some(max), Some(ground)) = (max_height, ground) else {
+        return 1.0;
+    };
+    let max = max.max(1e-3);
+    let t = (((feet - ground) - 0.5 * max) / (0.5 * max)).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
 /// The interactors a camera stamps: those whose disc reaches its window,
 /// nearest to `center` first, at most `max`. Each is `(x, z, radius,
 /// strength)` with the radius clamped to [`MAX_PUSH_RADIUS`].
@@ -98,6 +111,29 @@ pub(crate) fn select_interactors(all: &[Vec4], center: Vec2, max: u32) -> Vec<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_interactor_fades_out_as_it_rises_above_the_grass() {
+        // No limit, or no ground to measure from: always full.
+        assert_eq!(reach(None, 50.0, Some(0.0)), 1.0);
+        assert_eq!(reach(Some(1.0), 50.0, None), 1.0);
+        // Within the lower half of its range: full. At the top: none.
+        assert_eq!(reach(Some(1.0), 0.0, Some(0.0)), 1.0);
+        assert_eq!(reach(Some(1.0), 0.5, Some(0.0)), 1.0);
+        assert_eq!(reach(Some(1.0), 1.0, Some(0.0)), 0.0);
+        assert_eq!(reach(Some(1.0), 9.0, Some(0.0)), 0.0);
+        // Between, it falls smoothly, and it never rises with height.
+        let mut last = 1.0;
+        for step in 0..=100 {
+            let now = reach(Some(1.0), step as f32 * 0.01, Some(0.0));
+            assert!((0.0..=1.0).contains(&now) && now <= last + 1e-6);
+            last = now;
+        }
+        assert!((reach(Some(1.0), 0.75, Some(0.0)) - 0.5).abs() < 1e-6);
+        // Below the ground it is as at the ground; the ground may be raised.
+        assert_eq!(reach(Some(1.0), -2.0, Some(0.0)), 1.0);
+        assert_eq!(reach(Some(1.0), 3.0, Some(3.0)), 1.0);
+    }
 
     #[test]
     fn the_window_contains_its_centre_with_room_on_every_side() {

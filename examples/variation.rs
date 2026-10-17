@@ -7,9 +7,9 @@
 //!
 //! * 1–3 pick the style: summer wild, autumn wild, wildflower meadow.
 //! * P: other plants (`species`): seed heads, flowers, clover, broad leaves.
-//! * T: tufts and bare patches (`tufts`, `bare_patches`).
+//! * T: tufts and bare patches (`tufts`, `bare_share`).
 //! * B: blade shape (`twist`, `droop`, `fold`; heads belong to the plants).
-//! * C: colour variation (`patch_amount`, `dry_tips`, `dead_blades`).
+//! * C: colour variation (`patch_amount`, `dry_tips`, `dead_share`).
 //! * S: grass shadows.
 //!
 //! WASD and the mouse fly the camera (hold the left button to look).
@@ -85,7 +85,7 @@ fn main() {
     };
     let mut app = App::new();
     args.install(&mut app, "bevy_grass: variation");
-    app.add_plugins((GrassPlugin::default(), FreeCameraPlugin))
+    app.add_plugins((GrassPlugins, FreeCameraPlugin))
         .insert_resource(start)
         .add_systems(Startup, setup)
         .add_systems(Update, ((switch, refresh, title).chain(), walk))
@@ -155,6 +155,7 @@ fn setup(
             GrassInteractor {
                 radius: 0.5,
                 strength: 1.0,
+                ..default()
             },
         ));
     }
@@ -282,7 +283,7 @@ fn apply(base: &GrassStyle, on: Switches) -> GrassStyle {
     }
     if !on.tufts {
         style.variation.tufts = 0.0;
-        style.variation.bare_patches = 0.0;
+        style.variation.bare_share = 0.0;
     }
     if !on.shape {
         let flat = |blade: &mut GrassBlade| {
@@ -305,7 +306,7 @@ fn apply(base: &GrassStyle, on: Switches) -> GrassStyle {
     if !on.colour {
         style.variation.patch_amount = 0.0;
         style.variation.dry_tips = 0.0;
-        style.variation.dead_blades = 0.0;
+        style.variation.dead_share = 0.0;
     }
     style
 }
