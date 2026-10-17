@@ -219,6 +219,10 @@ fn parse_cli() -> Cli {
             "--shape" => cli.shape = true,
             "--variation" => cli.variation = true,
             "--single-threaded" => cli.single_threaded = true,
+            // Read by `common::ExampleArgs`; skip its value here.
+            "--without" => {
+                args.next();
+            }
             "--no-plugin" => cli.plugin = false,
             "--no-gpu-timing" => cli.gpu_timing = false,
             "--no-terrain" => cli.terrain = false,

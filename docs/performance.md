@@ -498,6 +498,30 @@ The GPU differences are steady to within 0.01 ms across the five rounds (main pa
 
 Raw rows were kept in the scratchpad only; rerun with `tools/bench_ab.py` or the commands above.
 
+## Leaving plugins out of `DefaultPlugins` (October 17, 2026)
+
+A suggestion: `DefaultPlugins` is heavy and may include plugins the game does not need, so drop them. The earlier H1 test left out picking, animation, text, gamepads and scenes and found noise. This pass tests all of the rest that can be left out, one group at a time and all together.
+
+**What can be left out.** `DefaultPlugins` follows Cargo features, so with this crate's examples (Bevy's `3d` profile plus `ui`) it is a few dozen plugins. The bench gained `--without a,b,c`, which disables named members at runtime (`PluginGroupBuilder::disable`); `--without lean` is every name below. Groups: `picking` (3 plugins), `animation`, `scene` (scene and world serialization), `gilrs`, `clipboard`, `gltf`, `states`, `a11y`, `input-focus` (2), `anti-alias`, `post-process`, `ui` (UI, its renderer and text). Not removable: the window, winit, render, mesh, image, camera, light, core pipeline, PBR and gizmo plugins that rendering needs (`LightPlugin` needs the gizmos; see H1).
+
+**Method.** `--release` (not LTO, so the build is quick), RTX 4070 Ti and i5-4570S, 1920 × 1080, 4× MSAA, no vsync, no GPU timing queries, 1,380 frames a run. Four interleaved rounds of 14 variants in two scenes: the empty scene (`--no-plugin --no-terrain --no-shadows`, the floor of "The frame-time floor") and the real one (perspective, High tier). Paired difference of frame time against the unmodified run of the same round.
+
+| Left out | Empty scene, p50 | Empty scene, p95 | Perspective with grass, p50 |
+| --- | --- | --- | --- |
+| Nothing (reference) | 2.408 ms | 2.746 ms | 3.103 ms |
+| **Everything above (`lean`)** | **−0.005 ms (−0.2%)** | −0.022 ms (−0.8%) | **±0.000 ms (0.0%)** |
+| `ui` | −0.012 ms | −0.047 ms | +0.005 ms |
+| `scene` | −0.011 ms | −0.056 ms | +0.009 ms |
+| `gilrs` | −0.002 ms | −0.069 ms | −0.041 ms |
+| `post-process` | −0.006 ms | −0.050 ms | −0.012 ms |
+| Each other group | within ±0.006 ms | within −0.041 ms | within ±0.016 ms |
+
+**Verdict: rejected, no effect.** Taking out every plugin that can be taken out changes the frame by 0.2% or less at p50, against the 5–10% bars used elsewhere on this page. No single group moves it either; the largest p50 gain is 0.012 ms (0.5%), and the rounds of one variant spread wider than that. That fits plugins whose systems have nothing to do costing close to nothing (not traced). Plugins that stay in `DefaultPlugins` but add real work (like the UI) were exactly the ones tested and still showed nothing.
+
+**What it does not cover.** Leaving a plugin out at runtime does not remove its code from the binary: building with fewer Cargo features would shrink the binary and compile time, but not the frame, since the plugins here were already idle. The ones the renderer needs cannot be left out. And `MinimalPlugins` plus a hand-picked list would add back those same renderer plugins, ending at the same set.
+
+**Where the floor is.** The same conclusion as "The frame-time floor": the 2.1–2.4 ms is the cost of running Bevy's renderer at all (hundreds of small systems, the render thread as the critical path, the multi-threaded executor's wake-ups on 4 cores), not of unused plugins. The levers that moved it remain `--single-threaded` (−10%) and the LTO profile (−12%); they belong to the game's `Cargo.toml` and app setup.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

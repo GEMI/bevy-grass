@@ -39,6 +39,8 @@ pub(crate) struct ExampleArgs {
     pub(crate) single_threaded: bool,
     /// Where `--record` saves frames, and how many frames it covers.
     pub(crate) record: Option<(String, u32)>,
+    /// `DefaultPlugins` members to leave out, from `--without a,b,c`.
+    pub(crate) without: Vec<String>,
     /// Flags the example reads itself.
     pub(crate) flags: Vec<String>,
 }
@@ -54,6 +56,10 @@ impl ExampleArgs {
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
                 "--single-threaded" => args.single_threaded = true,
+                "--without" => {
+                    let list = it.next().expect("--without needs a comma-separated list");
+                    args.without.extend(list.split(',').map(str::to_owned));
+                }
                 "--record" => {
                     let dir = it.next().expect("--record needs a directory");
                     args.record = Some((dir, args.record.as_ref().map_or(600, |r| r.1)));
@@ -93,8 +99,7 @@ impl ExampleArgs {
     /// measuring, plus the requested measurement plugins.
     pub(crate) fn install(self, app: &mut App, title: &str) {
         let measuring = self.frames.is_some();
-        app.add_plugins(
-            DefaultPlugins
+        let plugins = DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: title.into(),
@@ -116,8 +121,8 @@ impl ExampleArgs {
                     // is started directly rather than through `cargo run`.
                     file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
                     ..default()
-                }),
-        );
+                });
+        app.add_plugins(without_plugins(plugins, &self.without));
         if self.fixed_time {
             app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
                 1.0 / 60.0,
@@ -242,4 +247,52 @@ pub(crate) fn spawn_person(
             Transform::from_translation(at + Vec3::Y * 0.9),
         ))
         .id()
+}
+
+/// Leaves the named `DefaultPlugins` members out (`--without a,b,c`), to see
+/// what an unused plugin costs a frame. `lean` is every name below.
+fn without_plugins(
+    mut plugins: bevy::app::PluginGroupBuilder,
+    names: &[String],
+) -> bevy::app::PluginGroupBuilder {
+    const ALL: &[&str] = &[
+        "picking", "animation", "scene", "gilrs", "clipboard", "gltf", "states", "a11y",
+        "input-focus", "anti-alias", "post-process", "ui",
+    ];
+    let mut wanted: Vec<&str> = Vec::new();
+    for name in names {
+        if name == "lean" {
+            wanted.extend(ALL);
+        } else {
+            wanted.push(name);
+        }
+    }
+    for name in wanted {
+        plugins = match name {
+            "picking" => plugins
+                .disable::<PointerInputPlugin>()
+                .disable::<PickingPlugin>()
+                .disable::<InteractionPlugin>(),
+            "animation" => plugins.disable::<AnimationPlugin>(),
+            "scene" => plugins
+                .disable::<bevy::world_serialization::WorldSerializationPlugin>()
+                .disable::<bevy::scene::ScenePlugin>(),
+            "gilrs" => plugins.disable::<GilrsPlugin>(),
+            "clipboard" => plugins.disable::<ClipboardPlugin>(),
+            "gltf" => plugins.disable::<bevy::gltf::GltfPlugin>(),
+            "states" => plugins.disable::<bevy::state::app::StatesPlugin>(),
+            "a11y" => plugins.disable::<bevy::a11y::AccessibilityPlugin>(),
+            "input-focus" => plugins
+                .disable::<bevy::input_focus::InputFocusPlugin>()
+                .disable::<bevy::input_focus::InputDispatchPlugin>(),
+            "anti-alias" => plugins.disable::<bevy::anti_alias::AntiAliasPlugin>(),
+            "post-process" => plugins.disable::<bevy::post_process::PostProcessPlugin>(),
+            "ui" => plugins
+                .disable::<bevy::ui_render::UiRenderPlugin>()
+                .disable::<bevy::ui::UiPlugin>()
+                .disable::<bevy::text::TextPlugin>(),
+            other => panic!("unknown --without name {other}"),
+        };
+    }
+    plugins
 }
