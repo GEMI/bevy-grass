@@ -522,6 +522,53 @@ A suggestion: `DefaultPlugins` is heavy and may include plugins the game does no
 
 **Where the floor is.** The same conclusion as "The frame-time floor": the 2.1–2.4 ms is the cost of running Bevy's renderer at all (hundreds of small systems, the render thread as the critical path, the multi-threaded executor's wake-ups on 4 cores), not of unused plugins. The levers that moved it remain `--single-threaded` (−10%) and the LTO profile (−12%); they belong to the game's `Cargo.toml` and app setup.
 
+## The CPU floor on an Apple M2 Pro (macOS) (October 17, 2026)
+
+`docs/cpu-floor-test.md` asks whether the ~2.1 ms empty-scene floor on the RTX 4070 Ti / i5-4570S is the 2013 CPU or a cost every Bevy app pays. This is that test on a much faster CPU, run for a colleague.
+
+**Machine.** Apple M2 Pro, 10 cores (6 performance and 4 efficiency, no SMT), 16-core integrated GPU, 32 GB memory, macOS 26.6.2 (Tahoe), Metal 4. 1920 × 1080 window, 4× MSAA, no vsync. Commit `9dd146e` (`exp/lean-plugins`, based on `6577d5f`), `release-lto` (`cargo build --profile release-lto --example bench`, 9m52s).
+
+**Method.** The plan's ladder, five interleaved rounds of steps 1–4 in order, each run 1,379 measured frames after the 120-frame warm-up, `--no-gpu-timing` throughout. The GPU timestamp columns are all `NaN` on this Metal backend, so no GPU split is available.
+
+| Step | Flags | p50 (median, range) | p95 (median, range) |
+| --- | --- | --- | --- |
+| 1 empty | `--no-plugin --no-gpu-timing --no-terrain --no-shadows` | **2.012 ms** [1.999–2.055] | 7.633 ms [6.781–7.746] |
+| 2 + terrain, shadows | `--no-plugin --no-gpu-timing` | 2.637 ms [2.621–2.717] | 8.736 ms [8.277–13.293] |
+| 3 + grass plugin, no field | `--no-gpu-timing --no-grass` | 2.725 ms [2.704–2.759] | 8.690 ms [8.224–9.227] |
+| 4 + grass, High tier | `--no-gpu-timing` | 4.367 ms [4.344–4.408] | 16.193 ms [15.914–16.286] |
+
+Against the reference numbers from the i5-4570S:
+
+| Step | i5-4570S p50 | M2 Pro p50 | Change | Step's addition on i5 / M2 Pro |
+| --- | --- | --- | --- | --- |
+| 1 empty | 2.075 ms | 2.012 ms | −3% | — |
+| 2 + terrain, shadows | 2.548 ms | 2.637 ms | +3% | +0.473 / +0.625 ms |
+| 3 + grass plugin | 2.656 ms | 2.725 ms | +3% | +0.108 / +0.088 ms |
+| 4 + grass, High | 2.669 ms | 4.367 ms | +64% | +0.013 / +1.642 ms |
+
+**The floor did not move.** A CPU with roughly 2× the i5-4570S's single-thread speed (published benchmarks, not measured here) produces the same empty-scene p50 (2.01 vs 2.08 ms). By the plan's own reading, that is the "≥ 1.5 ms, little change" row: the ~2 ms is not the old CPU's speed. It is a fixed per-frame cost of running Bevy's renderer on this platform. This run cannot separate portable Bevy cost from macOS/Metal's present and compositor path, so it does not prove the same 2 ms would appear on a fast Windows CPU; it does show the floor does not follow single-core speed.
+
+**Steps 2–4 are GPU-bound on this machine, not CPU conclusions.** The M2 Pro's 16-core integrated GPU is far weaker than the 4070 Ti. The grass field adds 1.64 ms here against 0.013 ms on the 4070 Ti, and the frame scales with the grass tier (single runs, not part of the five-round ladder):
+
+| Tier | p50 |
+| --- | --- |
+| low | 2.933 ms |
+| medium | 3.384 ms |
+| high | 4.382 ms |
+| ultra | 6.903 ms |
+| competitive | 2.899 ms |
+
+The cost rising with blade count is a GPU signature. Terrain and shadows (+0.63 ms) are likely GPU work for the same reason. So the ladder's later steps say nothing about CPU headroom here; only step 1 does.
+
+**The p95 is not usable from this run.** It is 7.6 ms even for the empty scene, with periodic stalls roughly every 80 ms, against 2.6 ms on the quiet i5 machine. The machine was **not quiet**: a Rancher Desktop VM was using ~49% CPU, iTerm ~23%, and Teams, Outlook, Chrome, Brave and VS Code were open (load average 4–8). The p50 was stable to ±0.06 ms across rounds, but the tail is contaminated by that background load. A clean p95 needs a quiet desktop; redo this run there.
+
+**Follow-ups from the plan that macOS cannot do.**
+
+- **Four cores.** macOS has no `taskset` or hard CPU affinity, so the 4-core variant could not be run as written.
+- **`--single-threaded`.** It panics on macOS in `raw-window-metal` ("can only access NSView on the main thread") at surface access on the render thread, so no number was obtained. This is a Bevy/Metal limitation, not a grass one.
+
+**What it says for a 240 Hz macOS game.** The ~2 ms fixed floor is still half the 4.167 ms budget before the game exists, exactly as on the i5. Grass at the High tier is the other limit here, because this GPU is slow; the Competitive tier (2.90 ms) is the one that would fit. The plan's next step still applies: trace what the frame does, and repeat on a quiet machine for a usable p95.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
