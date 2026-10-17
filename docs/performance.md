@@ -375,6 +375,37 @@ The no-grass baseline drifted from 2.3 to 3.0 ms over the session (the laptop wa
 
 The CPU side, per frame, is unchanged in kind: the main-world systems compare change flags, and tables are rebuilt only when something changed. P1-9's tests also pin that a style change every frame rewrites only the entries of the fields using it, and reads no image.
 
+## On an RTX 4070 Ti at stock clocks (October 17, 2026)
+
+The README's numbers came from the T1200 laptop only. This section measures the current build (`675d149`, after the API pass and the chunk slices) on the faster machine, at the clocks a user would have.
+
+**Machine.** RTX 4070 Ti, stock clocks (not locked), Intel i5-4570S (4 cores, no hyper-threading, 2013), Linux X11, Vulkan. Quiet: browser closed, nothing else running.
+
+**Method.** `cargo build --profile release-lto --example bench`, then five interleaved rounds of the bench with and without `--no-grass`, in three scenes: the perspective flythrough, the ARPG camera (`--ortho`) and the ARPG camera with `--interactors 512`, at the High tier and again at Ultra (`--tier ultra`). 1920 × 1080, 4× MSAA, no vsync, 1,380 frames a run after warm-up. Medians of five paired differences (grass minus no-grass in the same round).
+
+**Grass cost is read from GPU timestamps, not the frame.** The frame is limited by the CPU (see "The frame-time floor"), so frame time barely moves with grass: it stays at about 2.7–2.9 ms either way. The grass's GPU time is the difference in the main pass (terrain included), culling and blade generation. The trampling pass is left out of the sum: it runs whether or not grass is drawn (0.007 ms with no interactors, 0.010 ms with 512).
+
+| Scene | Tier | Main pass | Cull | Generate | **Grass GPU time** | Frame p50, grass / none |
+| --- | --- | --- | --- | --- | --- | --- |
+| Perspective | High | +0.291 ms | +0.006 ms | +0.022 ms | **0.32 ms** | 2.945 / 2.840 ms |
+| ARPG camera | High | +0.237 ms | +0.005 ms | +0.020 ms | **0.26 ms** | 2.781 / 2.657 ms |
+| ARPG, 512 interactors | High | +0.188 ms | +0.005 ms | +0.020 ms | **0.21 ms** | 2.784 / 2.679 ms |
+| Perspective | Ultra | +0.436 ms | +0.005 ms | +0.025 ms | **0.47 ms** | 2.932 / 2.877 ms |
+| ARPG camera | Ultra | +0.279 ms | +0.005 ms | +0.020 ms | **0.30 ms** | 2.755 / 2.650 ms |
+| ARPG, 512 interactors | Ultra | +0.234 ms | +0.005 ms | +0.020 ms | **0.26 ms** | 2.770 / 2.674 ms |
+
+The GPU differences are steady to within 0.01 ms across the five rounds (main pass, High, perspective: +0.285 to +0.296 ms). The frame differences are not: paired frame p50 runs from −0.05 to +0.16 ms in perspective and the median is +0.12 ms, which is inside this CPU's noise. Read the GPU columns, not the frame columns.
+
+**What it says.**
+
+- Against the T1200 (3.8 and about 3 ms, measured before the chunk slices), grass is about 10× cheaper on this card at the High tier. The T1200 after G6 was 3.4 and 2.4 ms, so the like-for-like ratio is nearer 9–11×.
+- Ultra (150 m radius, up to 1.2 million blades, shadows into the second cascade) costs 0.15 ms more than High in perspective and 0.04–0.05 ms more at the ARPG camera.
+- The design target, 1 ms at the High tier on RTX 3060 class hardware, is still not measured. This card uses a third of it.
+- 512 interactors lower the main pass (by 0.05 ms at High): probably because trampled blades lie lower and cover fewer pixels (not checked). This is not a saving to count on; it depends on the interactors' radius and where they walk.
+- On a CPU of this age the frame stays at about 340–360 fps with or without grass. A faster CPU would let the frame follow the GPU figures; that has not been tested here.
+
+Raw rows were kept in the scratchpad only; rerun with `tools/bench_ab.py` or the commands above.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
