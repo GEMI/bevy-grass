@@ -8,12 +8,20 @@
 //! ```
 //!
 //! Goldens are per renderer, because GPUs round differently: CI renders with
-//! a software rasterizer, Mesa's lavapipe on Linux (`llvmpipe`) or WARP on
-//! Windows (`warp`), which are the same on every machine. To use WARP here:
+//! a software rasterizer, Mesa's lavapipe on Linux or WARP on Windows, which
+//! are the same on every machine. WARP uses `tests/golden/warp/`. Lavapipe is
+//! a compiler as much as a renderer, so its folder is named after the Mesa and
+//! LLVM builds (`llvmpipe-mesa-...-llvm-...`): a runner with a different Mesa
+//! or LLVM gets a missing-golden failure, not a comparison against another
+//! compiler's output. To use WARP here:
 //!
 //! ```text
 //! WGPU_BACKEND=dx12 WGPU_FORCE_FALLBACK_ADAPTER=1 cargo run --example golden
 //! ```
+//!
+//! To bless the Linux goldens, run the `golden-bless` CI job (Actions → CI →
+//! Run workflow → `bless_goldens`), download its artifact and commit the
+//! `llvmpipe-...` folder it contains.
 //!
 //! A mismatch writes the new image and a difference image next to each other
 //! in `target/golden/`.
@@ -265,18 +273,40 @@ fn renderer_name(adapter: Option<&RenderAdapterInfo>) -> String {
     };
     let name = adapter.name.to_lowercase();
     if name.contains("llvmpipe") {
-        "llvmpipe".into()
+        // Lavapipe is Mesa's software Vulkan driver, built with LLVM. Both can
+        // change how it rounds even when the shaders do not, so keep both
+        // versions in the folder name.
+        let identity = format!("{} {}", adapter.driver_info, adapter.name);
+        let version = slug(&identity);
+        if version.is_empty() {
+            "llvmpipe".into()
+        } else {
+            format!("llvmpipe-{version}")
+        }
     } else if name.contains("basic render") || name.contains("warp") {
         "warp".into()
     } else {
-        name.chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect::<String>()
-            .split('-')
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("-")
+        slug(&name)
     }
+}
+
+/// `text` as a lower-case ASCII path component, at most 80 characters.
+fn slug(text: &str) -> String {
+    let slug: String = text
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    slug.chars().take(80).collect::<String>()
 }
 
 fn root() -> PathBuf {

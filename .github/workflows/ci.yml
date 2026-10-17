@@ -3,6 +3,12 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      bless_goldens:
+        description: "Bless the Linux software-renderer goldens and upload them"
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,7 +47,10 @@ jobs:
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The
   # first run on a new renderer has no goldens: take the captures from the
-  # artifact into tests/golden/<renderer>/, or bless them locally (examples/golden.rs).
+  # artifact into tests/golden/<renderer>/, or run the golden-bless job below.
+  # The Linux folder includes the Mesa and LLVM versions (examples/golden.rs),
+  # so a compiler update asks for new goldens instead of comparing across
+  # compilers.
   golden:
     strategy:
       fail-fast: false
@@ -49,7 +58,7 @@ jobs:
         include:
           - os: windows-latest
             backend: dx12
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             backend: vulkan
     runs-on: ${{ matrix.os }}
     env:
@@ -75,3 +84,30 @@ jobs:
         with:
           name: golden-${{ matrix.os }}
           path: target/golden/
+
+  # Re-bless the Linux goldens on the same pinned runner and driver as the
+  # check. Run this from the Actions tab (Run workflow, tick bless_goldens),
+  # download the artifact, and commit the llvmpipe-... folder it contains.
+  golden-bless:
+    if: github.event_name == 'workflow_dispatch' && inputs.bless_goldens
+    runs-on: ubuntu-24.04
+    env:
+      WGPU_BACKEND: vulkan
+      WGPU_FORCE_FALLBACK_ADAPTER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux system libraries and lavapipe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev \
+            mesa-vulkan-drivers
+      - run: cargo run --example golden -- --bless
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-bless-llvmpipe
+          path: tests/golden/llvmpipe-*/

@@ -125,9 +125,10 @@ files are written with the new ones.
 
 Numbers that were fixed in the code and shaders, and that another game might
 want different, are settings now. **Every default is the number it replaces**,
-so nothing changes unless you set one: the golden images are identical, and a
-GPU test checks the shaders against the CPU mirror at the defaults and at
-other values.
+so nothing changes unless you set one: the rendered image is unchanged to
+within one 8-bit level (llvmpipe rounds the new uniform reads differently, so
+its goldens were re-blessed), and a GPU test checks the shaders against the CPU
+mirror at the defaults and at other values.
 
 **Added to `GrassSettings`** (the first group are its distances and densities;
 see the README's table for each range and default):
