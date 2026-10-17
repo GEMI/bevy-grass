@@ -15,7 +15,17 @@
 //! cargo run --example bench -- --species --tufts --shape --variation  # add variation
 //! cargo run --example bench -- --prepass  # a depth prepass on the camera
 //! cargo run --profile release-lto --example bench -- --single-threaded  # the fastest frame on few-core CPUs
+//! cargo run --example bench -- --tier competitive --target-hz 240 --machine t1200
+//!     # the 240 Hz acceptance gate: exits non-zero when frame p95 exceeds 4.167 ms
+//! cargo run --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-grass.csv
+//!     # also report grass cost against a previous --no-grass run
 //! ```
+//!
+//! The 240 Hz gate is also driven by `tools/bench_240.py`, which runs the
+//! three reference configurations (High, Competitive and no-grass) for a
+//! named machine and both scenes. CI runners cannot enforce GPU frame times
+//! reliably, so the gate is manual or nightly on the labelled machines
+//! described in `docs/performance.md`.
 //!
 //! What sets the frame-time floor, beyond grass (see "The frame-time floor"
 //! in `docs/performance.md`): `--no-plugin` leaves `GrassPlugin` out
@@ -61,6 +71,42 @@ const FRAMES: u32 = 1500;
 /// Frames before measuring: pipeline compilation and the first table upload.
 const WARMUP: u32 = 120;
 
+/// The pass/fail frame budget, from `--target-hz` or `--budget-ms`.
+#[derive(Debug, Clone, Copy)]
+struct FrameBudget {
+    ms: f32,
+    /// Set when the budget came from `--target-hz`, for the report.
+    hz: Option<f32>,
+}
+
+impl FrameBudget {
+    fn from_hz(hz: f32) -> Self {
+        assert!(
+            hz.is_finite() && hz > 0.0,
+            "--target-hz must be a positive number"
+        );
+        Self {
+            ms: 1000.0 / hz,
+            hz: Some(hz),
+        }
+    }
+
+    fn from_ms(ms: f32) -> Self {
+        assert!(
+            ms.is_finite() && ms > 0.0,
+            "--budget-ms must be a positive number"
+        );
+        Self { ms, hz: None }
+    }
+
+    fn description(self) -> String {
+        self.hz.map_or_else(
+            || format!("{:.3} ms", self.ms),
+            |hz| format!("{hz:.0} Hz ({:.3} ms)", self.ms),
+        )
+    }
+}
+
 #[derive(Resource, Debug, Clone)]
 struct Bench {
     orthographic: bool,
@@ -84,98 +130,178 @@ struct Bench {
     variation: bool,
     /// What the camera looks at this frame, in world XZ.
     focus: Vec2,
+    /// A frame-time budget to test `p95` against, from `--target-hz` or
+    /// `--budget-ms`.
+    budget: Option<FrameBudget>,
+    /// A name for the reference machine, included in the summary and results.
+    machine: String,
+    /// A previous `--no-grass` CSV, for the finite grass-cost percentiles.
+    baseline_csv: Option<String>,
     csv_path: String,
-    rows: Vec<[f32; 5]>,
+    rows: Vec<[f32; 6]>,
     frame: u32,
 }
 
-fn main() {
-    let mut orthographic = false;
-    let mut grass = true;
-    let mut interactors = 0;
-    let mut screenshot = None;
-    let mut quality = GrassQuality::High;
-    let mut csv_path = "target/bench.csv".to_string();
-    let (mut sheen, mut tint, mut toon) = (false, false, false);
-    let (mut species, mut tufts, mut shape, mut variation) = (false, false, false, false);
-    let mut single_threaded = false;
-    let (mut plugin, mut gpu_timing) = (true, true);
-    let (mut terrain, mut shadows) = (true, true);
-    let mut prepass = false;
+#[derive(Debug, Clone)]
+struct Cli {
+    orthographic: bool,
+    grass: bool,
+    interactors: u32,
+    screenshot: Option<String>,
+    quality: GrassQuality,
+    csv_path: String,
+    budget: Option<FrameBudget>,
+    machine: String,
+    baseline_csv: Option<String>,
+    sheen: bool,
+    tint: bool,
+    toon: bool,
+    species: bool,
+    tufts: bool,
+    shape: bool,
+    variation: bool,
+    single_threaded: bool,
+    plugin: bool,
+    gpu_timing: bool,
+    terrain: bool,
+    shadows: bool,
+    prepass: bool,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Self {
+            orthographic: false,
+            grass: true,
+            interactors: 0,
+            screenshot: None,
+            quality: GrassQuality::High,
+            csv_path: "target/bench.csv".to_string(),
+            budget: None,
+            machine: "unspecified".to_string(),
+            baseline_csv: None,
+            sheen: false,
+            tint: false,
+            toon: false,
+            species: false,
+            tufts: false,
+            shape: false,
+            variation: false,
+            single_threaded: false,
+            plugin: true,
+            gpu_timing: true,
+            terrain: true,
+            shadows: true,
+            prepass: false,
+        }
+    }
+}
+
+fn parse_cli() -> Cli {
+    let mut cli = Cli::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ortho" => orthographic = true,
-            "--no-grass" => grass = false,
+            "--ortho" => cli.orthographic = true,
+            "--no-grass" => cli.grass = false,
             "--interactors" => {
-                interactors = args
+                cli.interactors = args
                     .next()
                     .and_then(|n| n.parse().ok())
                     .expect("--interactors needs a count");
             }
-            "--screenshot" => screenshot = args.next(),
-            "--sheen" => sheen = true,
-            "--tint" => tint = true,
-            "--toon" => toon = true,
-            "--species" => species = true,
-            "--tufts" => tufts = true,
-            "--shape" => shape = true,
-            "--variation" => variation = true,
-            "--single-threaded" => single_threaded = true,
-            "--no-plugin" => plugin = false,
-            "--no-gpu-timing" => gpu_timing = false,
-            "--no-terrain" => terrain = false,
-            "--no-shadows" => shadows = false,
-            "--prepass" => prepass = true,
-            "--csv" => csv_path = args.next().expect("--csv needs a path"),
+            "--screenshot" => cli.screenshot = args.next(),
+            "--sheen" => cli.sheen = true,
+            "--tint" => cli.tint = true,
+            "--toon" => cli.toon = true,
+            "--species" => cli.species = true,
+            "--tufts" => cli.tufts = true,
+            "--shape" => cli.shape = true,
+            "--variation" => cli.variation = true,
+            "--single-threaded" => cli.single_threaded = true,
+            "--no-plugin" => cli.plugin = false,
+            "--no-gpu-timing" => cli.gpu_timing = false,
+            "--no-terrain" => cli.terrain = false,
+            "--no-shadows" => cli.shadows = false,
+            "--prepass" => cli.prepass = true,
+            "--csv" => cli.csv_path = args.next().expect("--csv needs a path"),
+            "--baseline-csv" => {
+                cli.baseline_csv = Some(args.next().expect("--baseline-csv needs a path"));
+            }
+            "--machine" => cli.machine = args.next().expect("--machine needs a name"),
+            "--target-hz" => {
+                let hz = args
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .expect("--target-hz needs a number");
+                cli.budget = Some(FrameBudget::from_hz(hz));
+            }
+            "--budget-ms" => {
+                let ms = args
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .expect("--budget-ms needs a number");
+                cli.budget = Some(FrameBudget::from_ms(ms));
+            }
             "--tier" => {
-                quality = match args.next().as_deref() {
+                cli.quality = match args.next().as_deref() {
+                    Some("competitive" | "240") => GrassQuality::Competitive,
                     Some("low") => GrassQuality::Low,
                     Some("medium") => GrassQuality::Medium,
                     Some("high") => GrassQuality::High,
                     Some("ultra") => GrassQuality::Ultra,
-                    other => panic!("unknown tier {other:?}; use low, medium, high or ultra"),
-                }
+                    other => panic!(
+                        "unknown tier {other:?}; use competitive, low, medium, high or ultra"
+                    ),
+                };
             }
             other => panic!("unknown argument {other}"),
         }
     }
+    cli
+}
+
+fn main() {
+    let cli = parse_cli();
     let mut app = App::new();
     common::ExampleArgs {
         frames: Some(FRAMES),
-        screenshot,
+        screenshot: cli.screenshot.clone(),
         perf: std::env::var_os("BENCH_PERF").is_some(),
-        single_threaded,
+        single_threaded: cli.single_threaded,
         ..Default::default()
     }
     .install(&mut app, "bevy_grass: benchmark");
-    if plugin {
+    if cli.plugin {
         app.add_plugins(GrassPlugins.set(GrassPlugin {
             settings: GrassSettings {
-                max_interactors: interactors.max(64),
-                ..quality.settings()
+                max_interactors: cli.interactors.max(64),
+                ..cli.quality.settings()
             },
         }));
     }
-    if gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
+    if cli.gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
         app.add_plugins(RenderDiagnosticsPlugin);
     }
     app.insert_resource(Bench {
-        orthographic,
-        grass: grass && plugin,
-        terrain,
-        prepass,
-        shadows,
-        interactors,
-        sheen,
-        tint,
-        toon,
-        species,
-        tufts,
-        shape,
-        variation,
+        orthographic: cli.orthographic,
+        grass: cli.grass && cli.plugin,
+        terrain: cli.terrain,
+        prepass: cli.prepass,
+        shadows: cli.shadows,
+        interactors: cli.interactors,
+        sheen: cli.sheen,
+        tint: cli.tint,
+        toon: cli.toon,
+        species: cli.species,
+        tufts: cli.tufts,
+        shape: cli.shape,
+        variation: cli.variation,
         focus: Vec2::ZERO,
-        csv_path,
+        budget: cli.budget,
+        machine: cli.machine,
+        baseline_csv: cli.baseline_csv,
+        csv_path: cli.csv_path,
         rows: Vec::new(),
         frame: 0,
     })
@@ -436,8 +562,54 @@ fn gpu_ms(store: &DiagnosticsStore, path: &'static str) -> f32 {
         .map_or(f32::NAN, |m| m.value as f32)
 }
 
+/// p50, p95 and the worst of the finite values, or `None` when there are none.
+fn percentiles(values: impl IntoIterator<Item = f32>) -> Option<(f32, f32, f32)> {
+    let mut values: Vec<f32> = values
+        .into_iter()
+        .filter(|value| value.is_finite())
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(f32::total_cmp);
+    let at = |p: f32| values[((values.len() - 1) as f32 * p) as usize];
+    Some((at(0.5), at(0.95), values[values.len() - 1]))
+}
+
+/// The `frame_ms` column of a CSV written by this example.
+fn read_frame_csv(path: &str) -> Result<Vec<f32>, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("could not read {path}: {error}"))?;
+    let mut lines = text.lines();
+    let header = lines.next().ok_or_else(|| format!("{path} is empty"))?;
+    let column = header
+        .split(',')
+        .position(|name| name.trim() == "frame_ms")
+        .ok_or_else(|| format!("{path} has no frame_ms column"))?;
+    let mut frames = Vec::new();
+    for (index, line) in lines.enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value = line
+            .split(',')
+            .nth(column)
+            .ok_or_else(|| format!("{path}:{} has no frame_ms value", index + 2))?
+            .trim()
+            .parse::<f32>()
+            .map_err(|error| format!("{path}:{}: {error}", index + 2))?;
+        frames.push(value);
+    }
+    Ok(frames)
+}
+
 /// Records this frame and, at the end, writes the CSV and a summary.
-fn record(mut bench: ResMut<Bench>, store: Res<DiagnosticsStore>, time: Res<Time<Real>>) {
+fn record(
+    mut bench: ResMut<Bench>,
+    store: Res<DiagnosticsStore>,
+    time: Res<Time<Real>>,
+    mut exit: MessageWriter<AppExit>,
+) {
     if bench.frame <= WARMUP {
         return;
     }
@@ -447,64 +619,167 @@ fn record(mut bench: ResMut<Bench>, store: Res<DiagnosticsStore>, time: Res<Time
         gpu_ms(&store, "render/grass_cull/elapsed_gpu"),
         gpu_ms(&store, "render/grass_generate/elapsed_gpu"),
         gpu_ms(&store, "render/main_opaque_pass_3d/elapsed_gpu"),
+        gpu_ms(&store, "render/per_view_shadow_pass/elapsed_gpu"),
     ];
     bench.rows.push(row);
     if bench.frame + 1 != FRAMES {
         return;
     }
+    write_csv(&bench);
+    let (summary, failed) = report(&bench);
+    info!("{summary}\n  written to {}", bench.csv_path);
+    if failed {
+        // A gate failure is not a shader or asset error. Use a warning and a
+        // non-zero exit code so `bench_ab.py` keeps rejecting only real errors.
+        warn!(
+            "frame budget {} not met on machine {}; see {}",
+            bench
+                .budget
+                .map_or_else(String::new, FrameBudget::description),
+            bench.machine,
+            bench.csv_path
+        );
+        exit.write(AppExit::error());
+    }
+}
+
+fn write_csv(bench: &Bench) {
     let mut csv = String::from(
-        "frame,frame_ms,trample_gpu_ms,cull_gpu_ms,generate_gpu_ms,main_pass_gpu_ms\n",
+        "frame,frame_ms,trample_gpu_ms,cull_gpu_ms,generate_gpu_ms,main_pass_gpu_ms,shadow_gpu_ms\n",
     );
     for (i, row) in bench.rows.iter().enumerate() {
         let _ = writeln!(
             csv,
-            "{},{:.4},{:.4},{:.4},{:.4},{:.4}",
+            "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}",
             i as u32 + WARMUP + 1,
             row[0],
             row[1],
             row[2],
             row[3],
-            row[4]
+            row[4],
+            row[5]
         );
     }
     if let Err(error) = std::fs::write(&bench.csv_path, csv) {
         error!("could not write {}: {error}", bench.csv_path);
     }
+}
+
+/// The text summary and whether a set frame budget was missed.
+fn report(bench: &Bench) -> (String, bool) {
     let names = [
-        "frame",
-        "grass trample",
-        "grass cull",
-        "grass generate",
-        "main pass",
+        ("frame", 0),
+        ("grass trample", 1),
+        ("grass cull", 2),
+        ("grass generate", 3),
+        ("main pass", 4),
+        ("shadow pass", 5),
     ];
+    let frame_percentiles = percentiles(bench.rows.iter().map(|row| row[0]));
     let mut summary = format!(
-        "benchmark ({}{}), {} frames:",
+        "benchmark ({}{}), machine {}, {} frames:",
         if bench.orthographic {
             "orthographic"
         } else {
             "perspective"
         },
         if bench.grass { "" } else { ", no grass" },
+        bench.machine,
         bench.rows.len()
     );
-    for (column, name) in names.iter().enumerate() {
-        let mut values: Vec<f32> = bench
-            .rows
-            .iter()
-            .map(|r| r[column])
-            .filter(|v| v.is_finite())
-            .collect();
-        if values.is_empty() {
+    for (name, column) in names {
+        let Some((p50, p95, _)) = percentiles(bench.rows.iter().map(|row| row[column])) else {
             continue;
-        }
-        values.sort_by(f32::total_cmp);
-        let at = |p: f32| values[((values.len() - 1) as f32 * p) as usize];
+        };
         let _ = write!(
             summary,
-            "\n  {name:<15} p50 {:6.3} ms   p95 {:6.3} ms",
-            at(0.5),
-            at(0.95)
+            "\n  {name:<15} p50 {p50:6.3} ms   p95 {p95:6.3} ms"
         );
     }
-    info!("{summary}\n  written to {}", bench.csv_path);
+    if let Some((p50, p95, _)) = grass_cost(bench) {
+        let _ = write!(
+            summary,
+            "\n  grass cost      p50 {p50:6.3} ms   p95 {p95:6.3} ms"
+        );
+    }
+    let Some(budget) = bench.budget else {
+        return (summary, false);
+    };
+    let Some((p50, p95, _)) = frame_percentiles else {
+        let _ = write!(
+            summary,
+            "\n  budget          {}: no frame samples -> FAIL",
+            budget.description()
+        );
+        return (summary, true);
+    };
+    let pass = p95 <= budget.ms;
+    let _ = write!(
+        summary,
+        "\n  budget          {}: frame p50 {p50:.3} ms, p95 {p95:.3} ms -> {}",
+        budget.description(),
+        if pass { "PASS" } else { "FAIL" }
+    );
+    (summary, !pass)
+}
+
+/// Grass cost is a paired difference against a `--no-grass` run of the same
+/// frames. The two runs must have the same number of rows.
+fn grass_cost(bench: &Bench) -> Option<(f32, f32, f32)> {
+    let path = bench.baseline_csv.as_deref()?;
+    match read_frame_csv(path) {
+        Ok(baseline) if baseline.len() == bench.rows.len() => percentiles(
+            bench
+                .rows
+                .iter()
+                .map(|row| row[0])
+                .zip(baseline)
+                .map(|(with_grass, without_grass)| with_grass - without_grass),
+        ),
+        Ok(baseline) => {
+            warn!(
+                "baseline {path} has {} frames, this run has {}; no grass cost",
+                baseline.len(),
+                bench.rows.len()
+            );
+            None
+        }
+        Err(error) => {
+            warn!("{error}; no grass cost");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_240_hz_budget_is_4_167_ms() {
+        let budget = FrameBudget::from_hz(240.0);
+        assert!((budget.ms - 4.166_667).abs() < 1e-3);
+        assert_eq!(budget.description(), "240 Hz (4.167 ms)");
+    }
+
+    #[test]
+    fn percentiles_ignore_non_finite_values() {
+        let values = [1.0, f32::NAN, 2.0, 3.0, 4.0, f32::INFINITY, 5.0];
+        let (p50, p95, worst) = percentiles(values).expect("finite values");
+        assert!((p50 - 3.0).abs() < 1e-6);
+        // The existing benchmark's floor index: with five values, p95 is the
+        // fourth. Changing that would change every historical number.
+        assert!((p95 - 4.0).abs() < 1e-6);
+        assert!((worst - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_missing_frame_column_is_an_error() {
+        let path = std::env::temp_dir().join("bevy_grass_bench_test.csv");
+        std::fs::write(&path, "frame,other\n1,2\n").expect("write test csv");
+        let error = read_frame_csv(path.to_str().expect("utf-8 temp path"))
+            .expect_err("no frame_ms column");
+        assert!(error.contains("frame_ms"), "{error}");
+        let _ = std::fs::remove_file(path);
+    }
 }

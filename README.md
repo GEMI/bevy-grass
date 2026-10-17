@@ -706,12 +706,13 @@ Everything a game needs is in `bevy_grass::prelude`.
 | --- | --- | --- |
 | `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
 | `GrassPlugin` | Plugin | The grass itself (fields, styles, wind, interaction, rendering). One field, `settings: GrassSettings` (`High` by default) |
-| `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`, and the settings that were once fixed numbers: `blade_rows`, `lod1_start`, `lod2_start`, `fade_start`, `lod_blend`, `lod2_density`, `fade_density`, `mid_range_density`, `max_widening`, `turn_to_camera`, `orthographic_extent`, `max_chunk_slices`, `readback_interval`, `trample_recovery`, `trample_cell_size`, `max_interactor_radius` (all in [the table above](#tune-the-distances-the-blades-the-wind-and-the-trampling)). Presets `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
-| `GrassQuality` | Enum | `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
+| `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`, and the settings that were once fixed numbers: `blade_rows`, `lod1_start`, `lod2_start`, `fade_start`, `lod_blend`, `lod2_density`, `fade_density`, `mid_range_density`, `max_widening`, `turn_to_camera`, `orthographic_extent`, `max_chunk_slices`, `readback_interval`, `trample_recovery`, `trample_cell_size`, `max_interactor_radius` (all in [the table above](#tune-the-distances-the-blades-the-wind-and-the-trampling)). Presets `COMPETITIVE`, `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
+| `GrassQuality` | Enum | `Competitive`, `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
 | `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |
 
 | Tier | Meant for | Grass radius | Blade capacity per camera | Density | Shadows |
 | --- | --- | --- | --- | --- | --- |
+| `Competitive` | 240 Hz and competitive games | 40 m | 100,000 | 50% | Off |
 | `Low` | Steam Deck, integrated GPUs | 40 m | 80,000 | 60% | Off |
 | `Medium` | GTX 1660 / RX 5600 | 70 m | 250,000 | 80% | Near |
 | `High` | RTX 3060 / RX 6700 | 100 m | 600,000 | 100% | Near |
@@ -955,9 +956,27 @@ mostly empty 2 × 2 quads. The CPU cost per frame is a few uniform uploads. The
 design targets 1 ms at the High tier on its RTX 3060 class hardware, which
 has not been measured yet.
 
+For 240 FPS, `GrassQuality::Competitive` is the 240 Hz-oriented tier: 40 m of
+half-density grass with no grass shadow casting. Its acceptance test is the
+240 Hz gate, which requires **frame p95 <= 4.167 ms** on a named reference
+machine and reports grass cost against a `--no-grass` run:
+
+```text
+python tools/bench_240.py --machine rtx3060
+```
+
+The gate runs manually (or nightly, once the self-hosted machines exist)
+through `.github/workflows/perf-240.yml`; see
+["The 240 Hz gate"](docs/performance.md#the-240-hz-gate). On the T1200, the
+first real run has `High` failing both scenes, while `Competitive` passes the
+perspective scene at 3.61 ms p95 and misses the ARPG scene at 4.33 ms p95
+against the 4.167 ms budget. That is the remaining gap the meshlet/clump
+proposal is meant to close.
+
 To measure on your machine, run `cargo run --release --example bench` (add
 `--ortho` for the top-down camera) and compare with a `--no-grass` run.
-`tools/bench_ab.py` runs paired A/B rounds of two builds.
+`tools/bench_ab.py` runs paired A/B rounds of two builds;
+`tools/bench_240.py` is the absolute gate.
 
 ### On faster hardware
 
@@ -997,6 +1016,10 @@ predate that change.
 - **Golden images.** Every preset is rendered headless at a fixed time and
   compared with reference images, on a hardware GPU and on a software
   renderer (WARP).
+- **240 Hz gate.** `tools/bench_240.py` runs High, Competitive and no-grass on
+  a named reference machine and fails unless frame p95 is at most 4.167 ms.
+  It is manual/nightly on self-hosted GPUs because hosted CI runners cannot
+  enforce frame times; see `docs/performance.md`.
 - **CPU mirror.** The GPU's placement, thinning, wind, blade curve and
   variation have pure-Rust twins with unit tests (density reached exactly,
   thinning only removes blades, species shares, blade length under bend). An

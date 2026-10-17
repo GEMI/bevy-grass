@@ -1,0 +1,63 @@
+name: 240 Hz performance gate
+
+# GPU frame times cannot be enforced on GitHub-hosted runners. This is a
+# manual gate on the project's self-hosted reference machines, labelled with
+# the names in tools/reference-machines.json: t1200, rtx3060, rtx4070.
+#
+# To make it nightly, uncomment the schedule block and set `machine` to the
+# runner label of the nightly machine. Keep it manual until those runners
+# exist.
+on:
+  workflow_dispatch:
+    inputs:
+      machine:
+        description: "Reference machine (self-hosted runner label)"
+        type: choice
+        default: rtx3060
+        options:
+          - t1200
+          - rtx3060
+          - rtx4070
+      scene:
+        description: "Benchmark scene"
+        type: choice
+        default: both
+        options:
+          - both
+          - perspective
+          - arpg
+      profile:
+        description: "Cargo profile"
+        type: choice
+        default: release-lto
+        options:
+          - release-lto
+          - release
+          - dev
+      no_gpu_timing:
+        description: "Leave out GPU timestamp queries (stricter frame check)"
+        type: boolean
+        default: false
+#  schedule:
+#    - cron: "0 3 * * *"
+
+concurrency:
+  group: perf-240-${{ inputs.machine }}
+  cancel-in-progress: false
+
+jobs:
+  bench-240:
+    runs-on: [self-hosted, "${{ inputs.machine }}"]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the 240 Hz gate
+        shell: bash
+        run: python tools/bench_240.py --machine "${{ inputs.machine }}" --scene "${{ inputs.scene }}" --profile "${{ inputs.profile }}" ${{ inputs.no_gpu_timing && '--no-gpu-timing' || '' }}
+      - name: Keep the measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-240-${{ inputs.machine }}
+          path: target/bench-240/
+          if-no-files-found: warn

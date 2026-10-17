@@ -265,6 +265,20 @@ impl GrassSettings {
         max_interactors: 64,
         ..Self::HIGH
     };
+    /// A 240 Hz / competitive-game tier: the shortest reach, half density and
+    /// no grass shadow casting. It still receives shadows. Measure it with
+    /// `tools/bench_240.py`; the numbers are deliberately conservative and
+    /// may be tuned after those runs.
+    pub const COMPETITIVE: Self = Self {
+        radius: 40.0,
+        density_scale: 0.5,
+        min_width_px: 1.0,
+        shadows: GrassShadows::Off,
+        orthographic_lod: 1,
+        instance_capacity: 100_000,
+        max_interactors: 64,
+        ..Self::HIGH
+    };
 
     /// These settings with every value brought into its documented range.
     #[must_use]
@@ -388,13 +402,16 @@ impl From<GrassQuality> for GrassSettings {
     }
 }
 
-/// A hardware tier, for a graphics menu that offers "Low / Medium / High /
-/// Ultra". [`GrassSettings`] is what the plugin uses; `GrassSettings::from`
-/// turns a tier into one, and `GrassSettings::LOW` and the others are the
-/// same presets without the enum.
+/// A hardware tier, for a graphics menu that offers "Competitive / Low /
+/// Medium / High / Ultra". [`GrassSettings`] is what the plugin uses;
+/// `GrassSettings::from` turns a tier into one, and `GrassSettings::LOW` and
+/// the others are the same presets without the enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Default, Debug, PartialEq)]
 pub enum GrassQuality {
+    /// 240 Hz and competitive games: 40 m of half-density grass, no grass
+    /// shadow casting. The cheapest tier.
+    Competitive,
     /// Steam Deck and integrated GPUs.
     Low,
     /// GTX 1660 / RX 5600 class.
@@ -410,6 +427,7 @@ impl GrassQuality {
     /// The tier's [`GrassSettings`].
     pub const fn settings(self) -> GrassSettings {
         match self {
+            Self::Competitive => GrassSettings::COMPETITIVE,
             Self::Low => GrassSettings::LOW,
             Self::Medium => GrassSettings::MEDIUM,
             Self::High => GrassSettings::HIGH,
@@ -481,6 +499,14 @@ mod tests {
     fn the_tiers_keep_the_numbers_they_always_had() {
         // (radius, density scale, shadows, orthographic LOD, capacity)
         let expected = [
+            (
+                GrassQuality::Competitive,
+                40.0,
+                0.5,
+                GrassShadows::Off,
+                1,
+                100_000,
+            ),
             (GrassQuality::Low, 40.0, 0.6, GrassShadows::Off, 1, 80_000),
             (
                 GrassQuality::Medium,
@@ -628,6 +654,7 @@ mod tests {
     #[test]
     fn every_tier_is_in_range() {
         for tier in [
+            GrassSettings::COMPETITIVE,
             GrassSettings::LOW,
             GrassSettings::MEDIUM,
             GrassSettings::HIGH,
@@ -682,6 +709,7 @@ mod tests {
         // Every tier shares them, and they are what the shaders and the
         // golden images were made with: changing one changes every picture.
         for tier in [
+            GrassSettings::COMPETITIVE,
             GrassSettings::LOW,
             GrassSettings::MEDIUM,
             GrassSettings::HIGH,

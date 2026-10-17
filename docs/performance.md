@@ -24,6 +24,94 @@ Rules learned the hard way:
 
 Development machine: Windows 11, NVIDIA T1200 laptop GPU (roughly a third of an RTX 3060), Bevy's default backend.
 
+## The 240 Hz gate
+
+The review that prompted this work asks for grass usable in 240 FPS games.
+A 240 Hz frame budget is `1000 / 240 = 4.167 ms` for the whole frame, not
+just for grass, so the project now has an explicit acceptance gate instead of
+only relative A/B measurements.
+
+```text
+python tools/bench_240.py --machine t1200
+python tools/bench_240.py --machine rtx3060 --scene perspective
+python tools/bench_240.py --machine rtx4070 --profile release-lto --no-gpu-timing
+```
+
+The script builds the bench (or uses `--no-build`), runs three configurations
+in both scenes (or one with `--scene`), three rounds by default, and writes
+JSONL, CSV, logs and a Markdown table under `target/bench-240/`:
+
+| Configuration | What it separates |
+| --- | --- |
+| `no-grass` | The Bevy + terrain + camera floor. If this misses 4.167 ms, grass cannot fix the frame. |
+| `high` | `GrassQuality::High`, the default. |
+| `competitive` | `GrassQuality::Competitive`, the 240 Hz-oriented tier: 40 m reach, half density, no grass shadow casting. |
+
+Each run reports frame p50 and p95 against the budget, grass cost p50 and p95
+(paired against the no-grass CSV), the main pass and shadow pass, and a
+PASS/FAIL verdict based on **p95 within each run**, then the median of those
+p95s across rounds, not the frame median. A failed gate exits non-zero. `--report-only` is for bringing a target up without turning a
+nightly red; `--no-gpu-timing` removes Bevy's timestamp queries for the
+strictest frame check, at the cost of the GPU pass columns.
+
+The bench itself also accepts the gate flags directly:
+
+```text
+cargo run --profile release-lto --example bench -- --tier competitive --target-hz 240
+cargo run --profile release-lto --example bench -- --tier competitive --target-hz 240 --baseline-csv target/no-grass.csv
+```
+
+`--budget-ms 4.167` is equivalent to `--target-hz 240`. Full output includes
+the machine name from `--machine`.
+
+### Reference machines
+
+GPU frame times cannot be enforced on GitHub-hosted runners. The gate runs
+manually (or on a nightly schedule once the machines exist) through
+`.github/workflows/perf-240.yml` on self-hosted runners labelled with the
+names in `tools/reference-machines.json`:
+
+| Runner label | Machine | Why it is a reference |
+| --- | --- | --- |
+| `t1200` | NVIDIA T1200 laptop | The development machine used for most numbers on this page. GPU-bound at 1080p. |
+| `rtx3060` | NVIDIA RTX 3060 desktop | The class the default `High` tier targets. The 240 Hz gate must pass here before a build is called 240 Hz ready. |
+| `rtx4070` | NVIDIA RTX 4070 or faster | The `Ultra` target. Also useful for exposing CPU-bound floors on older CPUs. |
+
+The reference machine must run the same build profile and display mode as
+the run it is compared with: 1920 x 1080 physical, 4x MSAA, no vsync,
+plugged in, no other GPU work. The bench forces the resolution and no-vsync
+mode itself.
+
+### Recording runs
+
+`tools/bench_240.py` writes the Markdown table to
+`target/bench-240/latest.md`. Append the current run to the table below (or
+replace the row for the same machine and date) so the gate's history lives
+with the measurements. Do not record a run whose log contains a shader error.
+
+| Date | Machine | Profile, rounds | Scene | No-grass p50 / p95 | High p50 / p95 | Competitive p50 / p95 | High | Competitive |
+| --- | --- | --- | --- | ---: | ---: | ---: | :---: | :---: |
+| 2026-10-17 | T1200 laptop | dev, 3, no GPU timing | perspective | 2.384 / 2.840 ms | 5.622 / 6.394 ms | 2.960 / 3.611 ms | FAIL | **PASS** |
+| 2026-10-17 | T1200 laptop | dev, 3, no GPU timing | ARPG | 2.177 / 2.539 ms | 4.990 / 5.709 ms | 3.254 / 4.328 ms | FAIL | FAIL (4.328 vs 4.167) |
+
+The first real gate run says two useful things. `High` is still far from the
+240 Hz budget in both scenes. `Competitive` **passes in perspective** on the
+T1200 with 0.56 ms of headroom, and misses the ARPG scene by 0.16 ms, with the
+no-grass floor already at 2.54 ms. One timing-instrumented run had a single 17 ms
+p95 spike in its no-grass baseline, which is why the gate takes the median of
+three rounds instead of trusting one run.
+
+The instrumented diagnostic run (GPU timing on) put the Competitive main pass
+at about 1.9 ms p95 in perspective and 2.7 ms at the ARPG camera; the shadow
+pass was under 0.04 ms because the tier does not cast grass shadows. So the
+remaining ARPG gap is not the grass caster or the shadow pass. It is the
+main-pass pixel cost plus the 2.5 ms non-grass floor.
+
+That is the number the optimization work has to move, and the gate makes
+success or failure unambiguous. The `High` row is the default-quality
+baseline; the Competitive row is the 240 Hz target that the clump/meshlet
+work is meant to improve.
+
 ## Where the time goes
 
 As of M2, on the T1200:

@@ -7,6 +7,28 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### The 240 Hz gate (October 17, 2026)
+
+The measurements that make the 240 FPS target testable instead of a comment.
+
+**Added**
+
+- `GrassQuality::Competitive` and `GrassSettings::COMPETITIVE`: a 240 Hz /
+  competitive-game tier with 40 m of half-density grass and no grass shadow
+  casting. It is the cheapest tier and the candidate the gate measures.
+- `bench --target-hz N` and `--budget-ms MS`: fail with a non-zero exit code
+  when frame p95 exceeds the budget.
+- `bench --baseline-csv PATH`: paired grass-cost p50/p95 against a previous
+  `--no-grass` run.
+- `bench --machine NAME`, and shadow-pass time in the summary and CSV.
+- `tools/bench_240.py`: runs High, Competitive and no-grass on a named
+  reference machine, in both scenes, and writes JSONL, CSV, logs and a
+  Markdown table under `target/bench-240/`.
+- `.github/workflows/perf-240.yml`: a manual gate on the self-hosted reference
+  runner labels `t1200`, `rtx3060` and `rtx4070`.
+- `docs/performance.md` now documents the 240 Hz budget, the three
+  configurations, the reference machines and where to record runs.
+
 ### The API and settings pass (October 16, 2026)
 
 Built from a review of the crate's API and developer experience, items P1-1 to P1-9.

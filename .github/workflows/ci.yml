@@ -30,6 +30,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      # The bench's budget/percentile tests live in the example, which the
+      # plain `cargo test` does not run.
+      - run: cargo test --example bench
+      - run: python -m py_compile tools/bench_240.py
       - run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

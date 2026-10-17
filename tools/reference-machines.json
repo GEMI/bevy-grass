@@ -1,0 +1,17 @@
+{
+  "t1200": {
+    "label": "NVIDIA T1200 Laptop GPU",
+    "class": "development laptop",
+    "notes": "The machine most of docs/performance.md was measured on. GPU-bound at 1080p, 4x MSAA."
+  },
+  "rtx3060": {
+    "label": "NVIDIA RTX 3060 desktop",
+    "class": "High tier target",
+    "notes": "The GPU class the High tier is designed for. The 240 Hz gate must pass here before a build is called 240 Hz ready."
+  },
+  "rtx4070": {
+    "label": "NVIDIA RTX 4070 or faster",
+    "class": "Ultra tier target",
+    "notes": "A faster GPU than the High target. Also useful for checking CPU-bound floors on older CPUs."
+  }
+}
