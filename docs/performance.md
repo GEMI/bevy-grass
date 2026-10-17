@@ -569,6 +569,34 @@ The cost rising with blade count is a GPU signature. Terrain and shadows (+0.63 
 
 **What it says for a 240 Hz macOS game.** The ~2 ms fixed floor is still half the 4.167 ms budget before the game exists, exactly as on the i5. Grass at the High tier is the other limit here, because this GPU is slow; the Competitive tier (2.90 ms) is the one that would fit. The plan's next step still applies: trace what the frame does, and repeat on a quiet machine for a usable p95.
 
+## The CPU floor on an i7-11850H (October 17, 2026)
+
+This runs the plan in [`docs/cpu-floor-test.md`](cpu-floor-test.md) on a newer laptop CPU, to separate the old PC's CPU cost from Bevy's own per-frame cost. Commit `9dd146e` (`exp/lean-plugins`, after `6577d5f`).
+
+**Machine.** Intel Core i7-11850H (8 cores, 16 threads, 2.50 GHz), NVIDIA T1200 Laptop GPU (driver 32.0.15.9647) with Intel UHD Graphics, Windows 11 Pro 10.0.26300. `cargo build --profile release-lto --example bench` took 15m53s for the dependency tree and 10m24s for the branch rebuild. The only available Windows power scheme was **Balanced**, not the high-performance plan the test plan asks for, so these numbers may understate the CPU's full-speed result. No runs were rejected: the logs had no errors or panics.
+
+**Method.** The four-step ladder from the plan, 1920 × 1080, 4× MSAA, no vsync, 1,380 measured frames after warm-up, five rounds in order. Medians of the five rounds, with the p50 range in brackets.
+
+| Step | p50 | p95 |
+| --- | --- | --- |
+| 1 empty scene | **1.359 ms** [1.356–1.411] | 1.650 ms |
+| 2 + terrain, shadows | 2.097 ms [1.974–2.182] | 2.707 ms |
+| 3 + grass plugin, no field | 2.101 ms [2.062–2.206] | 2.731 ms |
+| 4 + grass, High tier | 5.711 ms [5.661–5.760] | 6.851 ms |
+
+| Follow-up, five rounds | p50 | p95 |
+| --- | --- | --- |
+| Step 1, four-core affinity | 1.554 ms [1.517–1.619] | 1.776 ms |
+| Step 1, `--single-threaded` | **1.012 ms** [1.002–1.018] | 1.255 ms |
+| Step 4, four-core affinity | 5.700 ms [5.681–5.717] | 6.837 ms |
+| Step 4, `--single-threaded` | 5.651 ms [5.632–5.687] | 6.670 ms |
+
+**What it says.** The empty-scene floor is 1.359 ms, down 35% from the i5-4570S's 2.075 ms. That is the test plan's 1.0–1.5 ms band: the old CPU was part of the cost, but a faster CPU did not remove the floor, which is still about a third of a 240 FPS frame. Terrain and shadows add 0.74 ms here (paired median; 0.47 ms on the old PC), so that addition did not shrink with the floor and is not simply old-CPU compute. The grass plugin adds about 0.02 ms (paired median), against 0.11 ms on the old PC.
+
+The follow-ups show two different limits. Four-core affinity leaves the empty frame 14% slower (1.554 vs 1.359 ms), so extra cores help a little, but it leaves the High-tier frame unchanged (5.700 vs 5.711 ms). `--single-threaded` cuts the empty frame by 26% (1.012 ms) and the High-tier frame by only 1.1% (5.651 ms). The grass scene is therefore GPU-bound on the T1200: at 5.7 ms p50 it misses the 4.167 ms, 240 FPS budget before the CPU matters. On the CPU side, the 1.0 ms single-threaded empty frame is the useful number for a game that controls its own schedules; Bevy's multi-threaded executor costs more than its systems save on this empty scene, as it did on the old PC.
+
+Raw logs are in `target/cpu-floor-ladder.log` and `target/cpu-floor-followups.log` (not committed).
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
