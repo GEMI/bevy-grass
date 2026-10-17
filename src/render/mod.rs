@@ -5,7 +5,7 @@ mod compute;
 #[cfg(test)]
 mod gpu_test;
 pub(crate) mod resources;
-mod trample;
+pub(crate) mod trample;
 pub(crate) mod view;
 
 use bevy::app::{App, Plugin};
@@ -21,22 +21,27 @@ use bevy::render::render_resource::SpecializedRenderPipelines;
 use bevy::render::renderer::RenderGraph;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
-use crate::api::NoGrass;
+use crate::api::{GrassCamera, NoGrass};
 
 /// Wires the render app. Added by `GrassPlugin`.
 pub(crate) struct GrassRenderPlugin {
-    pub settings: view::GrassSettings,
     pub shaders: resources::GrassShaders,
 }
 
 impl Plugin for GrassRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractComponentPlugin::<NoGrass>::default());
+        app.add_plugins((
+            ExtractComponentPlugin::<NoGrass>::default(),
+            ExtractComponentPlugin::<GrassCamera>::default(),
+        ));
+        // The stats the render world reads back go to the main world through
+        // this shared handle.
+        let readings = app.world().resource::<crate::stats::GpuReadings>().clone();
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
-            .insert_resource(self.settings)
+            .insert_resource(readings)
             .insert_resource(self.shaders.clone())
             .init_resource::<resources::ExtractedGrass>()
             .init_resource::<resources::GrassSharedBindGroups>()

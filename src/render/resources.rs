@@ -26,10 +26,11 @@ use bevy::time::Time;
 use bevy::transform::components::GlobalTransform;
 
 use super::view::ViewUniformData;
-use crate::GrassShadows;
-use crate::api::{GrassInteractor, Wind};
+use crate::GrassSettings;
+use crate::api::{GrassInteractor, GrassSun, Wind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
 use crate::mirror::{self, LOD_ROWS};
+use crate::sun::{SunCandidate, pick_sun};
 
 /// Side of the gust texture, in texels.
 pub(crate) const GUST_SIZE: u32 = 256;
@@ -78,9 +79,17 @@ pub(crate) struct ExtractedGrass {
     pub sun: Option<Vec3>,
     /// Every interactor, as `(x, z, radius, strength)`.
     pub interactors: Vec<Vec4>,
-    /// This frame's shadow mode.
-    pub shadows: GrassShadows,
+    /// This frame's settings, in range.
+    pub settings: GrassSettings,
 }
+
+/// A directional light, for choosing the one grass follows.
+type SunLight = (
+    Entity,
+    &'static DirectionalLight,
+    &'static GlobalTransform,
+    Has<GrassSun>,
+);
 
 /// Copies the tables (only when rebuilt, by reference), the wind, the clock,
 /// the shadow-casting light and mode, and the interactors.
@@ -89,11 +98,11 @@ pub(crate) fn extract_grass(
     tables: Extract<Res<FieldTables>>,
     wind: Extract<Res<Wind>>,
     time: Extract<Res<Time>>,
-    lights: Extract<Query<(&DirectionalLight, &GlobalTransform)>>,
+    lights: Extract<Query<SunLight>>,
     interactors: Extract<Query<(&GrassInteractor, &GlobalTransform)>>,
-    shadows: Extract<Res<GrassShadows>>,
+    settings: Extract<Res<GrassSettings>>,
 ) {
-    extracted.shadows = **shadows;
+    extracted.settings = settings.sanitized();
     if tables.version != extracted.tables.version {
         extracted.tables = tables.clone();
     }
@@ -109,19 +118,21 @@ pub(crate) fn extract_grass(
         wind_direction: wind.direction,
         ..Default::default()
     };
-    extracted.shadow_light = lights
-        .iter()
-        .find(|(light, _)| light.shadow_maps_enabled)
-        .map(|(_, transform)| transform.forward().as_vec3());
-    extracted.sun = extracted
-        .shadow_light
-        .or_else(|| {
+    // The light grass follows: the one marked `GrassSun`, or else the first
+    // that casts shadows. The G-buffer's sun is that light, or else the first.
+    let (shadow_light, sun) =
+        pick_sun(
             lights
                 .iter()
-                .next()
-                .map(|(_, transform)| transform.forward().as_vec3())
-        })
-        .map(|shines| -shines);
+                .map(|(entity, light, transform, marked)| SunCandidate {
+                    entity,
+                    casts: light.shadow_maps_enabled,
+                    marked,
+                    shines: transform.forward().as_vec3(),
+                }),
+        );
+    extracted.shadow_light = shadow_light;
+    extracted.sun = sun.map(|shines| -shines);
     extracted.interactors.clear();
     extracted
         .interactors
@@ -243,6 +254,7 @@ pub(crate) struct GrassShared {
     pub gust_view: TextureView,
     pub gust_sampler: Sampler,
     uploaded_version: u64,
+    uploaded_structure: u64,
     /// Chunks in the table; zero means no grass anywhere.
     pub chunk_count: u32,
 }
@@ -346,6 +358,7 @@ pub(crate) fn init_shared(
         gust_view,
         gust_sampler,
         uploaded_version: u64::MAX,
+        uploaded_structure: u64::MAX,
         chunk_count: 0,
     };
     upload_tables(&mut shared, &FieldTables::default(), &device, &queue);
@@ -370,9 +383,15 @@ fn upload_tables(
     queue: &RenderQueue,
 ) {
     shared.uploaded_version = tables.version;
-    shared.chunk_count = tables.chunks.len() as u32;
     shared.fields.set(non_empty(&tables.fields));
     shared.fields.write_buffer(device, queue);
+    // Showing or hiding a field changes its entries only; the chunks and the
+    // images, most of the bytes, stay where they are.
+    if shared.uploaded_structure == tables.structure_version {
+        return;
+    }
+    shared.uploaded_structure = tables.structure_version;
+    shared.chunk_count = tables.chunks.len() as u32;
     shared.chunks.set(non_empty(&tables.chunks));
     shared.chunks.write_buffer(device, queue);
     shared.masks.set(non_empty(&tables.masks));

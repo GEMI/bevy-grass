@@ -118,6 +118,10 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let chunk = chunks[index];
     let field = fields[chunk.ids.x];
+    // Hidden fields, and fields on layers this view does not draw.
+    if (field.access.x & view.layers) == 0u {
+        return;
+    }
     let tallest = field.mix.w;
     let origin = chunk_origin(chunk, field);
     // Tufts pull blades up to one and a half tuft spacings from where they

@@ -52,6 +52,10 @@ struct View {
     max_visible_chunks: u32,
     /// Interactors stamped this frame.
     interactor_count: u32,
+    /// The render layers the view draws, one bit each.
+    layers: u32,
+    /// Narrowest a blade is drawn, in pixels.
+    min_width_px: f32,
     bucket_base: vec4<u32>,
     bucket_capacity: vec4<u32>,
     /// The LOD each bucket's blades are drawn with.
@@ -71,7 +75,7 @@ struct Field {
     extent: vec4<f32>,
     /// x: shortest, y: tallest, z: width, w: density.
     shape: vec4<f32>,
-    /// x: lean, y: stiffness, z: minimum pixels, w: root occlusion.
+    /// x: lean, y: stiffness, w: root occlusion.
     motion: vec4<f32>,
     root_color: vec4<f32>,
     tip_color: vec4<f32>,
@@ -97,6 +101,8 @@ struct Field {
     /// x: tuft pull; y: tuft size; z: bare-patch noise threshold (-1: none);
     /// w: bare patch size.
     tufts: vec4<f32>,
+    /// x: render layers the field is drawn on, one bit each; 0 while hidden.
+    access: vec4<u32>,
 }
 
 /// One chunk. Mirrors `ChunkGpu`.

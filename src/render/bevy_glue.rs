@@ -59,7 +59,7 @@ use super::resources::{
     ExtractedGrass, GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups,
 };
 use super::view::{DRAW_ARGS_SIZE, GrassViewBindGroups, GrassViewBuffers};
-use crate::api::NoGrass;
+use crate::api::{GrassCamera, NoGrass};
 use crate::fields::LookFeatures;
 
 /// A grass draw pipeline's key: the view's, plus the optional look terms
@@ -334,7 +334,11 @@ impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHA
     type Param = (SRes<GrassShared>, SRes<ExtractedGrass>);
     type ViewQuery = ();
     /// The camera whose blades these are (the phase item is the camera).
-    type ItemQuery = (Read<GrassViewBuffers>, Read<GrassViewBindGroups>);
+    type ItemQuery = (
+        Read<GrassViewBuffers>,
+        Read<GrassViewBindGroups>,
+        Option<Read<GrassCamera>>,
+    );
 
     fn render<'w>(
         _item: &P,
@@ -343,7 +347,7 @@ impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHA
         (shared, extracted): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some((buffers, groups)) = camera else {
+        let Some((buffers, groups, grass_camera)) = camera else {
             return RenderCommandResult::Skip;
         };
         let Some(draw) = groups.draw.as_ref() else {
@@ -352,7 +356,12 @@ impl<P: PhaseItem, const SHADOW: bool> RenderCommand<P> for DrawGrassBuckets<SHA
         pass.set_bind_group(2, draw, &[]);
         pass.set_index_buffer(shared.into_inner().indices.slice(..), IndexFormat::Uint32);
         let buckets = if SHADOW {
-            extracted.into_inner().shadows.buckets()
+            extracted
+                .into_inner()
+                .settings
+                .for_camera(grass_camera)
+                .shadows
+                .buckets()
         } else {
             3
         };
@@ -419,6 +428,7 @@ type CameraItems = (
     Has<NoGrass>,
     Has<DeferredPrepass>,
     Option<&'static GrassViewBindGroups>,
+    Option<&'static GrassCamera>,
 );
 
 /// Whether opaque materials render deferred by default. Grass follows the
@@ -493,6 +503,8 @@ fn add_prepass_item<P>(
 /// Puts the grass item into the opaque phase of every camera (or, for a
 /// deferred camera, its deferred phase), into its prepass when it has one,
 /// and into the shadow phase of every directional-light view it owns.
+// One flat pass over the cameras; split up it would only be harder to follow.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn queue_grass(
     mut pipelines: GrassPipelines,
     mut phases: GrassPhases,
@@ -514,7 +526,9 @@ pub(crate) fn queue_grass(
         None,
     );
 
-    for (entity, &main_entity, view, lights, no_grass, deferred_prepass, groups) in &views {
+    for (entity, &main_entity, view, lights, no_grass, deferred_prepass, groups, grass_camera) in
+        &views
+    {
         let retained = view.retained_view_entity;
         let item = (entity, main_entity);
         let ready = groups.is_some_and(|groups| groups.draw.is_some());
@@ -600,7 +614,11 @@ pub(crate) fn queue_grass(
                 item,
                 pipeline,
                 draw_shadow,
-                extracted.shadows.cascades(),
+                extracted
+                    .settings
+                    .for_camera(grass_camera)
+                    .shadows
+                    .cascades(),
             );
         }
     }

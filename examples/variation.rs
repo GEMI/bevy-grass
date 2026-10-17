@@ -214,7 +214,7 @@ fn walk(
 fn switch(
     keys: Res<ButtonInput<KeyCode>>,
     mut shown: ResMut<Shown>,
-    mut shadows: ResMut<GrassShadows>,
+    mut grass: ResMut<GrassSettings>,
 ) {
     let before = (shown.file, shown.switches);
     for (key, file) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3]
@@ -240,7 +240,7 @@ fn switch(
         shown.dirty = true;
     }
     if keys.just_pressed(KeyCode::KeyS) {
-        *shadows = if *shadows == GrassShadows::Off {
+        grass.shadows = if grass.shadows == GrassShadows::Off {
             GrassShadows::Near
         } else {
             GrassShadows::Off
@@ -281,31 +281,31 @@ fn apply(base: &GrassStyle, on: Switches) -> GrassStyle {
         style.species = Cow::Borrowed(&[]);
     }
     if !on.tufts {
-        style.tufts = 0.0;
-        style.bare_patches = 0.0;
+        style.variation.tufts = 0.0;
+        style.variation.bare_patches = 0.0;
     }
     if !on.shape {
-        let flat = |style: &mut GrassStyle| {
-            style.twist = 0.0;
-            style.droop = 0.0;
-            style.fold = 0.0;
+        let flat = |blade: &mut GrassBlade| {
+            blade.twist = 0.0;
+            blade.droop = 0.0;
+            blade.fold = 0.0;
         };
-        flat(&mut style);
+        flat(&mut style.blade);
         let species: Vec<GrassSpecies> = style
             .species
             .iter()
             .cloned()
             .map(|mut species| {
-                flat(&mut species.style);
+                flat(&mut species.blade);
                 species
             })
             .collect();
         style.species = species.into();
     }
     if !on.colour {
-        style.patch_amount = 0.0;
-        style.dry_tips = 0.0;
-        style.dead_blades = 0.0;
+        style.variation.patch_amount = 0.0;
+        style.variation.dry_tips = 0.0;
+        style.variation.dead_blades = 0.0;
     }
     style
 }

@@ -40,11 +40,12 @@ use std::fmt;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::color::Color;
+use bevy::log::warn;
 use bevy::math::Vec2;
 use bevy::reflect::TypePath;
 use serde::{Deserialize, Serialize};
 
-use crate::api::{GrassSpecies, GrassStyle};
+use crate::api::{GrassBlade, GrassSpecies, GrassStyle, GrassVariation, GroundTint};
 use crate::fields::MAX_SPECIES;
 
 /// The presets a file can name as its `base`.
@@ -92,6 +93,13 @@ impl GrassStyle {
         let file: GrassStyleFile = options()
             .from_str(text)
             .map_err(GrassStyleFileError::Parse)?;
+        if file.mentions_min_width() {
+            warn!(
+                "bevy_grass: `min_width_px` in a .grass.ron file is ignored; a blade's minimum \
+                 width depends on the camera. Set GrassSettings::min_width_px, or \
+                 GrassCamera::min_width_px on one camera, and delete the line."
+            );
+        }
         file.resolve()
     }
 
@@ -122,65 +130,67 @@ type Srgb = (f32, f32, f32);
 struct GrassStyleFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     base: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     height: Option<(f32, f32)>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     width: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     density: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     lean: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     stiffness: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     root_color: Option<Srgb>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     tip_color: Option<Srgb>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     root_occlusion: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     translucency: Option<f32>,
-    #[serde(default)]
+    /// Read, never used or written: the setting moved to `GrassSettings` and
+    /// `GrassCamera`, and files from before that still load.
+    #[serde(default, skip_serializing)]
     min_width_px: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     specular: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     ground_color: Option<Srgb>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     ground_tint: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     toon_bands: Option<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     twist: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     droop: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     fold: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     head: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     head_width: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     head_color: Option<Srgb>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     patch_color: Option<Srgb>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     patch_amount: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     patch_size: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dry_tips: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dead_blades: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     tufts: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     tuft_size: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     bare_patches: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     bare_patch_size: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     species: Option<Vec<GrassSpeciesFile>>,
 }
 
@@ -204,38 +214,55 @@ fn color((r, g, b): Srgb) -> Color {
 }
 
 impl GrassStyleFile {
-    fn from_style(style: &GrassStyle) -> Self {
+    /// Whether the file, or a species in it, still sets the old
+    /// `min_width_px`.
+    fn mentions_min_width(&self) -> bool {
+        self.min_width_px.is_some()
+            || self
+                .species
+                .iter()
+                .flatten()
+                .any(|species| species.style.mentions_min_width())
+    }
+
+    /// A file that sets every setting of `blade`, and nothing else.
+    fn from_blade(blade: &GrassBlade) -> Self {
         Self {
-            base: None,
-            height: Some((style.height.x, style.height.y)),
-            width: Some(style.width),
+            height: Some((blade.height.x, blade.height.y)),
+            width: Some(blade.width),
+            lean: Some(blade.lean),
+            stiffness: Some(blade.stiffness),
+            root_color: Some(srgb(blade.root_color)),
+            tip_color: Some(srgb(blade.tip_color)),
+            root_occlusion: Some(blade.root_occlusion),
+            translucency: Some(blade.translucency),
+            specular: Some(blade.specular),
+            twist: Some(blade.twist),
+            droop: Some(blade.droop),
+            fold: Some(blade.fold),
+            head: Some(blade.head),
+            head_width: Some(blade.head_width),
+            head_color: Some(srgb(blade.head_color)),
+            ..Self::default()
+        }
+    }
+
+    fn from_style(style: &GrassStyle) -> Self {
+        let variation = &style.variation;
+        Self {
             density: Some(style.density),
-            lean: Some(style.lean),
-            stiffness: Some(style.stiffness),
-            root_color: Some(srgb(style.root_color)),
-            tip_color: Some(srgb(style.tip_color)),
-            root_occlusion: Some(style.root_occlusion),
-            translucency: Some(style.translucency),
-            min_width_px: Some(style.min_width_px),
-            specular: Some(style.specular),
-            ground_color: Some(srgb(style.ground_color)),
-            ground_tint: Some(style.ground_tint),
+            ground_color: Some(srgb(style.ground_tint.color)),
+            ground_tint: Some(style.ground_tint.amount),
             toon_bands: Some(style.toon_bands),
-            twist: Some(style.twist),
-            droop: Some(style.droop),
-            fold: Some(style.fold),
-            head: Some(style.head),
-            head_width: Some(style.head_width),
-            head_color: Some(srgb(style.head_color)),
-            patch_color: Some(srgb(style.patch_color)),
-            patch_amount: Some(style.patch_amount),
-            patch_size: Some(style.patch_size),
-            dry_tips: Some(style.dry_tips),
-            dead_blades: Some(style.dead_blades),
-            tufts: Some(style.tufts),
-            tuft_size: Some(style.tuft_size),
-            bare_patches: Some(style.bare_patches),
-            bare_patch_size: Some(style.bare_patch_size),
+            patch_color: Some(srgb(variation.patch_color)),
+            patch_amount: Some(variation.patch_amount),
+            patch_size: Some(variation.patch_size),
+            dry_tips: Some(variation.dry_tips),
+            dead_blades: Some(variation.dead_blades),
+            tufts: Some(variation.tufts),
+            tuft_size: Some(variation.tuft_size),
+            bare_patches: Some(variation.bare_patches),
+            bare_patch_size: Some(variation.bare_patch_size),
             species: Some(
                 style
                     .species
@@ -243,51 +270,91 @@ impl GrassStyleFile {
                     .map(|species| GrassSpeciesFile {
                         share: species.share,
                         clustering: Some(species.clustering),
-                        style: Self::from_style(&species.style),
+                        style: Self::from_blade(&species.blade),
                     })
                     .collect(),
             ),
+            ..Self::from_blade(&style.blade)
         }
     }
 
-    fn resolve(self) -> Result<GrassStyle, GrassStyleFileError> {
-        let base = match &self.base {
+    /// The preset `base` names, or the meadow.
+    fn base_style(&self) -> Result<GrassStyle, GrassStyleFileError> {
+        match &self.base {
             Some(name) => GrassStyle::preset(name)
-                .ok_or_else(|| GrassStyleFileError::UnknownBase(name.clone()))?,
-            None => GrassStyle::MEADOW,
-        };
-        let style = GrassStyle {
+                .ok_or_else(|| GrassStyleFileError::UnknownBase(name.clone())),
+            None => Ok(GrassStyle::MEADOW),
+        }
+    }
+
+    /// The blade this file describes: its settings over `base`'s.
+    fn blade(&self, base: &GrassBlade) -> GrassBlade {
+        GrassBlade {
             height: self
                 .height
                 .map_or(base.height, |(lo, hi)| Vec2::new(lo, hi)),
             width: self.width.unwrap_or(base.width),
-            density: self.density.unwrap_or(base.density),
             lean: self.lean.unwrap_or(base.lean),
             stiffness: self.stiffness.unwrap_or(base.stiffness),
             root_color: self.root_color.map_or(base.root_color, color),
             tip_color: self.tip_color.map_or(base.tip_color, color),
             root_occlusion: self.root_occlusion.unwrap_or(base.root_occlusion),
             translucency: self.translucency.unwrap_or(base.translucency),
-            min_width_px: self.min_width_px.unwrap_or(base.min_width_px),
             specular: self.specular.unwrap_or(base.specular),
-            ground_color: self.ground_color.map_or(base.ground_color, color),
-            ground_tint: self.ground_tint.unwrap_or(base.ground_tint),
-            toon_bands: self.toon_bands.unwrap_or(base.toon_bands),
             twist: self.twist.unwrap_or(base.twist),
             droop: self.droop.unwrap_or(base.droop),
             fold: self.fold.unwrap_or(base.fold),
             head: self.head.unwrap_or(base.head),
             head_width: self.head_width.unwrap_or(base.head_width),
             head_color: self.head_color.map_or(base.head_color, color),
-            patch_color: self.patch_color.map_or(base.patch_color, color),
-            patch_amount: self.patch_amount.unwrap_or(base.patch_amount),
-            patch_size: self.patch_size.unwrap_or(base.patch_size),
-            dry_tips: self.dry_tips.unwrap_or(base.dry_tips),
-            dead_blades: self.dead_blades.unwrap_or(base.dead_blades),
-            tufts: self.tufts.unwrap_or(base.tufts),
-            tuft_size: self.tuft_size.unwrap_or(base.tuft_size),
-            bare_patches: self.bare_patches.unwrap_or(base.bare_patches),
-            bare_patch_size: self.bare_patch_size.unwrap_or(base.bare_patch_size),
+        }
+    }
+
+    /// The settings of the whole field that the file sets, by name.
+    fn field_settings(&self) -> Vec<&'static str> {
+        [
+            ("density", self.density.is_some()),
+            ("ground_color", self.ground_color.is_some()),
+            ("ground_tint", self.ground_tint.is_some()),
+            ("toon_bands", self.toon_bands.is_some()),
+            ("patch_color", self.patch_color.is_some()),
+            ("patch_amount", self.patch_amount.is_some()),
+            ("patch_size", self.patch_size.is_some()),
+            ("dry_tips", self.dry_tips.is_some()),
+            ("dead_blades", self.dead_blades.is_some()),
+            ("tufts", self.tufts.is_some()),
+            ("tuft_size", self.tuft_size.is_some()),
+            ("bare_patches", self.bare_patches.is_some()),
+            ("bare_patch_size", self.bare_patch_size.is_some()),
+            ("species", self.species.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, set)| set.then_some(name))
+        .collect()
+    }
+
+    fn resolve(self) -> Result<GrassStyle, GrassStyleFileError> {
+        let base = self.base_style()?;
+        let (bv, bg) = (&base.variation, &base.ground_tint);
+        let style = GrassStyle {
+            blade: self.blade(&base.blade),
+            density: self.density.unwrap_or(base.density),
+            variation: GrassVariation {
+                patch_color: self.patch_color.map_or(bv.patch_color, color),
+                patch_amount: self.patch_amount.unwrap_or(bv.patch_amount),
+                patch_size: self.patch_size.unwrap_or(bv.patch_size),
+                dry_tips: self.dry_tips.unwrap_or(bv.dry_tips),
+                dead_blades: self.dead_blades.unwrap_or(bv.dead_blades),
+                tufts: self.tufts.unwrap_or(bv.tufts),
+                tuft_size: self.tuft_size.unwrap_or(bv.tuft_size),
+                bare_patches: self.bare_patches.unwrap_or(bv.bare_patches),
+                bare_patch_size: self.bare_patch_size.unwrap_or(bv.bare_patch_size),
+            },
+            ground_tint: GroundTint {
+                color: self.ground_color.map_or(bg.color, color),
+                amount: self.ground_tint.unwrap_or(bg.amount),
+            },
+            toon_bands: self.toon_bands.unwrap_or(base.toon_bands),
             species: match self.species {
                 Some(list) => Cow::Owned(
                     list.into_iter()
@@ -297,24 +364,17 @@ impl GrassStyleFile {
                 None => base.species,
             },
         };
-        if !(style.height.x >= 0.0 && style.height.x <= style.height.y && style.height.y > 0.0) {
-            return Err(GrassStyleFileError::Invalid(
-                "height must be (shortest, tallest) with 0 <= shortest <= tallest and tallest > 0",
-            ));
+        validate_blade(&style.blade)?;
+        if style.density < 0.0 || style.density.is_nan() {
+            return Err(GrassStyleFileError::Invalid("density must be at least 0"));
         }
-        if !(style.width > 0.0 && style.density >= 0.0) {
-            return Err(GrassStyleFileError::Invalid(
-                "width must be above 0 and density at least 0",
-            ));
-        }
-        if !(style.patch_size > 0.0 && style.tuft_size > 0.0 && style.bare_patch_size > 0.0) {
+        let variation = &style.variation;
+        if !(variation.patch_size > 0.0
+            && variation.tuft_size > 0.0
+            && variation.bare_patch_size > 0.0)
+        {
             return Err(GrassStyleFileError::Invalid(
                 "patch_size, tuft_size and bare_patch_size must be above 0",
-            ));
-        }
-        if !(0.0..0.9).contains(&style.head) {
-            return Err(GrassStyleFileError::Invalid(
-                "head must be at least 0 and below 0.9",
             ));
         }
         if style.species.len() >= MAX_SPECIES {
@@ -324,16 +384,40 @@ impl GrassStyleFile {
         }
         Ok(style)
     }
+
+    /// The file as a species' blade, which may name `base` and the blade's
+    /// settings and nothing else.
+    fn resolve_blade(self) -> Result<GrassBlade, GrassStyleFileError> {
+        let field_settings = self.field_settings();
+        if !field_settings.is_empty() {
+            return Err(GrassStyleFileError::SpeciesFieldSettings(field_settings));
+        }
+        let blade = self.blade(&self.base_style()?.blade);
+        validate_blade(&blade)?;
+        Ok(blade)
+    }
+}
+
+/// The range checks a blade needs, in a style or a species.
+fn validate_blade(blade: &GrassBlade) -> Result<(), GrassStyleFileError> {
+    if !(blade.height.x >= 0.0 && blade.height.x <= blade.height.y && blade.height.y > 0.0) {
+        return Err(GrassStyleFileError::Invalid(
+            "height must be (shortest, tallest) with 0 <= shortest <= tallest and tallest > 0",
+        ));
+    }
+    if blade.width.is_nan() || blade.width <= 0.0 {
+        return Err(GrassStyleFileError::Invalid("width must be above 0"));
+    }
+    if !(0.0..0.9).contains(&blade.head) {
+        return Err(GrassStyleFileError::Invalid(
+            "head must be at least 0 and below 0.9",
+        ));
+    }
+    Ok(())
 }
 
 impl GrassSpeciesFile {
     fn resolve(self) -> Result<GrassSpecies, GrassStyleFileError> {
-        let style = self.style.resolve()?;
-        if !style.species.is_empty() {
-            return Err(GrassStyleFileError::Invalid(
-                "a species cannot have species of its own",
-            ));
-        }
         if !(0.0..=1.0).contains(&self.share) {
             return Err(GrassStyleFileError::Invalid(
                 "a species' share must be from 0 to 1",
@@ -342,7 +426,7 @@ impl GrassSpeciesFile {
         Ok(GrassSpecies {
             share: self.share,
             clustering: self.clustering.unwrap_or(0.0),
-            style,
+            blade: self.style.resolve_blade()?,
         })
     }
 }
@@ -359,6 +443,9 @@ pub enum GrassStyleFileError {
     UnknownBase(String),
     /// A value is out of range.
     Invalid(&'static str),
+    /// A species' `style` sets things that belong to the whole field, which
+    /// a species cannot have: the names of the settings.
+    SpeciesFieldSettings(Vec<&'static str>),
 }
 
 impl fmt::Display for GrassStyleFileError {
@@ -376,6 +463,13 @@ impl fmt::Display for GrassStyleFileError {
                     .join(", ")
             ),
             Self::Invalid(why) => write!(f, "invalid grass style: {why}"),
+            Self::SpeciesFieldSettings(names) => write!(
+                f,
+                "a species' style sets {}, which belong to the field's style, not to a species \
+                 (a species is a blade: height, width, colours, shape); move them to the \
+                 style that lists the species",
+                names.join(", ")
+            ),
         }
     }
 }
@@ -418,6 +512,30 @@ impl AssetLoader for GrassStyleLoader {
 mod tests {
     use super::*;
 
+    #[test]
+    fn min_width_px_is_no_longer_a_style_setting_but_old_files_still_load() {
+        // A file from before the setting moved to `GrassSettings`, with the
+        // line in the style and in a species.
+        let old = r#"(
+            base: "SUMMER_TALL",
+            min_width_px: 2.0,
+            species: [(share: 0.1, style: (base: "CLOVER", min_width_px: 3.0))],
+        )"#;
+        let style = GrassStyle::from_ron(old).expect("old files must keep loading");
+        let without = GrassStyle::from_ron(
+            r#"(base: "SUMMER_TALL", species: [(share: 0.1, style: (base: "CLOVER"))])"#,
+        )
+        .unwrap();
+        assert_eq!(style.to_ron(), without.to_ron(), "the old value is ignored");
+        assert!(
+            !style.to_ron().contains("min_width_px"),
+            "a style no longer writes the setting"
+        );
+        assert!(!GrassStyleFile::default().mentions_min_width());
+        let file: GrassStyleFile = options().from_str(old).unwrap();
+        assert!(file.mentions_min_width(), "so the loader can warn about it");
+    }
+
     /// The shipped files, which must stay equal to the constants.
     fn shipped(name: &str) -> String {
         let file = format!(
@@ -443,7 +561,15 @@ mod tests {
                 std::fs::write(&file, format!("{doc}{}\n", style.to_ron())).unwrap();
             }
             let read = GrassStyle::from_ron(&shipped(name)).unwrap();
-            assert_eq!(format!("{read:?}"), format!("{style:?}"), "{name}");
+            assert_eq!(read, style, "{name}");
+        }
+    }
+
+    #[test]
+    fn no_shipped_file_still_sets_the_old_min_width() {
+        // Copying a preset must not start a game with a warning.
+        for (name, _) in GrassStyle::presets() {
+            assert!(!shipped(name).contains("min_width_px"), "{name}");
         }
     }
 
@@ -467,8 +593,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(style.density, 20.0);
-        assert_eq!(style.height, GrassStyle::AUTUMN_FADED.height);
-        assert_eq!(srgb(style.tip_color), (0.70, 0.72, 0.74));
+        assert_eq!(style.blade.height, GrassStyle::AUTUMN_FADED.blade.height);
+        assert_eq!(srgb(style.blade.tip_color), (0.70, 0.72, 0.74));
     }
 
     #[test]
@@ -485,12 +611,65 @@ mod tests {
             GrassStyle::from_ron("(height: (0.5, 0.2))"),
             Err(GrassStyleFileError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn a_species_is_a_blade_and_a_file_cannot_say_otherwise() {
+        // The settings of the whole field do nothing in a species. In code the
+        // type has nowhere to put them; in a file they are an error that
+        // names them, not something silently ignored.
+        let Err(error) = GrassStyle::from_ron(
+            "(species: [(share: 0.1, style: (base: \"CLOVER\", tufts: 0.8, density: 5.0))])",
+        ) else {
+            panic!("field settings in a species must be an error");
+        };
+        let GrassStyleFileError::SpeciesFieldSettings(names) = &error else {
+            panic!("wrong error: {error}");
+        };
+        assert_eq!(names, &["density", "tufts"]);
+        let message = error.to_string();
+        assert!(message.contains("density, tufts"), "{message}");
+
+        // Nested species are the same mistake.
         assert!(matches!(
             GrassStyle::from_ron(
                 "(species: [(share: 0.1, style: (species: [(share: 0.1, style: ())]))])"
             ),
+            Err(GrassStyleFileError::SpeciesFieldSettings(names)) if names == ["species"]
+        ));
+
+        // Blade settings are fine, and are range-checked like a style's.
+        assert!(
+            GrassStyle::from_ron("(species: [(share: 0.1, style: (head_color: (1.0, 0.0, 0.0)))])")
+                .is_ok()
+        );
+        assert!(matches!(
+            GrassStyle::from_ron("(species: [(share: 0.1, style: (height: (2.0, 1.0)))])"),
             Err(GrassStyleFileError::Invalid(_))
         ));
+        assert!(matches!(
+            GrassStyle::from_ron("(species: [(share: 0.1, style: (head: 0.95))])"),
+            Err(GrassStyleFileError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn every_preset_survives_a_round_trip_through_a_file() {
+        for (name, style) in GrassStyle::presets() {
+            let text = style.to_ron();
+            let read = GrassStyle::from_ron(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(read, style, "{name}");
+            // A species lists its blade and nothing of the field's.
+            let species = species_text(&text);
+            for field_setting in ["density", "tufts", "ground_tint", "toon_bands"] {
+                assert!(!species.contains(field_setting), "{name}: {field_setting}");
+            }
+        }
+    }
+
+    /// The part of a written style after `species:`, where the species are.
+    fn species_text(text: &str) -> &str {
+        text.split("species:").nth(1).unwrap_or("")
     }
 
     #[test]
@@ -510,15 +689,12 @@ mod tests {
         .unwrap();
         assert_eq!(style.species.len(), 2);
         assert_eq!(style.species[0].clustering, 0.0);
-        assert_eq!(
-            format!("{:?}", style.species[0].style),
-            format!("{:?}", GrassStyle::SEED_HEADS)
-        );
+        assert_eq!(style.species[0].blade, GrassBlade::SEED_HEADS);
         assert_eq!(style.species[1].clustering, 0.8);
-        assert_eq!(srgb(style.species[1].style.head_color), (0.75, 0.55, 0.95));
+        assert_eq!(srgb(style.species[1].blade.head_color), (0.75, 0.55, 0.95));
         assert_eq!(
-            style.species[1].style.height,
-            GrassStyle::WHITE_FLOWERS.height
+            style.species[1].blade.height,
+            GrassBlade::WHITE_FLOWERS.height
         );
     }
 }

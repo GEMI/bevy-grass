@@ -74,9 +74,11 @@ fn main() {
     )
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO))
     .add_plugins(GrassPlugin {
-        // Fourteen cameras; each sees one small patch.
-        instance_capacity: Some(60_000),
-        ..default()
+        settings: GrassSettings {
+            // Fourteen cameras; each sees one small patch.
+            instance_capacity: 60_000,
+            ..default()
+        },
     })
     // The wind's clock stands still at 0, so the picture is the same however
     // long the GPU takes.

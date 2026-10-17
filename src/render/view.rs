@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bevy::camera::Camera3d;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::prelude::*;
 use bevy::log::{debug, warn};
 use bevy::math::{IVec2, IVec4, Mat4, UVec4, Vec3, Vec4};
@@ -17,8 +18,11 @@ use bevy::render::view::ExtractedView;
 
 use super::resources::{ExtractedGrass, GrassLayouts, GrassShared};
 use super::trample;
-use crate::api::NoGrass;
+use crate::GrassSettings;
+use crate::api::{GrassCamera, NoGrass};
+use crate::fields::{has_unsupported_layer, layer_mask};
 use crate::mirror::DistanceLod;
+use crate::stats::GpuReadings;
 
 /// Bytes per instance.
 const INSTANCE_SIZE: u64 = 16;
@@ -29,22 +33,10 @@ const DISTANCE_LOD: u32 = 3;
 /// Frames between overflow checks.
 const READBACK_INTERVAL: u32 = 120;
 
-/// Settings from the plugin and quality tier, in the render world.
-#[derive(Resource, Debug, Clone, Copy)]
-pub(crate) struct GrassSettings {
-    /// Blades each view's buffers hold.
-    pub capacity: u32,
-    /// Grass radius of perspective views, in metres.
-    pub radius: f32,
-    /// Multiplier on every style's density.
-    pub density_scale: f32,
-    /// The single LOD orthographic views draw (T3).
-    pub orthographic_lod: u32,
-    /// Slices of visible chunks one view can generate at once.
-    pub max_visible_chunks: u32,
-    /// Interactors each view stamps a frame.
-    pub max_interactors: u32,
-}
+/// Slices of visible chunks one camera can generate in a frame. A dense chunk
+/// is several slices of 512 candidates (`generate.wesl`); the bench peaks at
+/// 739 at Ultra, so 8,192 leaves room for styles ten times as dense.
+const MAX_VISIBLE_CHUNKS: u32 = 8192;
 
 impl crate::GrassShadows {
     /// Directional cascades grass is drawn into, counted from the nearest.
@@ -82,6 +74,10 @@ pub(crate) struct ViewUniformData {
     pub fixed_lod: u32,
     pub max_visible_chunks: u32,
     pub interactor_count: u32,
+    /// The render layers the view draws, one bit each.
+    pub layers: u32,
+    /// Narrowest a blade is drawn, in pixels.
+    pub min_width_px: f32,
     pub bucket_base: UVec4,
     pub bucket_capacity: UVec4,
     pub bucket_lod: UVec4,
@@ -122,6 +118,8 @@ pub(crate) struct GrassViewBuffers {
     readback_values: Arc<Mutex<[u32; 4]>>,
     frames_since_readback: u32,
     capacities: [u32; 3],
+    /// Interactors `interactors` has room for.
+    max_interactors: u32,
     /// Entries in `visible`.
     max_slices: u32,
     warned: bool,
@@ -138,9 +136,9 @@ pub(crate) struct GrassViewBindGroups {
 impl GrassViewBuffers {
     fn new(device: &RenderDevice, settings: &GrassSettings) -> Self {
         let capacities = [
-            settings.capacity,
-            settings.capacity / 2,
-            settings.capacity / 2,
+            settings.instance_capacity,
+            settings.instance_capacity / 2,
+            settings.instance_capacity / 2,
         ];
         let total: u32 = capacities.iter().sum();
         let buffer = |label: &'static str, size: u64, usage: BufferUsages| {
@@ -156,7 +154,7 @@ impl GrassViewBuffers {
             visible: buffer(
                 "grass_visible_chunks",
                 // A `VisibleChunk`: one slice of a visible chunk, 16 bytes.
-                u64::from(settings.max_visible_chunks) * 16,
+                u64::from(MAX_VISIBLE_CHUNKS) * 16,
                 BufferUsages::STORAGE,
             ),
             counters: buffer(
@@ -192,7 +190,7 @@ impl GrassViewBuffers {
             ),
             interactors: buffer(
                 "grass_interactors",
-                u64::from(settings.max_interactors.max(1)) * 16,
+                u64::from(settings.max_interactors) * 16,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ),
             interactor_count: 0,
@@ -206,9 +204,17 @@ impl GrassViewBuffers {
             readback_values: Arc::new(Mutex::new([0; 4])),
             frames_since_readback: 0,
             capacities,
-            max_slices: settings.max_visible_chunks,
+            max_interactors: settings.max_interactors,
+            max_slices: MAX_VISIBLE_CHUNKS,
             warned: false,
         }
+    }
+
+    /// Whether these buffers have the room `settings` ask for. When a game
+    /// changes the capacity at runtime they do not, and are made again.
+    fn fits(&self, settings: &GrassSettings) -> bool {
+        self.capacities[0] == settings.instance_capacity
+            && self.max_interactors == settings.max_interactors
     }
 
     /// The instance buffer, for the GPU readback test.
@@ -256,40 +262,64 @@ pub(crate) fn frustum_planes(clip_from_world: &Mat4) -> [Vec4; 6] {
 }
 
 /// Creates buffers for new grass views and writes every view's uniform.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn prepare_views(
     mut commands: Commands,
     mut views: Query<
-        (Entity, &ExtractedView, Option<&mut GrassViewBuffers>),
+        (
+            Entity,
+            &ExtractedView,
+            Option<&RenderLayers>,
+            Option<&GrassCamera>,
+            Option<&mut GrassViewBuffers>,
+        ),
         (With<Camera3d>, Without<NoGrass>),
     >,
-    settings: Res<GrassSettings>,
+    mut warned_layers: Local<bool>,
+    mut gone: RemovedComponents<GrassViewBuffers>,
+    readings: Res<GpuReadings>,
     extracted: Res<ExtractedGrass>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
 ) {
-    for (entity, view, buffers) in &mut views {
-        let Some(mut buffers) = buffers else {
+    // A camera that is gone stops counting in the stats.
+    for entity in gone.read() {
+        readings.forget(entity);
+    }
+    for (entity, view, layers, camera, buffers) in &mut views {
+        // New views, and views whose capacity the game changed, get fresh
+        // buffers; the bind groups that held the old ones go with them.
+        let Some(mut buffers) = buffers.filter(|buffers| buffers.fits(&extracted.settings)) else {
             commands.entity(entity).insert((
-                GrassViewBuffers::new(&device, &settings),
+                GrassViewBuffers::new(&device, &extracted.settings),
                 GrassViewBindGroups::default(),
             ));
             continue;
         };
+        // The resource's settings, with this camera's own over them.
+        let settings = &extracted.settings.for_camera(camera);
         let mut data = view_uniform(
             view,
-            &settings,
+            settings,
             &buffers.capacities,
             extracted
                 .shadow_light
-                .filter(|_| extracted.shadows.cascades() > 0),
+                .filter(|_| settings.shadows.cascades() > 0),
         );
         data.sun = extracted.sun.map_or(Vec4::ZERO, |sun| sun.extend(1.0));
-        update_trample(&mut buffers, &mut data, view, &settings, &extracted, &queue);
+        data.layers = layer_mask(layers);
+        if has_unsupported_layer(layers) && !*warned_layers {
+            *warned_layers = true;
+            warn!(
+                "bevy_grass: a camera is on a render layer above 31; grass supports layers 0 \
+                 to 31, so the others are ignored."
+            );
+        }
+        update_trample(&mut buffers, &mut data, view, settings, &extracted, &queue);
         buffers.uniform.set(data);
         buffers.uniform.write_buffer(&device, &queue);
         buffers.frames_since_readback += 1;
-        check_readback(&mut buffers);
+        check_readback(&mut buffers, entity, &readings);
     }
 }
 
@@ -346,8 +376,10 @@ fn view_uniform(
         lod_band: lod.band,
         density_scale: settings.density_scale,
         fixed_lod,
-        max_visible_chunks: settings.max_visible_chunks,
+        max_visible_chunks: MAX_VISIBLE_CHUNKS,
         interactor_count: 0,
+        layers: 1,
+        min_width_px: settings.min_width_px,
         bucket_base,
         bucket_capacity: UVec4::new(capacities[0], capacities[1], capacities[2], 0),
         bucket_lod,
@@ -401,7 +433,7 @@ fn update_trample(
 }
 
 /// Advances the overflow check: maps a copied buffer, or reports a mapped one.
-fn check_readback(buffers: &mut GrassViewBuffers) {
+fn check_readback(buffers: &mut GrassViewBuffers, view: Entity, readings: &GpuReadings) {
     match buffers.readback_state.load(Ordering::Acquire) {
         READBACK_COPIED => {
             buffers
@@ -448,11 +480,13 @@ fn check_readback(buffers: &mut GrassViewBuffers) {
                     )
                 })
                 .collect();
+            let overflowed = !over.is_empty() || counts[3] > buffers.max_slices;
+            readings.record(view, counts, overflowed);
             if !over.is_empty() && !buffers.warned {
                 buffers.warned = true;
                 warn!(
                     "bevy_grass: instance buffers overflowed ({}); extra blades are dropped. Raise \
-                     GrassPlugin::instance_capacity or lower the style density.",
+                     GrassSettings::instance_capacity or lower the style density.",
                     over.join(", ")
                 );
             }

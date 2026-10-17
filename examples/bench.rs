@@ -151,9 +151,10 @@ fn main() {
     .install(&mut app, "bevy_grass: benchmark");
     if plugin {
         app.add_plugins(GrassPlugin {
-            quality,
-            max_interactors: Some(interactors.max(64)),
-            ..default()
+            settings: GrassSettings {
+                max_interactors: interactors.max(64),
+                ..quality.settings()
+            },
         });
     }
     if gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {
@@ -254,6 +255,63 @@ fn terrain_mesh() -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
+/// The style of the benchmark's field: DEMO ARPG GAME's or a perspective game's, with
+/// the kinds of variation the flags ask for.
+fn bench_style(bench: &Bench) -> GrassStyle {
+    // DEMO ARPG GAME's blades are wider and fewer than a perspective game's (the
+    // `arpg_camera` example's style); its camera asks for 2-pixel minimum width.
+    let style = if bench.orthographic {
+        GrassStyle {
+            blade: GrassBlade {
+                height: Vec2::new(0.4, 0.9),
+                width: 0.05,
+                ..GrassStyle::TALL_PRAIRIE.blade
+            },
+            // 36, not 45: the look approved at gate G1 drew 36 per m² while a
+            // rounding bug capped 45 (fixed in the perf pass).
+            density: 36.0,
+            ..GrassStyle::TALL_PRAIRIE
+        }
+    } else {
+        GrassStyle::MEADOW
+    };
+    let wild = GrassStyle::SUMMER_WILD;
+    let mut style = GrassStyle {
+        blade: GrassBlade {
+            specular: if bench.sheen { 0.4 } else { 0.0 },
+            ..style.blade
+        },
+        ground_tint: GroundTint {
+            amount: if bench.tint { 0.3 } else { 0.0 },
+            ..style.ground_tint
+        },
+        toon_bands: if bench.toon { 3 } else { 0 },
+        ..style
+    };
+    if bench.species {
+        style.species.clone_from(&wild.species);
+    }
+    if bench.tufts {
+        let variation = &mut style.variation;
+        (variation.tufts, variation.tuft_size) = (wild.variation.tufts, wild.variation.tuft_size);
+        (variation.bare_patches, variation.bare_patch_size) =
+            (wild.variation.bare_patches, wild.variation.bare_patch_size);
+    }
+    if bench.shape {
+        let blade = &mut style.blade;
+        (blade.twist, blade.droop, blade.fold) =
+            (wild.blade.twist, wild.blade.droop, wild.blade.fold);
+    }
+    if bench.variation {
+        let variation = &mut style.variation;
+        (variation.patch_color, variation.patch_amount) =
+            (wild.variation.patch_color, wild.variation.patch_amount);
+        (variation.dry_tips, variation.dead_blades) =
+            (wild.variation.dry_tips, wild.variation.dead_blades);
+    }
+    style
+}
+
 fn setup(
     mut commands: Commands,
     bench: Res<Bench>,
@@ -267,6 +325,11 @@ fn setup(
         camera.insert(DepthPrepass);
     }
     if bench.orthographic {
+        // DEMO ARPG GAME's 2-pixel minimum blade width.
+        camera.insert(GrassCamera {
+            min_width_px: Some(2.0),
+            ..default()
+        });
         camera.insert(Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::FixedVertical {
                 viewport_height: 14.64,
@@ -309,42 +372,7 @@ fn setup(
     let Some(mut styles) = styles.filter(|_| bench.grass) else {
         return;
     };
-    // DEMO ARPG GAME's blades are wider and fewer than a perspective game's, with a
-    // 2-pixel minimum width (the `arpg_camera` example's style).
-    let style = if bench.orthographic {
-        GrassStyle {
-            height: Vec2::new(0.4, 0.9),
-            width: 0.05,
-            // 36, not 45: the look approved at gate G1 drew 36 per m² while a
-            // rounding bug capped 45 (fixed in the perf pass).
-            density: 36.0,
-            min_width_px: 2.0,
-            ..GrassStyle::TALL_PRAIRIE
-        }
-    } else {
-        GrassStyle::MEADOW
-    };
-    let wild = GrassStyle::SUMMER_WILD;
-    let mut style = GrassStyle {
-        specular: if bench.sheen { 0.4 } else { 0.0 },
-        ground_tint: if bench.tint { 0.3 } else { 0.0 },
-        toon_bands: if bench.toon { 3 } else { 0 },
-        ..style
-    };
-    if bench.species {
-        style.species.clone_from(&wild.species);
-    }
-    if bench.tufts {
-        (style.tufts, style.tuft_size) = (wild.tufts, wild.tuft_size);
-        (style.bare_patches, style.bare_patch_size) = (wild.bare_patches, wild.bare_patch_size);
-    }
-    if bench.shape {
-        (style.twist, style.droop, style.fold) = (wild.twist, wild.droop, wild.fold);
-    }
-    if bench.variation {
-        (style.patch_color, style.patch_amount) = (wild.patch_color, wild.patch_amount);
-        (style.dry_tips, style.dead_blades) = (wild.dry_tips, wild.dead_blades);
-    }
+    let style = bench_style(&bench);
     commands.spawn(GrassField {
         size: Vec2::splat(TERRAIN_SIZE),
         style: styles.add(style),

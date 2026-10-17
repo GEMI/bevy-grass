@@ -1,10 +1,10 @@
 # bevy-grass: Architecture Plan
 
-October 13, 2026
+October 13, 2026. Public API brought up to date on October 16, 2026 (see "API and settings pass" in the Implementation plan).
 
 ## Summary and goals
 
-bevy-grass is a Bevy plugin that renders dense, tall, wind-animated grass over open-world areas, with the CPU doing almost nothing per frame. Every blade is generated, culled and drawn on the GPU from per-chunk inputs; the user sees one plugin, two components and a style asset.
+bevy-grass is a Bevy plugin that renders dense, tall, wind-animated grass over open-world areas, with the CPU doing almost nothing per frame. Every blade is generated, culled and drawn on the GPU from per-chunk inputs; the user sees one plugin, a settings resource, two components and a style asset.
 
 Priorities, in order, used to settle every trade-off in this plan:
 
@@ -37,7 +37,7 @@ Budget rules that follow from the targets:
 
 ## Public API
 
-The whole user-facing surface is seven items; a working field takes three lines. Everything else (buffers, pipelines, chunking, LOD) is private and free to change between versions.
+The core of the user-facing surface is a handful of items, and a working field takes three lines. Everything else (buffers, pipelines, chunking, LOD) is private and free to change between versions. Since the October 16 API pass the surface also has settings, per-camera overrides, a sun marker, system sets and statistics, listed after the first table.
 
 ```rust
 use bevy::prelude::*;
@@ -45,7 +45,7 @@ use bevy_grass::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GrassPlugin::default())) // quality: GrassQuality::High
+        .add_plugins((DefaultPlugins, GrassPlugin::default())) // settings: GrassSettings::HIGH
         .add_systems(Startup, setup)
         .run();
 }
@@ -69,9 +69,15 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut styles: ResMut<As
 
 | Item | Kind | Purpose | State |
 | --- | --- | --- | --- |
-| `GrassPlugin { quality, max_interactors, instance_capacity }` | Plugin | Registers everything; quality tier sets radius, density and LOD distances; the two limits default from the tier | 🟡 Built with `quality`, `instance_capacity`, `max_interactors` (64 by default) and a `shadows` override |
-| `GrassField` | Component | One area of grass: size, style, ground source, optional density mask | ✅ Built |
-| `GrassStyle` | Asset | Look of the blades: height, width, curvature, colors, clumping, stiffness; presets as constants | 🟡 Built without clumping; `MEADOW` and `TALL_PRAIRIE` presets so far |
+| `GrassPlugin { settings }` | Plugin | Registers everything. Its one field is the starting `GrassSettings` | ✅ Built. Replaced the earlier `quality`, `instance_capacity`, `max_interactors` and `shadows` fields |
+| `GrassSettings` | Resource | `radius`, `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity`, `max_interactors`; presets `LOW`, `MEDIUM`, `HIGH`, `ULTRA`. `GrassQuality` stays as a convenience tier. Everything can change at runtime | ✅ Built (P1-2) |
+| `GrassCamera` | Component | Per-camera overrides of `radius`, `density_scale`, `min_width_px` and `shadows`; `None` follows the resource | ✅ Built (P1-3) |
+| `GrassField` | Component | One area of grass: size (times the transform's X and Z scale), style, ground source, optional density mask. Honours `Visibility` and `RenderLayers` | ✅ Built |
+| `GrassStyle` | Asset | A `GrassBlade` (the look of one plant) plus the field's own settings: density, `GrassVariation`, `GroundTint`, toon bands, species | ✅ Built, with 22 presets |
+| `GrassSun` | Component | Marks the directional light grass casts shadows for and the deferred path treats as the sun; otherwise the first shadow caster | ✅ Built (P1-7) |
+| `GrassSystems` | System set | `DetectChanges` then `Rebuild`, in `PostUpdate`, to order user systems against | ✅ Built (P1-5) |
+| `GrassStats`, `GrassDiagnostics` | Resource, diagnostic paths | Table work and GPU counters, also as 7 Bevy diagnostics | ✅ Built (P1-8) |
+| `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (cargo feature `debug`) | Gizmos for fields, chunks, interactors and trample windows | ✅ Built (P1-8) |
 | `GrassGround` | Enum | Where blades sit: `Flat`, `Heightmap { image, height_scale }`, or `Mesh(Handle<Mesh>)` | 🟡 `Flat` and `Heightmap` built; `Mesh` in M5 |
 | `Wind` | Resource | Direction, strength, gust scale and speed; affects all fields | ✅ Built, with the four presets |
 | `GrassInteractor { radius, strength }` | Component | Anything that flattens grass (player, vehicles, explosions) | ✅ Built in M3 |
@@ -79,9 +85,10 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut styles: ResMut<As
 
 API rules:
 
-- **Every camera renders grass by default.** A `NoGrass` marker opts a camera out (minimaps, UI cameras); this is the only extra marker. *(Built.)*
+- **Every camera renders grass by default.** A `NoGrass` marker opts a camera out (minimaps, UI cameras). Otherwise a camera draws the fields it shares a `RenderLayers` with, and a hidden field (or one under a hidden parent) is not drawn. `GrassCamera` is opt-in and only overrides. *(Built.)*
 - **No entity per blade, chunk or LOD.** One entity per `GrassField`; internal state lives in the render world.
-- **All types implement `Default`, `Clone` and `Reflect`**, so they work with BSN, the inspector and serialized scenes.
+- **All types implement `Default`, `Clone` and `Reflect`**, so they work with BSN, the inspector and serialized scenes. Components carry `ReflectComponent`, resources `ReflectResource`, and the style asset is registered with `register_asset_reflect`. *(Built, P1-6.)*
+- **Settings are split by owner.** What a plant looks like is `GrassBlade`; what belongs to the whole field is on `GrassStyle`; what belongs to the machine or a view is on `GrassSettings` and `GrassCamera`. A `GrassSpecies` holds only a blade, so a setting that a species would ignore cannot be written. *(Built, P1-3 and P1-4.)*
 - **Escape hatch, not a second API:** advanced users can replace the blade WESL via `GrassStyle::shader_override`, documented as unstable. *(Not built yet.)*
 
 ## Architecture overview
@@ -128,14 +135,25 @@ Blade generation (highlighted) is where almost all grass work happens, so it is 
 
 ```text
 bevy_grass/
-  src/lib.rs            GrassPlugin, prelude
-  src/api/              GrassField, GrassStyle, GrassGround, Wind,
-                        GrassInteractor, GrassEdits, presets
-  src/extract.rs        main world -> render world sync
+  src/lib.rs            GrassPlugin, prelude, GrassSystems
+  src/api.rs            GrassField, GrassGround, Wind, GrassInteractor,
+                        NoGrass, GrassCamera
+  src/settings.rs       GrassSettings, GrassQuality, GrassShadows
+  src/style.rs          GrassStyle, GrassBlade, GrassVariation, GrassSpecies,
+                        presets
+  src/style_file.rs     .grass.ron loader
+  src/sun.rs            GrassSun, which light grass follows, cascade checks
+  src/fields.rs         fields, styles, masks -> tables, incrementally
+  src/packed.rs         packed style images, cached per asset
+  src/stats.rs          GrassStats, GrassDiagnostics
+  src/debug.rs          GrassDebugPlugin (feature `debug`)
+  src/far.rs            FarGrassMaterial
+  src/mirror.rs         CPU twins of the shader maths, for tests
   src/render/
-    resources.rs        chunk table, masks, instance buffers
+    resources.rs        field and chunk tables, masks, instance buffers
     compute.rs          cull, generate, indirect-args passes
-    draw.rs             phase items and draw commands
+    trample.rs          trample texture pass
+    view.rs             per-camera state and settings
     bevy_glue.rs        every Bevy-internal touch point
   src/shaders/*.wesl    embedded with embedded_asset!
   examples/             one per preset, interaction, editing
@@ -193,7 +211,7 @@ Each frame, per camera, three small compute dispatches decide which blades exist
 | Wind bend, previous frame | 2 × 4 | For motion vectors, as a step from the current bend |
 | LOD and flags | 16 | LOD level, cross-fade dither, chunk index high bits |
 
-**Buffers.** Instance buffers are allocated once at the tier's maximum blade count and reused every frame. If a frame overflows, extra blades in that LOD bucket are dropped, a warning is logged once, and the capacity can be raised via `GrassPlugin`. Each extra camera gets its own instance buffers; split-screen doubles blade memory, not CPU cost.
+**Buffers.** Instance buffers are allocated once at the tier's maximum blade count and reused every frame. If a frame overflows, extra blades in that LOD bucket are dropped, a warning is logged once, and the capacity can be raised via `GrassSettings::instance_capacity` (at runtime too: each camera's buffers are reallocated once). Each extra camera gets its own instance buffers; split-screen doubles blade memory, not CPU cost.
 
 ## Blade geometry and LOD
 
@@ -240,13 +258,15 @@ The previous frame's bend is computed with the same function at the previous tim
 - **Specular:** rough specular on the upper half of the blade, so wind waves show up as moving sheen.
 - **Ground tint:** optional blending of the root color toward the terrain color, so the field sits in the ground instead of on it.
 
-**Shadows.** Grass always receives shadows. Casting is the expensive part, so it is a setting:
+**Shadows.** Grass always receives shadows. Casting is the expensive part, so it is a setting (`GrassSettings::shadows`, overridable per camera):
 
 | Mode | What casts | Default on |
 | --- | --- | --- |
 | Off | Nothing | Low |
 | Near | LOD 0 blades into the first cascade only | Medium, High |
 | Full | LOD 0 and 1 into the first two cascades | Ultra |
+
+Grass casts for one directional light: the one marked `GrassSun`, otherwise the first shadow caster. A blade is a centimetre or two wide, so the light's first cascade must be shallow (12 m is recommended; a 60 m single cascade in a 2048 map gives texels of 4 to 5 cm, and blade shadows blink). The plugin warns once about a first cascade that is too deep, about several unmarked casters, and about a marked light that casts no shadows.
 
 Bevy 0.20's contact shadows add short-range, blade-level shadowing in screen space at a cost that scales with pixels, not blades ([Bevy 0.20 release notes](https://bevy.org/news/bevy-0-20/)). The examples enable them and the docs recommend them with Near mode.
 
@@ -262,7 +282,7 @@ Interaction costs about the same with 1 or 512 interactors, because interactors 
 2. Decays existing values, so flattened grass springs back over about 1.5 s (tunable).
 3. Stamps each `GrassInteractor` as a radial push (direction in RG, strength from the component).
 
-Blade generation samples it at the blade root and adds the push to the wind bend. `GrassPlugin::max_interactors` caps how many are stamped per frame (64 by default; DEMO ARPG GAME uses 512 for its horde). Beyond the cap, the ones nearest the camera are used.
+Blade generation samples it at the blade root and adds the push to the wind bend. `GrassSettings::max_interactors` caps how many are stamped per frame (64 by default; DEMO ARPG GAME uses 512 for its horde). Beyond the cap, the ones nearest the camera are used.
 
 **Runtime edits.** `GrassEdits` changes the density mask:
 
@@ -294,7 +314,7 @@ The crate ships six grass styles and four wind presets, each tuned against the r
 | `Wind::GUSTY` | 0.6 | 15 m | Fast, uneven gusts |
 | `Wind::STORM` | 1.0 | 8 m | Heavy bending, fast flutter |
 
-**Added 2026-10-14, at the developer's request:** two tall-grass themes for DEMO ARPG GAME, each with a main look and three variants, all sharing one blade shape (0.7–1.5 m, 4 cm wide, 40 per m², about 16 cm apart) so they mix in one scene. `GrassStyle::SUMMER` is `SUMMER_TALL` (green), `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`; `GrassStyle::AUTUMN` is `AUTUMN_TALL` (brown), `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`. The `styles` example shows all eight. Density and the distance between blades are one setting seen two ways (`density` in blades per m², or `spacing()` / `with_spacing(metres)`, where spacing is `1 / sqrt(density)`). The shadow mode (`GrassShadows`) is now also a resource, so a game can turn grass shadows on and off at runtime.
+**Added 2026-10-14, at the developer's request:** two tall-grass themes for DEMO ARPG GAME, each with a main look and three variants, all sharing one blade shape (0.7–1.5 m, 4 cm wide, 40 per m², about 16 cm apart) so they mix in one scene. `GrassStyle::SUMMER` is `SUMMER_TALL` (green), `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`; `GrassStyle::AUTUMN` is `AUTUMN_TALL` (brown), `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`. The `styles` example shows all eight. Density and the distance between blades are one setting seen two ways (`density` in blades per m², or `spacing()` / `with_spacing(metres)`, where spacing is `1 / sqrt(density)`). The shadow mode (`GrassShadows`) can change at runtime, so a game can turn grass shadows on and off. (On October 16 it moved into `GrassSettings`.)
 
 **Added 2026-10-15, at the developer's request:** variation (see "Variation" in the Implementation plan). Five plants that a field can mix in as species (`GrassStyle::PLANTS`: `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`), and three styles that use every kind of variation (`GrassStyle::WILD`: `SUMMER_WILD` and `AUTUMN_WILD` over the tall-grass themes, `WILDFLOWER_MEADOW` over `MEADOW`). Every earlier preset is unchanged and uses none of it.
 
@@ -451,6 +471,7 @@ Estimates are rough, for one developer working with agents: about 12 weeks to th
 | M3 DEMO ARPG GAME v1 | 🟡 3.1–3.3, 3.5 and 3.6 done; 3.4 drafted (DEMO ARPG GAME builds bevy-grass from the local disk until it is hosted); 3.7 measured; 3.8 waits for the developer | G3 🟡 D2, D4 and D5 answered; the readability sign-off and a Tracy capture remain |
 | M4 Complete look and Bevy passes | ✅ Done: all six steps meet their "Done when" | G4 🟡 the goldens wait for the developer's approval; the M2 budget is still unproven (G2) |
 | Variation (added) | ✅ Done: species, blade shape, colour, placement | ✅ The developer approved the new styles' look on October 15 |
+| API and settings pass (added Oct 16) | ✅ Done: P1-1 to P1-9 of `review.md`. P0-1 to P0-5 are open | n/a |
 | M5–M6 | ⬜ Not started | ⬜ |
 
 #### Performance pass after M2
@@ -489,7 +510,7 @@ Blades are now placed, culled, given a LOD and blown by the wind on the GPU, eve
 | 2.3 Blade generation | Done | One workgroup per visible chunk; candidates are numbered so a thinned chunk only evaluates the ones it can keep; per-blade frustum test (blade and its shadow), LOD, wind with current and previous bend; survivors counted per workgroup before one global atomic per bucket. **GPU readback test:** a headless frame's 92,487 blades match the CPU mirror's 92,487, 99.996% exactly and the rest within one position quantization step (the GPU fuses multiply-adds). |
 | 2.4 Indirect args and overflow | Done | Arguments clamped to bucket capacity; counters read back asynchronously every 120 frames, never stalling, with one warning on overflow. `RUST_LOG=bevy_grass=debug` logs visible chunks and blades per bucket. |
 | 2.5 LOD and coverage | Done | 4 m dithered bands; widening by the inverse square root of the density drop. No LOD ring is visible in the benchmark screenshot. Mid-distance grass reads darker than near grass, which needs a look on screen before M4. |
-| 2.6 Quality tiers | Done | `GrassQuality` sets capacity, radius (40/70/100/150 m), density scale, orthographic LOD and shadow mode. `GrassShadows` (`Off`, `Near`, `Full`) is a new public enum, overridable on `GrassPlugin`. |
+| 2.6 Quality tiers | Done | `GrassQuality` sets capacity, radius (40/70/100/150 m), density scale, orthographic LOD and shadow mode. `GrassShadows` (`Off`, `Near`, `Full`) is a new public enum. Since October 16 these are the presets of `GrassSettings`. |
 | 2.7 Benchmark | Done | `examples/bench.rs`: 2 × 2 km heightmap, deterministic 940 m flythrough or DEMO ARPG GAME's camera panning (`--ortho`), `--no-grass` baseline, CSV per frame. |
 
 **Measured** on the T1200, 1920 × 1080, 4× MSAA, High tier, 1,379 frames each. Grass's share is the difference from a `--no-grass` run over the same frames.
@@ -579,9 +600,9 @@ M1 draws one chunk that looks right on both camera types. It uses M0's indirect 
 
 | Step | Work | Done when | State |
 | --- | --- | --- | --- |
-| 1.1 Public types | `GrassPlugin { quality, max_interactors, instance_capacity }`, `GrassField` (requires `Transform`; the origin is the field's centre at ground level), the `GrassStyle` asset, `GrassGround`, `Wind`, `GrassInteractor`, `NoGrass`. All derive `Default`, `Clone` and `Reflect`. | Unit tests cover defaults and validation (size above zero, ordered height range). `cargo doc` reports no missing docs. | ✅ Done; `GrassInteractor` and `max_interactors` moved to M3. |
+| 1.1 Public types | `GrassPlugin { quality, max_interactors, instance_capacity }` (replaced on October 16 by `GrassPlugin { settings }`), `GrassField` (requires `Transform`; the origin is the field's centre at ground level), the `GrassStyle` asset, `GrassGround`, `Wind`, `GrassInteractor`, `NoGrass`. All derive `Default`, `Clone` and `Reflect`. | Unit tests cover defaults and validation (size above zero, ordered height range). `cargo doc` reports no missing docs. | ✅ Done; `GrassInteractor` and `max_interactors` moved to M3. |
 | 1.2 CPU mirrors | `src/mirror.rs`, pure Rust with no render types: hash, the 64 × 64 blue-noise tile, stable-thinning rank, 16-byte instance packing. The tile comes from a test-only Poisson-disc generator and is checked in as a constant. | Property tests: the same inputs give the same blades; lowering density only removes blades, in rank order; packing round-trips within quantization. | ✅ Done; the tile is generated at startup, not checked in. |
-| 1.3 Blade vertex shader | Bézier curve at constant length, taper, row count per LOD from one shared index buffer, edge-on rotation, rounded normals, minimum screen width (`GrassStyle::min_width_px`: 1 by default, 2 for DEMO ARPG GAME). | Wireframe screenshots of the three LODs. A CPU-mirror test shows blade length stays within 1% under maximum bend. | ✅ Done; LOD wireframes not captured. |
+| 1.3 Blade vertex shader | Bézier curve at constant length, taper, row count per LOD from one shared index buffer, edge-on rotation, rounded normals, minimum screen width (`GrassSettings::min_width_px`, 1 by default, overridden per camera with `GrassCamera::min_width_px`: 2 for DEMO ARPG GAME; it was a `GrassStyle` field until the camera component existed). | Wireframe screenshots of the three LODs. A CPU-mirror test shows blade length stays within 1% under maximum bend. | ✅ Done; LOD wireframes not captured. |
 | 1.4 CPU-filled chunk | One 16 × 16 m chunk filled with the mirror functions, uploaded once, drawn through Spike A with the args set to the blade count | The chunk renders with no per-frame CPU upload (checked in Tracy). | ✅ Done for whole fields; no Tracy capture. Replaced by M2's GPU generation. |
 | 1.5 Wind | A tileable 256² gust texture generated at startup; sway and flutter in the vertex shader for now; the four `Wind` presets | A recorded clip shows rolling waves, and neighbouring blades never move in lockstep. | ✅ Done; approved on screen at G1, no clip recorded. |
 | 1.6 Examples | `examples/meadow.rs` with a perspective flying camera. `examples/arpg_camera.rs` reproduces DEMO ARPG GAME's camera: orthographic, 30° pitch, 45° yaw, 14.64 m frame, one directional light with one shadow cascade, linear fog, and a 1.8 m capsule for scale. | Both run, and screenshots are captured at a fixed wind time. | ✅ Done |
@@ -596,7 +617,7 @@ M2 builds the full compute pipeline from the architecture and proves it inside t
 
 | Step | Work | Done when | State |
 | --- | --- | --- | --- |
-| 2.1 Render-world resources and extract | Chunk table (32-byte descriptors in one buffer, patched per changed field), field table, mask and height textures, per-view instance buffers at tier capacity, indirect-args buffers. Extract only changed fields, `GrassStyle` asset events, `Wind`, interactors and cameras. | CPU time stays ≤ 0.1 ms in Tracy with four fields. Editing one field re-uploads only its chunks. | 🟡 Built, not fully checked: no Tracy capture with four fields, and any field change still re-uploads every table, not only that field's chunks. |
+| 2.1 Render-world resources and extract | Chunk table (32-byte descriptors in one buffer, patched per changed field), field table, mask and height textures, per-view instance buffers at tier capacity, indirect-args buffers. Extract only changed fields, `GrassStyle` asset events, `Wind`, interactors and cameras. | CPU time stays ≤ 0.1 ms in Tracy with four fields. Editing one field re-uploads only its chunks. | 🟡 Built, not fully checked: no Tracy capture with four fields. Updates are incremental since October 16 (P1-9): a style edit rewrites only its own entries, and a colour-only edit uploads only the field buffer. |
 | 2.2 Chunk cull pass | Chunk boxes tested against the frustum, inflated by maximum blade height plus lean. Orthographic views add margins: blades rooted up to `h × cot(pitch)` below the bottom edge (1.73 h at 30°) still lean into the frame, and when casting, shadows reach `h / tan(sun elevation)` toward the sun (2.4 h at the 22.5° sun DEMO ARPG GAME's art bible rules). LOD per chunk follows T3, order follows T4. The pass writes the visible list and the dispatch args for pass 2. | A GPU readback test (pattern: `examples/shader/gpu_readback.rs`) matches a CPU reference cull for 100 random cameras. | 🟡 Built, not fully checked: the 100-camera readback test is not written; step 2.3's readback test covers the cull for one camera. |
 | 2.3 Blade generation pass | One workgroup per visible chunk: candidates, thinning, per-blade frustum test, ground height and slope normal (`Flat` and `Heightmap`), wind with current and previous bend (moved from the vertex shader), append into three LOD buckets | A GPU readback test shows the instances for a fixed chunk equal the CPU mirror's, ignoring order. | ✅ Done: 99.996% of blades match the CPU mirror exactly, the rest within one quantization step. |
 | 2.4 Indirect args and overflow | Clamp counts to capacity and record overflow in a small buffer, read back asynchronously a few frames late, never stalling. Warn once. | With capacity forced to 1,000, one warning is logged and blades are dropped with no crash and no flicker elsewhere. | 🟡 Built, not fully checked: the forced 1,000-blade capacity run has not been done. |
@@ -646,11 +667,11 @@ M4 adds the rest of the architecture's look and its integration with Bevy's othe
 
 #### Variation (added October 15, 2026, at the developer's request)
 
-The developer asked for grass that varies the way real fields do, with every kind of variation adjustable, down to how many species a field mixes. Every setting is a field of `GrassStyle` and of the `.grass.ron` format, and each is off at 0. With all of them off, rendering is bit-identical to M4: the 14 M4 goldens still match exactly on the T1200.
+The developer asked for grass that varies the way real fields do, with every kind of variation adjustable, down to how many species a field mixes. Every setting is a field of `GrassStyle` (since October 16 under `blade` or `variation`) and of the flat `.grass.ron` format, and each is off at 0. With all of them off, rendering is bit-identical to M4: the 14 M4 goldens still match exactly on the T1200.
 
 | Step | Work | State |
 | --- | --- | --- |
-| V.1 Species | `GrassStyle::species`: a list of `GrassSpecies { share, clustering, style }`, up to 15 besides the style's own blades. A species is a whole style, of which only the blade's look is used (height, width, lean, stiffness, colours, root occlusion, translucency, specular, shape). Each species is its own entry of the field table, after its field's; chunks point at the field's first entry, and a blade at its species' entry, so the draws read a blade's look exactly as before. The generation pass picks the species after thinning, so the number and placement of blades do not change. A species' chance applies to the blades the ones before it left, which makes every share exact. A clustered species takes its random number from the blade's 1 m clump instead: shuffled per species, and spread within the clump by the blade's own number, so the share stays exact (unit test, 200,000 blades: within 1%). Five plants ship as presets (`GrassStyle::PLANTS`): `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`. | ✅ Done |
+| V.1 Species | `GrassStyle::species`: a list of `GrassSpecies { share, clustering, blade }` (the last was `style`, a whole `GrassStyle`, until October 16), up to 15 besides the style's own blades. A species is a whole style, of which only the blade's look is used (height, width, lean, stiffness, colours, root occlusion, translucency, specular, shape). Each species is its own entry of the field table, after its field's; chunks point at the field's first entry, and a blade at its species' entry, so the draws read a blade's look exactly as before. The generation pass picks the species after thinning, so the number and placement of blades do not change. A species' chance applies to the blades the ones before it left, which makes every share exact. A clustered species takes its random number from the blade's 1 m clump instead: shuffled per species, and spread within the clump by the blade's own number, so the share stays exact (unit test, 200,000 blades: within 1%). Five plants ship as presets (`GrassStyle::PLANTS`): `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`. | ✅ Done |
 | V.2 Blade shape | `twist` (turns at the tip; each blade its own way), `droop` (the curve reaches further, its tip sags and its control point rises, so the blade stands up and arches over; each blade its own amount, tall ones the most), `fold` (narrower face-on, edge normals turned inward), and heads (`head`, `head_width`, `head_color`): the strip's last row moves up to the head's widest point and turns toward the camera, so LOD 1 keeps the head and LOD 2 keeps its colour at the tip. All behind the `GRASS_SHAPE` shader definition; the shadow pipeline is now specialized on it too, so shadows have the blades' shape. The droop curve's length correction is within 6% (it is within 1% for the plain blade), which the ±50% height variation hides. | ✅ Done |
 | V.3 Colour | Patches several metres across (`patch_color`, `patch_amount`, `patch_size`) from the gust noise, now also bound to the draws, sampled once per vertex at the root and turned 34° so its repeat does not run along the world's axes; dry tips (`dry_tips`), varying per blade; dead blades (`dead_blades`), head and all. Behind `GRASS_VARIATION`. | ✅ Done |
 | V.4 Placement | Tufts (`tufts`, `tuft_size`): each candidate moves part of the way to its nearest tuft centre, each tuft pulling by its own amount, and leans out from it. Tuft centres come from a 256 KB table like the clump table (a jittered grid's Voronoi cells, 64 tufts a side), because searching nine centres per blade made the clump lookup 40–130% slower in M3. The blade count does not change. Bare patches (`bare_patches`, `bare_patch_size`): density times a smooth step of a two-sample noise, the second sample turned and scaled so the pattern does not visibly repeat; the threshold for a given share comes from the noise's measured distribution (unit test: within 3% of the share). Both are uniform branches per workgroup, skipped when off. | ✅ Done |
@@ -659,6 +680,30 @@ The developer asked for grass that varies the way real fields do, with every kin
 The goldens of the eight new presets are in `tests/golden/`; the developer approved the styles' look on October 15, 2026. Whether DEMO ARPG GAME uses any of this is the developer's decision; its styles are unchanged.
 
 One API change: the species list is not `Copy`, so `GrassStyle { height, ..style }` now moves `style`'s species out of a variable (a preset constant is unaffected). Code that uses the variable afterwards writes `..style.clone()`. DEMO ARPG GAME's `grass.rs` needed that one change, on its local `grass-bevy-grass` branch, where `--grass summer-wild`, `autumn-wild` and `wildflower-meadow` now grow the wild styles (its default is unchanged).
+
+#### API and settings pass (added October 16, 2026)
+
+`review.md` is a review of the crate's API and developer experience, with items ranked P0 (correctness of the contract), P1 (consistency and Bevy idioms) and P2 (polish). On October 16, 2026 all nine P1 items were built, ahead of M5, because they change the public API and are cheapest to change before a release. Nothing was committed at the time of writing.
+
+| Item | Result |
+| --- | --- |
+| P1-1 Visibility, layers, scale | A field honours `Visibility` (and its parent's), `RenderLayers` 0–31 on the field and the camera, and its transform's X and Z scale. A rotated field logs one warning and is drawn unrotated. Showing or hiding a field patches only the field table; no rebuild. `NoGrass` remains as a shorthand. |
+| P1-2 `GrassSettings` | One resource with `LOW`, `MEDIUM`, `HIGH` and `ULTRA` presets; `GrassPlugin { settings }` takes it. Every setting changes at runtime; a capacity change reallocates the buffers. `GrassShadows` is a field of it, and `GrassQuality` stays as a convenience. |
+| P1-3 `GrassCamera` | Optional per-camera overrides of `radius`, `density_scale`, `min_width_px` and `shadows`. `min_width_px` moved off the style onto the settings and the camera, as it is a property of a view. Old `.grass.ron` files that still set it load with a warning. |
+| P1-4 Split `GrassStyle` | `GrassStyle` is a `GrassBlade` plus the field's settings (`GrassVariation`, `GroundTint`, density, toon bands, species). `GrassSpecies` holds a blade only, so settings it would ignore cannot be written. The RON format stays flat; a species that sets field-level keys is an error that names them (`GrassStyleFileError::SpeciesFieldSettings`). |
+| P1-5 System sets | `GrassSystems::{DetectChanges, Rebuild}` are public in `PostUpdate`. Asset edits are noticed through Bevy's asset events, so an asset edit shows the same frame only if the editing system is ordered `.before(AssetEventSystems)`. |
+| P1-6 Reflection | Components, resources and the style asset (`register_asset_reflect`) are fully reflected. Tests do scene-style inserts and inspector-style edits. |
+| P1-7 `GrassSun` | Marks the light grass follows; otherwise the first shadow caster, found by entity index. The plugin warns about a first cascade wider than a blade allows, several unmarked casters, a marked light with shadows off, and several marked lights. The README has the recommended cascade setup. |
+| P1-8 Stats and debug | `GrassStats` (table work, GPU counters read back every 120 frames) and 7 Bevy diagnostics. `GrassDebugPlugin` draws gizmos for fields, chunks, interactors and trample windows. It sits behind the `debug` cargo feature, because gizmos are not in the crate's minimal Bevy feature set, and the promise that adding the crate never changes how Bevy compiles is kept. `cargo test` covers it through a self-referencing dev-dependency. |
+| P1-9 Incremental tables | Packed style images are cached per `AssetId`; only a changed style's entries are rewritten, and a colour-only change uploads only the small field buffer. A test checks that the incremental tables equal from-scratch tables after every kind of change. |
+
+**Checks.** 106 unit tests and 11 doctests (43 unit tests before the pass); 6 GPU tests on the T1200, including new ones for layers and visibility, runtime settings, two cameras at different settings, and stats and overflow; the golden images are unchanged, so rendering did not change; clippy, rustfmt and rustdoc with warnings denied are clean. Key tests were checked to fail when their feature is broken (the shader layer check, the reflection attribute and the table reuse were each removed in turn).
+
+**Breaking changes.** The `GrassPlugin` fields and the per-style `min_width_px` are gone. `GrassStyle` fields moved under `blade`, `variation` and `ground_tint`. A species' `style:` in RON accepts blade keys only; the shipped presets were regenerated, so older copies of them error until their species blocks are trimmed. `GrassSun`, `GrassCamera`, `GrassStats` and `GrassSystems` are new. DEMO ARPG GAME's `grass.rs` (on its local `grass-bevy-grass` branch) was not part of this pass and will need updating for the new API.
+
+**Still open from the review.** P0-1 (one field whose style has not loaded still stalls the whole rebuild), P0-2 (the default style handle renders nothing), P0-3 (masks and heightmaps read through the image's colour space), P0-4 (the `=0.20.0` pin, unchanged) and P0-5 (one validation for the file and code paths). P2 was not started.
+
+**Worth knowing.** In Bevy 0.20, `Entity` orders opposite to spawn order. "First light" uses the entity index, but the field table is still sorted by `Entity`, so fields sit in it in reverse spawn order.
 
 #### M5 Editing and ground (about 2 weeks)
 
@@ -697,4 +742,5 @@ These risks surfaced while planning, in addition to the risks listed in the road
 | `Shadow` phase items and PBR shader imports are Bevy internals that change between releases | Breaks on the 0.21 upgrade | Spikes B and C stay in the repository as tests. All of this code lives in `bevy_glue.rs`. |
 | Ordering of grass compute relative to Bevy's GPU preprocessing inside `Core3d` | Grass draws stale or empty buffers | Order explicitly before the prepass and shadow systems; Spike A verifies it. **Resolved in M0:** the grass compute runs in the `RenderGraph` schedule before `camera_driver`, so before every phase. |
 | DEMO ARPG GAME enables Bevy's `webgl2` feature | If it lowered limits on native builds, storage buffers in vertex shaders would be unavailable | Bevy should apply it only to wasm32 builds. Spike A runs with DEMO ARPG GAME's exact feature list to confirm. **Partly checked in M0:** adding bevy-grass leaves DEMO ARPG GAME's resolved Bevy features identical; grass has not yet run inside DEMO ARPG GAME. |
+| Open P0 items of `review.md` (a field waiting on an unloaded asset stalls every field's rebuild; the default style handle draws nothing; the `=0.20.0` pin) | "No grass and no message" for new users, and the crate cannot be used on another 0.20.x | Fix P0-1 to P0-5 before M6; they are about a day of work |
 | Grass hides loot and telegraphs | Breaks DEMO ARPG GAME's readability rules (AR-04) | Interactors on actors and loot, D1, and the sign-off in step 3.8 |

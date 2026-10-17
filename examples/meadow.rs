@@ -29,9 +29,21 @@ use bevy_grass::prelude::*;
 fn main() {
     let mut app = App::new();
     common::ExampleArgs::parse().install(&mut app, "bevy_grass: meadow");
-    app.add_plugins((GrassPlugin::default(), FreeCameraPlugin))
+    app.add_plugins((GrassPlugin::default(), FreeCameraPlugin, GrassDebugPlugin))
+        // F3 shows what grass thinks: fields, interactors, trample windows.
+        .insert_resource(GrassDebug {
+            enabled: false,
+            ..default()
+        })
         .add_systems(Startup, setup)
+        .add_systems(Update, toggle_debug)
         .run();
+}
+
+fn toggle_debug(keys: Res<ButtonInput<KeyCode>>, mut debug: ResMut<GrassDebug>) {
+    if keys.just_pressed(KeyCode::F3) {
+        debug.enabled = !debug.enabled;
+    }
 }
 
 /// Side of the meadow, in metres: beyond the High tier's 100 m radius.

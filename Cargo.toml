@@ -28,7 +28,16 @@ bytemuck = "1"
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 
+[features]
+# `GrassDebugPlugin`: gizmos for fields, chunks, interactors and trample
+# windows. It needs `bevy_gizmos`, which a game using `DefaultPlugins` has
+# already, so it is off by default: adding this crate must never change how
+# Bevy is compiled.
+debug = ["bevy/bevy_gizmos"]
+
 [dev-dependencies]
+# The crate's own tests cover the debug plugin too.
+bevy_grass = { path = ".", features = ["debug"] }
 bevy = { version = "=0.20.0", default-features = false, features = [
   "3d",
   "tonemapping_luts",

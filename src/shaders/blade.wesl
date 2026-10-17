@@ -132,10 +132,10 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
         point += across * flutter * t * t * height;
     }
 
-    // Widen blades narrower than the style's minimum on-screen width, keeping
+    // Widen blades narrower than the camera's minimum on-screen width, keeping
     // the taper; sub-pixel blades shimmer.
     let metres_per_pixel = (eye.clip_from_world * vec4<f32>(instance.root, 1.0)).w * eye.pixel_scale;
-    let widen = max(1.0, field.motion.z * metres_per_pixel / max(root_width, 1e-6));
+    let widen = max(1.0, grass_view.min_width_px * metres_per_pixel / max(root_width, 1e-6));
     var width = root_width * widen * (1.0 - pow(t, 1.4));
     // Rounded normals: each edge tilts its normal outward by about 30°, so the
     // flat strip shades like a curved leaf.

@@ -72,14 +72,14 @@ fn main() {
         .run();
 }
 
-fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut shadows: ResMut<GrassShadows>) {
+fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
     if keys.just_pressed(KeyCode::KeyS) {
-        *shadows = if *shadows == GrassShadows::Off {
+        grass.shadows = if grass.shadows == GrassShadows::Off {
             GrassShadows::Near
         } else {
             GrassShadows::Off
         };
-        info!("grass shadows: {:?}", *shadows);
+        info!("grass shadows: {:?}", grass.shadows);
     }
 }
 

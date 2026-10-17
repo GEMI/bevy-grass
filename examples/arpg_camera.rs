@@ -55,6 +55,7 @@ fn walk(time: Res<Time>, mut walkers: Query<(&Walker, &mut Transform)>) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -72,6 +73,12 @@ fn setup(
     transform.translation = target - transform.forward() * CAMERA_DISTANCE;
     commands.spawn((
         Camera3d::default(),
+        // The camera is far from the ground, so blades are thin on screen: at
+        // least 2 pixels wide. A pixel width belongs to the camera, not the style.
+        GrassCamera {
+            min_width_px: Some(2.0),
+            ..default()
+        },
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::FixedVertical {
                 viewport_height: VIEW_HEIGHT_METRES,
@@ -156,12 +163,14 @@ fn setup(
     commands.spawn(GrassField {
         size: Vec2::splat(64.0),
         style: styles.add(GrassStyle {
-            height: Vec2::new(0.4, 0.9),
-            width: 0.05,
+            blade: GrassBlade {
+                height: Vec2::new(0.4, 0.9),
+                width: 0.05,
+                ..GrassStyle::TALL_PRAIRIE.blade
+            },
             // 36, not 45: the look approved at gate G1 drew 36 per m² while a
             // rounding bug capped 45 (fixed in the perf pass).
             density: 36.0,
-            min_width_px: 2.0,
             ..GrassStyle::TALL_PRAIRIE
         }),
         ..default()

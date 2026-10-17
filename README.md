@@ -101,29 +101,77 @@ scene still needs a camera, a light and something to stand on.
 
 ### Pick a quality tier
 
-The tier sets how far grass reaches, how dense it is, and how many blades
-each camera's buffers hold. Pick it once, when adding the plugin:
+`GrassSettings` sets how far grass reaches, how dense it is, which blades cast
+shadows, and how many blades and interactors each camera's buffers hold. It
+has a preset per hardware tier, and you change what you like with struct
+update syntax, the same as for styles and wind:
 
 ```rust
 app.add_plugins(GrassPlugin {
-    quality: GrassQuality::Medium,
-    shadows: Some(GrassShadows::Off),
-    max_interactors: Some(512),
-    ..default()
+    settings: GrassSettings {
+        shadows: GrassShadows::Off,
+        max_interactors: 512,
+        ..GrassSettings::MEDIUM
+    },
 });
 ```
+
+Every setting can change at runtime, so a graphics menu can offer them. The
+settings are also a resource:
+
+```rust
+fn apply_graphics_menu(mut grass: ResMut<GrassSettings>) {
+    *grass = GrassSettings::LOW;
+    grass.radius = 60.0; // Low, but reaching a little further
+}
+```
+
+Raising `instance_capacity` or `max_interactors` makes each camera allocate
+its buffers again, once. Values out of range are clamped, with a warning that
+names the setting.
+
+### Draw differently on one camera
+
+Settings that are about a view live on the camera, as Bevy's own `Msaa` and
+`Bloom` do. `GrassCamera` overrides any of `radius`, `density_scale`,
+`min_width_px` and `shadows` for that camera; what it leaves at `None` follows
+`GrassSettings`, including when that changes:
+
+```rust
+// A minimap at low detail beside a main camera at the settings' High.
+commands.spawn((
+    Camera3d::default(),
+    GrassCamera {
+        radius: Some(30.0),
+        density_scale: Some(0.4),
+        shadows: Some(GrassShadows::Off),
+        ..default()
+    },
+));
+```
+
+A camera far above the ground, like an ARPG's, wants thicker blades: its
+blades are thin on screen, so it asks for `min_width_px: Some(2.0)`. That is a
+property of the camera, not of the grass, which is why it is not in
+`GrassStyle`. (Old `.grass.ron` files that still set `min_width_px` load, with
+a warning; the line is ignored.)
 
 ### Make your own style
 
 `GrassStyle` is an asset, so many fields can share one. Start from a preset
-and change what you need:
+and change what you need. A style is a `GrassBlade` (what the grass looks
+like) plus what belongs to the whole field (density, variation, the ground,
+toon shading, other plants), so the blade is one level in:
 
 ```rust
 fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
     let style = GrassStyle {
-        height: Vec2::new(0.6, 1.2),
-        tip_color: Color::srgb(0.75, 0.70, 0.35),
-        stiffness: 0.6,
+        blade: GrassBlade {
+            height: Vec2::new(0.6, 1.2),
+            tip_color: Color::srgb(0.75, 0.70, 0.35),
+            stiffness: 0.6,
+            ..GrassStyle::TALL_PRAIRIE.blade
+        },
         ..GrassStyle::TALL_PRAIRIE
     }
     .with_spacing(0.15); // blades about 15 cm apart
@@ -140,7 +188,26 @@ fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
 ```
 
 Changing a style asset at runtime (`styles.get_mut(&field.style)`) changes
-every field that uses it on the next frame.
+every field that uses it on the next frame, and it is cheap enough to do every
+frame, for a season or day/night blend or wet grass:
+
+```rust
+fn season(time: Res<Time>, mut styles: ResMut<Assets<GrassStyle>>, field: Single<&GrassField>) {
+    let t = (time.elapsed_secs() * 0.1).sin() * 0.5 + 0.5;
+    if let Some(mut style) = styles.get_mut(&field.style) {
+        style.blade.tip_color = Color::srgb(0.34 + 0.3 * t, 0.56 - 0.1 * t, 0.14);
+    }
+}
+```
+
+What a change costs is in proportion to what it touches. A mask or heightmap
+is read from its image once, and again only when that image changes (a 4096 by
+4096 mask takes milliseconds to read, once, not per frame). A style change
+rewrites only the entries of the fields that use that style, and the chunks,
+masks and heightmaps are neither rebuilt nor uploaded again. Moving a field
+sideways rewrites only its entry. A change no field shows costs nothing.
+`GrassStats::tables` counts it: `images_read`, `entries_rewritten`, `rebuilds`
+and the expensive `layout_rebuilds`.
 
 ### Grow grass on a heightmap, with a density mask
 
@@ -189,22 +256,128 @@ Grass within `radius` lies down away from the entity. When it leaves, the
 grass springs back over about 1.5 s, so moving things leave trails. The cost
 is the same for one interactor or 512.
 
-### Change the wind, or turn shadows off at runtime
+### Change the wind, or turn grass shadows off at runtime
 
 ```rust
 fn storm(mut wind: ResMut<Wind>) {
     *wind = Wind { direction: Vec2::new(1.0, 0.3), ..Wind::STORM };
 }
 
-fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut shadows: ResMut<GrassShadows>) {
+fn toggle_shadows(keys: Res<ButtonInput<KeyCode>>, mut grass: ResMut<GrassSettings>) {
     if keys.just_pressed(KeyCode::KeyG) {
-        *shadows = match *shadows {
+        grass.shadows = match grass.shadows {
             GrassShadows::Off => GrassShadows::Near,
             _ => GrassShadows::Off,
         };
     }
 }
 ```
+
+### See what grass is doing
+
+"Why is there no grass here?" and "why did that frame spike?" can be answered
+without a profiler.
+
+**`GrassStats`** is a resource with the numbers: blades per level of detail,
+visible chunk slices, buffer overflows, table rebuilds and how long the last
+one took, and fields or species a limit left out. The GPU numbers are read
+back every 120 frames, summed over cameras.
+
+```rust
+fn hud(stats: Res<GrassStats>) {
+    if stats.gpu.overflows > 0 {
+        warn!("grass buffers overflowed: raise GrassSettings::instance_capacity");
+    }
+    if stats.tables.fields_dropped > 0 {
+        warn!("{} fields are not drawn: the tables hold 256 entries", stats.tables.fields_dropped);
+    }
+}
+```
+
+The same numbers are Bevy diagnostics, for `LogDiagnosticsPlugin` or an
+overlay: `grass/blades/near`, `/mid`, `/far`, `grass/visible_slices`,
+`grass/overflows`, `grass/table_rebuilds` and `grass/rebuild_time` (ms), as
+the constants of `GrassDiagnostics`.
+
+**`GrassDebugPlugin`** draws gizmos for what grass has: every field's
+rectangle (grey while hidden, so scale, rotation and visibility problems show),
+the 16 m chunks, each interactor's disc (red where a radius over 2 m is cut
+off) and each camera's 64 m trample window. Toggle parts with the `GrassDebug`
+resource; `enabled` is the master switch (the `meadow` example binds it to F3).
+It needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`, so
+adding this crate never changes how Bevy is compiled:
+
+```toml
+bevy_grass = { version = "0.1", features = ["debug"] }
+```
+
+### Scenes, inspectors and save files
+
+Every public type is reflected, with the type data tools look for:
+`ReflectComponent` on `GrassField`, `GrassInteractor`, `GrassCamera` and
+`NoGrass`; `ReflectResource` on `Wind` and `GrassSettings`; `ReflectAsset` on
+`GrassStyle` (the plugin calls `register_asset_reflect`). So fields can be
+spawned from `.scn.ron` scenes, BSN or Blender exporters such as Skein and
+Blenvy, `Wind`, `GrassSettings` and styles show up in resource and asset
+panels of inspectors such as `bevy-inspector-egui`, and a designer can tune a
+meadow live there instead of editing RON. A reflected `GrassField` takes its
+style from a handle, so give it one in code after loading the scene.
+
+### Order your systems against the grass
+
+Fields, styles and images are turned into GPU tables only when they change.
+Two public system sets in `PostUpdate`, `GrassSystems::DetectChanges` then
+`GrassSystems::Rebuild`, run after Bevy has propagated transforms and
+visibility and sent asset events. Order your own systems against them when a
+change must show this frame, for procedural terrain or runtime painting:
+
+```rust
+// Moving or showing fields: before DetectChanges.
+app.add_systems(PostUpdate, stream_in_the_level.before(GrassSystems::DetectChanges));
+// Editing a density mask, a heightmap or a style: before Bevy sends the
+// asset events.
+app.add_systems(PostUpdate, paint_density_mask.before(AssetEventSystems));
+```
+
+Systems in `Update` need no ordering. Without any, a change shows the next
+frame.
+
+### Shadows
+
+Grass receives shadows from every light. It casts them for one directional
+light, set by `GrassSettings::shadows` (`Off`, `Near`, `Full`), and a blade is
+only a centimetre or two wide, so how that light's cascades are set up decides
+whether blade shadows look right. Use a shallow first cascade, and mark the
+light grass should follow with `GrassSun`:
+
+```rust
+commands.spawn((
+    DirectionalLight { shadow_maps_enabled: true, ..default() },
+    CascadeShadowConfigBuilder {
+        num_cascades: 3,
+        first_cascade_far_bound: 12.0,
+        maximum_distance: 60.0,
+        ..default()
+    }
+    .build(),
+    GrassSun,
+));
+```
+
+- **Why 12 m.** Grass draws its shadows into the first cascade (`Near`) or the
+  first two (`Full`). A shadow texel is about `1.5 × first cascade depth ÷
+  shadow map size`: with one cascade over 60 m in a 2048 map that is 4 to
+  5 cm, wider than a blade, so each blade's shadow switches on and off as it
+  sways across a texel centre and blade shadows blink. At 12 m a texel is
+  under 1 cm.
+- **Which light.** With a sun and a moon there are two directional lights.
+  Without `GrassSun`, grass follows the first one that casts shadows (the one
+  spawned first); with it, the marked one, and a marked light that casts no
+  shadows means grass casts none.
+- **The log helps.** The plugin warns, once, when the first cascade is deeper
+  than the narrowest blades allow (it says how deep it can be), when several
+  lights cast shadows and none is marked, when a marked light does not cast
+  shadows, and when more than one light is marked.
 
 ### Mix in flowers, seed heads and clover
 
@@ -213,27 +386,39 @@ much it grows in patches:
 
 ```rust
 let field = GrassStyle::SUMMER_TALL.with_species(vec![
-    GrassSpecies::new(GrassStyle::SEED_HEADS, 0.10),
-    GrassSpecies::new(GrassStyle::WHITE_FLOWERS, 0.03).clustered(0.8),
+    GrassSpecies::new(GrassBlade::SEED_HEADS, 0.10),
+    GrassSpecies::new(GrassBlade::WHITE_FLOWERS, 0.03).clustered(0.8),
     GrassSpecies::new(
-        GrassStyle { head_color: Color::srgb(0.70, 0.45, 0.95), ..GrassStyle::WHITE_FLOWERS },
+        GrassBlade { head_color: Color::srgb(0.70, 0.45, 0.95), ..GrassBlade::WHITE_FLOWERS },
         0.02,
     )
     .clustered(0.8),
 ]);
 let wild = GrassStyle {
-    tufts: 0.3,         // gather blades into tufts
-    bare_patches: 0.05, // 5% of the ground bare
-    droop: 0.25,        // tall blades arch over
-    patch_amount: 0.4,  // colour drifts in patches several metres across
-    dry_tips: 0.2,
+    blade: GrassBlade {
+        droop: 0.25, // tall blades arch over
+        ..field.blade
+    },
+    variation: GrassVariation {
+        tufts: 0.3,         // gather blades into tufts
+        bare_patches: 0.05, // 5% of the ground bare
+        patch_amount: 0.4,  // colour drifts in patches several metres across
+        dry_tips: 0.2,
+        ..field.variation
+    },
     ..field
 };
 ```
 
+A species is a `GrassBlade` and a share. The density, the ground and the
+variation belong to the field's style, so a species has no place to put them:
+the compiler does not let you set them there, and a `.grass.ron` file that
+tries gets an error that names them.
+
 `GrassStyle::SUMMER_WILD`, `AUTUMN_WILD` and `WILDFLOWER_MEADOW` are ready-made
 examples. `GrassSpecies` and `GrassStyle` are not `Copy`, so to reuse a style
-held in a variable after `..style`, write `..style.clone()`.
+held in a variable after `..style`, write `..style.clone()` (`GrassBlade` is
+`Copy`).
 
 ### Load styles from files, and edit them live
 
@@ -249,7 +434,9 @@ commands.spawn(GrassField {
 ```
 
 Every field is optional, and a missing one comes from `base`, a preset name.
-A variant lists only what differs, and colours are sRGB:
+A variant lists only what differs, and colours are sRGB. The file is flat:
+the blade's settings and the field's sit side by side, as in the tables below.
+A species lists its blade settings only:
 
 ```ron
 (
@@ -295,11 +482,28 @@ fn ground(
 A custom terrain shader can call the same WESL function instead:
 `bevy_grass::shaders::far::grass_far_color`.
 
-### Leave a camera out
+### Hide a field, or leave a camera out
+
+Fields and cameras follow Bevy's usual rules for what is drawn where:
 
 ```rust
-commands.spawn((Camera3d::default(), NoGrass)); // a minimap, say
+// Hide a field, or a whole level it is a child of, and show it again. Nothing
+// is rebuilt either way.
+commands.entity(field).insert(Visibility::Hidden);
+
+// Split-screen, a minimap, a mirror: a camera draws the fields it shares a
+// render layer with. A field or camera without `RenderLayers` is on layer 0.
+commands.spawn((Camera3d::default(), RenderLayers::layer(1))); // a minimap
+commands.spawn((GrassField { size: Vec2::splat(64.0), style, ..default() },
+                RenderLayers::from_layers(&[0, 1])));          // seen by both
+
+// Or keep a camera from drawing any grass at all.
+commands.spawn((Camera3d::default(), NoGrass));
 ```
+
+Layers 0 to 31 are supported. A field is `size` times the transform's X and Z
+scale, so a scaled field is bigger, like a scaled `Plane3d`. Rotation is not
+supported yet: a rotated field is drawn unrotated, with one warning.
 
 Every other 3D camera draws its own grass, with its own culling and level of
 detail.
@@ -346,9 +550,10 @@ Everything a game needs is in `bevy_grass::prelude`.
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `GrassPlugin` | Plugin | Registers everything. Fields: `quality`, `instance_capacity: Option<u32>` (overrides the tier's per-camera blade capacity), `shadows: Option<GrassShadows>` (overrides the tier's shadow mode at startup), `max_interactors: Option<u32>` (64 when not set) |
-| `GrassQuality` | Enum | `Low`, `Medium`, `High` (default), `Ultra`. See the table below |
-| `GrassShadows` | Enum and resource | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). Change the resource at any time |
+| `GrassPlugin` | Plugin | Registers everything. One field, `settings: GrassSettings` (`High` by default) |
+| `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`. Presets `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
+| `GrassQuality` | Enum | `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
+| `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |
 
 | Tier | Meant for | Grass radius | Blade capacity per camera | Density | Shadows |
 | --- | --- | --- | --- | --- | --- |
@@ -357,50 +562,64 @@ Everything a game needs is in `bevy_grass::prelude`.
 | `High` | RTX 3060 / RX 6700 | 100 m | 600,000 | 100% | Near |
 | `Ultra` | RTX 4070 and up | 150 m | 1,200,000 | 100% | Full |
 
-`GrassQuality` also has `const fn`s for each column: `radius()`,
-`instance_capacity()`, `density_scale()`, `shadows()`, and
-`orthographic_lod()` (the detail level orthographic cameras use: 3-row blades,
-or 7-row at Ultra).
+These are the presets of `GrassSettings`; `orthographic_lod` (the detail level
+orthographic cameras use: 3-row blades, or 7-row at Ultra) is the one column
+not shown. `GrassQuality` has a `const fn` for each column as well:
+`settings()`, `radius()`, `instance_capacity()`, `density_scale()`,
+`shadows()` and `orthographic_lod()`.
 
 ### Components and resources
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `GrassField` | Component (requires `Transform`) | One rectangle of grass. `size: Vec2` (metres, X and Z), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density: Option<Handle<Image>>` (mask: red density, green height multiplier) |
+| `GrassSystems` | System set | `DetectChanges`, then `Rebuild`, in `PostUpdate`: order your systems against them |
+| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density: Option<Handle<Image>>` (mask: red density, green height multiplier) |
 | `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
 | `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to 2), `strength` (0–1, default 1) |
 | `Wind` | Resource | `direction: Vec2` (XZ), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
-| `NoGrass` | Component | On a camera: draw no grass there |
+| `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped) and `gpu` (blades per level of detail, slices, overflows) |
+| `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |
+| `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (feature `debug`) | Gizmos for fields, chunks, interactors and trample windows |
+| `GrassSun` | Component | On a directional light: the one grass casts shadows for, and a deferred camera treats as the sun. Without it, the first shadow-casting one |
+| `GrassCamera` | Component | On a camera: overrides `radius`, `density_scale`, `min_width_px` and `shadows` of `GrassSettings` for that camera (each an `Option`; `None` follows the resource) |
+| `NoGrass` | Component | On a camera: draw no grass there (a shorthand for a `RenderLayers` that shares none with any field) |
 
 ### `GrassStyle` (asset)
 
-Units are metres unless stated. Settings marked *field* belong to the whole
-field; a species uses only the others, which describe a blade.
+Units are metres unless stated. A style has a `blade: GrassBlade` and the
+settings of the whole field. In a `.grass.ron` file all of them sit side by
+side.
+
+**`style.blade`** (`GrassBlade`; also what a `GrassSpecies` has):
 
 | Setting | Meaning |
 | --- | --- |
 | `height: Vec2` | Shortest and tallest blade |
 | `width` | Blade width at the root; each blade varies ±25% |
-| `density` | *Field.* Blades per m² at full density (see `spacing()`) |
 | `lean` | How far the tip leans at rest, as a share of the height |
 | `stiffness` | Resistance to wind, 0 (soft) to 1 (stiff) |
 | `root_color`, `tip_color` | Colours along the blade |
 | `root_occlusion` | How much darker the roots are, 0–1 |
 | `translucency` | How much sunlight shows through a backlit blade, 0–1 |
-| `min_width_px` | *Field.* Minimum on-screen width in pixels, against shimmer |
 | `specular` | Rough sheen on the upper half of the blade, 0–1 |
-| `ground_color`, `ground_tint` | *Field.* Blend the lowest third of each blade toward the ground's colour, 0–1 |
-| `toon_bands` | *Field.* Flat toon shading with this many bands; 0 is physically based |
 | `twist` | Twist along the blade, in turns at the tip; each blade its own way |
 | `droop` | How far blades arch over and hang, 0–1; tall blades the most |
 | `fold` | How far blades fold along the midrib, 0–1 |
 | `head`, `head_width`, `head_color` | A seed head or flower at the top: its share of the length, width and colour. It turns toward the camera |
-| `patch_color`, `patch_amount`, `patch_size` | *Field.* Large patches where blades drift toward another colour |
-| `dry_tips` | *Field.* How far the tops of blades dry toward straw, 0–1 |
-| `dead_blades` | *Field.* Share of blades that are dead and straw-coloured |
-| `tufts`, `tuft_size` | *Field.* How strongly blades gather into tufts (0–1), and the distance between tufts. The blade count stays the same |
-| `bare_patches`, `bare_patch_size` | *Field.* Share of the ground left bare, in patches whose edges thin out, and their size |
-| `species` | *Field.* Other plants among the blades, a list of `GrassSpecies` (up to 15) |
+
+**The field's settings:**
+
+| Setting | Meaning |
+| --- | --- |
+| `density` | Blades per m² at full density (see `spacing()`) |
+| `ground_tint` (`GroundTint`: `color`, `amount`) | Blend the lowest third of each blade toward the ground's colour, 0–1. In files: `ground_color`, `ground_tint` |
+| `toon_bands` | Flat toon shading with this many bands; 0 is physically based |
+| `variation.patch_color`, `patch_amount`, `patch_size` | Large patches where blades drift toward another colour |
+| `variation.dry_tips` | How far the tops of blades dry toward straw, 0–1 |
+| `variation.dead_blades` | Share of blades that are dead and straw-coloured |
+| `variation.tufts`, `tuft_size` | How strongly blades gather into tufts (0–1), and the distance between tufts. The blade count stays the same |
+| `variation.bare_patches`, `bare_patch_size` | Share of the ground left bare, in patches whose edges thin out, and their size |
+| `species` | Other plants among the blades, a list of `GrassSpecies` (up to 15) |
 
 Every variation setting (`twist` through `bare_patches`, and `species`) is
 off at 0 or empty, and costs nothing while no field uses it.
@@ -421,7 +640,7 @@ off at 0 or empty, and costs nothing while no field uses it.
 | `GrassStyle::SUMMER` | `SUMMER_TALL`, `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`: tall green grass, 0.7–1.5 m |
 | `GrassStyle::AUTUMN` | `AUTUMN_TALL`, `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`: tall brown grass that mixes with the summer set |
 | `GrassStyle::WILD` | `SUMMER_WILD`, `AUTUMN_WILD`, `WILDFLOWER_MEADOW`: every kind of variation |
-| `GrassStyle::PLANTS` | `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`: to mix in as species, or to grow alone |
+| `GrassStyle::PLANTS` | `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`: to grow alone, or to mix in as species through the `GrassBlade` of the same name (`GrassBlade::CLOVER`) |
 
 ### `GrassSpecies`
 
@@ -429,8 +648,8 @@ off at 0 or empty, and costs nothing while no field uses it.
 | --- | --- |
 | `share` | Share of the field's blades, 0–1, and exact. If the shares add up to more than 1, they are scaled down in proportion and the style's own blades disappear |
 | `clustering` | 0: scattered evenly. 1: grows in patches about a metre across |
-| `style` | What its blades look like: the settings above not marked *field* |
-| `GrassSpecies::new(style, share)` | A scattered species (`const`) |
+| `blade` | What its blades look like: a `GrassBlade`. In a file, `style:` with the blade settings |
+| `GrassSpecies::new(blade, share)` | A scattered species (`const`) |
 | `.clustered(amount)` | The same species, growing in patches |
 
 ### Far grass
@@ -449,7 +668,7 @@ off at 0 or empty, and costs nothing while no field uses it.
 | Item | What it does |
 | --- | --- |
 | `GrassStyleLoader` | Asset loader for `.grass.ron`, registered by the plugin |
-| `GrassStyleFileError` | `Io`, `Parse`, `UnknownBase`, `Invalid`: why a file could not be read |
+| `GrassStyleFileError` | `Io`, `Parse`, `UnknownBase`, `Invalid`, `SpeciesFieldSettings`: why a file could not be read |
 
 ## How it is fast
 
@@ -466,7 +685,9 @@ records both kinds with numbers.
    visible chunk, generates the blades. Each blade passes a density test, a
    frustum test (its shadow included) and a level-of-detail choice, then is
    appended as a 16-byte instance. The CPU only records commands, and uploads
-   chunk data only when a field changes.
+   only what changed: a style edit rewrites that style's table entries, a
+   colour-only edit uploads one small buffer, and masks and heightmaps are read
+   from their images once.
 3. **Three indirect draws per camera**, whatever the number of fields or
    chunks. There is no vertex buffer: the vertex shader builds each blade from
    its instance and a shared index buffer.
@@ -513,8 +734,9 @@ records both kinds with numbers.
 2. **Rounded normals.** Normals tilt across the blade's width, so a flat strip
    shades like a curved leaf. Back faces are lit as well as front faces.
 3. **No paper-thin blades.** A blade turning edge-on to the camera rotates
-   slightly toward it. Blades never get narrower than `min_width_px` on
-   screen, which removes most shimmer.
+   slightly toward it. Blades never get narrower than
+   `GrassSettings::min_width_px` (1 pixel by default) on screen, which removes
+   most shimmer.
 4. **Even, natural spacing.** Positions come from a blue-noise tile, with no
    bald spots or accidental clumps, and the field reads equally dense at every
    distance.
@@ -596,6 +818,13 @@ predate that change.
   thinning only removes blades, species shares, blade length under bend). An
   opt-in GPU test reads blades back and compares them with the mirror:
   `cargo test -- --ignored gpu`.
+- **Behaviour.** 106 unit tests and 11 doctests cover settings and presets,
+  the style file format, visibility and render layers, reflection (scene-style
+  inserts and inspector-style edits), the sun and cascade warnings, statistics,
+  and incremental table updates: after every kind of change the incremental
+  tables must equal tables built from scratch. GPU tests (`cargo test -- --ignored gpu`)
+  also cover layers and visibility, runtime settings, two cameras at different
+  settings, and buffer overflow reporting.
 - **Lints.** `unsafe_code` is forbidden; clippy's pedantic set and rustdoc's
   missing-docs check pass.
 

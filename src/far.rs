@@ -76,8 +76,8 @@ impl FarGrass {
     /// blades thin out.
     pub fn new(style: &GrassStyle, quality: GrassQuality) -> Self {
         let radius = quality.radius();
-        let root = LinearRgba::from(style.root_color);
-        let tip = LinearRgba::from(style.tip_color);
+        let root = LinearRgba::from(style.blade.root_color);
+        let tip = LinearRgba::from(style.blade.tip_color);
         // Seen from afar, the upper part of the blades hides the rest. Lit,
         // grass is about half as bright as flat ground of its colour: blades
         // shade each other and catch the sun edge-on, while the ground faces

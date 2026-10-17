@@ -61,11 +61,19 @@ fn read_buffer(
 /// Every instance the GPU generated for the first grass view, all four
 /// words, and the view uniform they were generated with.
 fn gpu_words(app: &mut App) -> Option<(ViewUniformData, Vec<[u32; 4]>)> {
+    gpu_words_of(app, None)
+}
+
+/// The same for one camera, named by its main-world entity; `None`: the
+/// first grass view.
+fn gpu_words_of(app: &mut App, camera: Option<Entity>) -> Option<(ViewUniformData, Vec<[u32; 4]>)> {
     let world = app.sub_app_mut(RenderApp).world_mut();
     let device = world.resource::<RenderDevice>().clone();
     let queue = world.resource::<RenderQueue>().clone();
-    let mut views = world.query::<&GrassViewBuffers>();
-    let buffers = views.iter(world).next()?;
+    let mut views = world.query::<(&bevy::render::sync_world::MainEntity, &GrassViewBuffers)>();
+    let (_, buffers) = views
+        .iter(world)
+        .find(|(main, _)| camera.is_none_or(|camera| main.id() == camera))?;
     let uniform = *buffers.uniform.get();
     let counters = read_buffer(&device, &queue, &buffers.counters, 16);
     let instances = read_buffer(
@@ -93,7 +101,15 @@ fn gpu_words(app: &mut App) -> Option<(ViewUniformData, Vec<[u32; 4]>)> {
 /// Words 0–2 of every instance (word 3 is the wind, which samples a
 /// texture), and the view uniform.
 fn gpu_instances(app: &mut App) -> Option<(ViewUniformData, Vec<[u32; 3]>)> {
-    let (uniform, words) = gpu_words(app)?;
+    gpu_instances_of(app, None)
+}
+
+/// The same for one camera, named by its main-world entity.
+fn gpu_instances_of(
+    app: &mut App,
+    camera: impl Into<Option<Entity>>,
+) -> Option<(ViewUniformData, Vec<[u32; 3]>)> {
+    let (uniform, words) = gpu_words_of(app, camera.into())?;
     Some((uniform, words.iter().map(|w| [w[0], w[1], w[2]]).collect()))
 }
 
@@ -441,4 +457,362 @@ fn gpu_trampled_grass_lies_down_stays_put_and_recovers() {
         recovered.iter().all(|(_, bend)| bend.length() < 0.1),
         "flattened grass did not recover"
     );
+}
+
+/// Blades the first grass view generated, `frames` frames from now.
+fn blades_after(app: &mut App, frames: usize) -> usize {
+    for _ in 0..frames {
+        app.update();
+    }
+    gpu_instances(app).map_or(0, |(_, instances)| instances.len())
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_draws_a_field_only_where_visibility_and_render_layers_allow() {
+    use bevy::camera::visibility::RenderLayers;
+
+    let mut app = headless_app();
+    // Shaders compile asynchronously; wait until a frame has produced grass.
+    let mut drawn = 0;
+    for _ in 0..600 {
+        drawn = blades_after(&mut app, 1);
+        if drawn > 0 {
+            break;
+        }
+    }
+    assert!(drawn > 10_000, "the test scene should place many blades");
+
+    let world = app.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<Camera3d>>()
+        .single(world)
+        .unwrap();
+    let field = world
+        .query_filtered::<Entity, With<GrassField>>()
+        .single(world)
+        .unwrap();
+
+    // A camera on another layer sees no field on layer 0, as for meshes.
+    app.world_mut()
+        .entity_mut(camera)
+        .insert(RenderLayers::layer(1));
+    assert_eq!(blades_after(&mut app, 4), 0, "the camera is on layer 1");
+
+    // The field joins it; the field may be on several layers.
+    app.world_mut()
+        .entity_mut(field)
+        .insert(RenderLayers::from_layers(&[1, 2]));
+    assert!(blades_after(&mut app, 4) > 10_000, "they share layer 1");
+
+    // Hidden wins over layers, and showing it again needs no new grass.
+    app.world_mut().entity_mut(field).insert(Visibility::Hidden);
+    assert_eq!(blades_after(&mut app, 4), 0, "the field is hidden");
+    app.world_mut()
+        .entity_mut(field)
+        .insert(Visibility::Inherited);
+    assert!(blades_after(&mut app, 4) > 10_000, "the field is back");
+
+    // A hidden parent hides the field (a streamed-out level, say).
+    let level = app.world_mut().spawn(Visibility::Visible).id();
+    app.world_mut().entity_mut(field).insert(ChildOf(level));
+    assert!(blades_after(&mut app, 4) > 10_000, "the level is visible");
+    app.world_mut().entity_mut(level).insert(Visibility::Hidden);
+    assert_eq!(blades_after(&mut app, 4), 0, "the level is hidden");
+    app.world_mut()
+        .entity_mut(level)
+        .insert(Visibility::Visible);
+    assert!(blades_after(&mut app, 4) > 10_000, "the level is back");
+
+    // Without a layer of its own the camera is on layer 0 again, where the
+    // field no longer is.
+    app.world_mut().entity_mut(camera).remove::<RenderLayers>();
+    assert_eq!(
+        blades_after(&mut app, 4),
+        0,
+        "the camera is back on layer 0"
+    );
+}
+
+/// The view uniform and blade count of the first grass view, `frames` frames
+/// from now.
+fn view_after(app: &mut App, frames: usize) -> (ViewUniformData, usize) {
+    for _ in 0..frames {
+        app.update();
+    }
+    let (uniform, instances) = gpu_instances(app).expect("a grass view");
+    (uniform, instances.len())
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_every_setting_takes_effect_at_runtime() {
+    use crate::{GrassSettings, GrassShadows};
+
+    let mut app = headless_app();
+    let mut start = (ViewUniformData::default(), 0);
+    for _ in 0..600 {
+        start = view_after(&mut app, 1);
+        if start.1 > 0 {
+            break;
+        }
+    }
+    let (view, all) = start;
+    assert!(all > 10_000, "the test scene should place many blades");
+    let high = GrassSettings::HIGH;
+    assert_eq!(view.bucket_capacity.x, high.instance_capacity);
+    assert_eq!(view.radius, DistanceLod::for_radius(high.radius).radius);
+
+    // Density scale: half the density keeps about half the blades.
+    app.world_mut()
+        .resource_mut::<GrassSettings>()
+        .density_scale = 0.5;
+    let (view, half) = view_after(&mut app, 4);
+    assert_eq!(view.density_scale, 0.5);
+    assert!(
+        (all as f32 * 0.4..all as f32 * 0.6).contains(&(half as f32)),
+        "{half} blades at half density, {all} at full"
+    );
+
+    // Radius: a shorter reach draws fewer blades.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        radius: 20.0,
+        ..high
+    };
+    let (view, near) = view_after(&mut app, 4);
+    assert_eq!(view.radius, DistanceLod::for_radius(20.0).radius);
+    assert!(
+        near < all / 2,
+        "{near} blades within 20 m, {all} within 100 m"
+    );
+
+    // Capacity: the buffers are made again at the new size, and the view
+    // never draws past it.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        instance_capacity: 4_000,
+        ..high
+    };
+    let (view, small) = view_after(&mut app, 6);
+    assert_eq!(view.bucket_capacity.x, 4_000, "the buffers were not remade");
+    assert!(
+        small > 0 && small <= 4_000 + 2_000 + 2_000,
+        "{small} blades"
+    );
+    *app.world_mut().resource_mut::<GrassSettings>() = high;
+    let (view, again) = view_after(&mut app, 6);
+    assert_eq!(view.bucket_capacity.x, high.instance_capacity);
+    assert_eq!(
+        again, all,
+        "the same grass comes back with the same settings"
+    );
+
+    // Shadows are read every frame too (no light here, so only the setting
+    // itself can be checked, through the extracted copy).
+    app.world_mut().resource_mut::<GrassSettings>().shadows = GrassShadows::Full;
+    app.update();
+    app.update();
+    let extracted = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<super::resources::ExtractedGrass>();
+    assert_eq!(extracted.settings.shadows, GrassShadows::Full);
+
+    // Nonsense is clamped, not trusted: a NaN radius falls back to the
+    // default and a negative density draws nothing.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        radius: f32::NAN,
+        ..high
+    };
+    let (_, nan) = view_after(&mut app, 4);
+    assert_eq!(nan, all, "a NaN radius must act like the default");
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        density_scale: -3.0,
+        ..high
+    };
+    let (_, none) = view_after(&mut app, 4);
+    assert_eq!(none, 0, "a negative density scale must clamp to no grass");
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_two_cameras_draw_with_their_own_settings() {
+    use crate::GrassSettings;
+    use crate::api::GrassCamera;
+
+    let mut app = headless_app();
+    let main = app
+        .world_mut()
+        .query_filtered::<Entity, With<Camera3d>>()
+        .single(app.world())
+        .unwrap();
+    // A minimap looking at the same grass from the same place.
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            320,
+            180,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        ));
+    let minimap = app
+        .world_mut()
+        .spawn((
+            Camera3d::default(),
+            RenderTarget::Image(target.into()),
+            Camera {
+                order: 1,
+                ..default()
+            },
+            Transform::from_xyz(-5.0, 1.7, 30.0).looking_at(Vec3::new(5.0, 0.0, 0.0), Vec3::Y),
+            GrassCamera {
+                radius: Some(20.0),
+                density_scale: Some(0.5),
+                min_width_px: Some(3.0),
+                ..default()
+            },
+        ))
+        .id();
+
+    let view = |app: &mut App, camera| {
+        for _ in 0..4 {
+            app.update();
+        }
+        let (uniform, instances) = gpu_instances_of(app, camera)?;
+        Some((uniform, instances.len()))
+    };
+    // Wait for both views to produce grass.
+    let mut seen = None;
+    for _ in 0..600 {
+        let (a, b) = (view(&mut app, main), view(&mut app, minimap));
+        if let (Some(a), Some(b)) = (a, b)
+            && a.1 > 0
+            && b.1 > 0
+        {
+            seen = Some((a, b));
+            break;
+        }
+    }
+    let ((main_view, main_blades), (map_view, map_blades)) =
+        seen.expect("both cameras should draw grass");
+
+    // Each draws with its own radius, density and minimum width.
+    let high = GrassSettings::HIGH;
+    assert_eq!(
+        main_view.radius,
+        DistanceLod::for_radius(high.radius).radius
+    );
+    assert_eq!(map_view.radius, DistanceLod::for_radius(20.0).radius);
+    assert_eq!(
+        (main_view.density_scale, map_view.density_scale),
+        (1.0, 0.5)
+    );
+    assert_eq!((main_view.min_width_px, map_view.min_width_px), (1.0, 3.0));
+    assert!(
+        map_blades < main_blades / 4,
+        "the minimap draws {map_blades} blades, the main camera {main_blades}"
+    );
+
+    // The camera that names nothing follows the resource as it changes; the
+    // one that named a setting keeps it.
+    {
+        let mut settings = app.world_mut().resource_mut::<GrassSettings>();
+        settings.min_width_px = 2.0;
+        settings.radius = 60.0;
+    }
+    let (main_view, _) = view(&mut app, main).unwrap();
+    let (map_view, _) = view(&mut app, minimap).unwrap();
+    assert_eq!(main_view.min_width_px, 2.0);
+    assert_eq!(main_view.radius, DistanceLod::for_radius(60.0).radius);
+    assert_eq!(map_view.min_width_px, 3.0, "the override wins");
+    assert_eq!(map_view.radius, DistanceLod::for_radius(20.0).radius);
+
+    // Removing the component hands the camera back to the resource.
+    app.world_mut().entity_mut(minimap).remove::<GrassCamera>();
+    let (map_view, _) = view(&mut app, minimap).unwrap();
+    assert_eq!(map_view.min_width_px, 2.0);
+    assert_eq!(map_view.radius, DistanceLod::for_radius(60.0).radius);
+    assert_eq!(map_view.density_scale, 1.0);
+}
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_stats_and_diagnostics_report_what_the_gpu_generated() {
+    use bevy::diagnostic::{Diagnostic, DiagnosticsStore};
+
+    use crate::{GrassDiagnostics, GrassSettings, GrassStats};
+
+    let mut app = headless_app();
+    // Counters are read back every 120 frames; wait for the first reading.
+    let mut readings = 0;
+    for _ in 0..600 {
+        app.update();
+        readings = app.world().resource::<GrassStats>().gpu.readings;
+        if readings > 0 {
+            break;
+        }
+    }
+    assert!(readings > 0, "no GPU reading in 600 frames");
+
+    // The reading is what the GPU generated: the blades the readback test
+    // finds in the instance buffers (the camera has not moved).
+    let stats = app.world().resource::<GrassStats>().clone();
+    let (_, instances) = gpu_instances(&mut app).expect("a grass view");
+    let total: u32 = stats.gpu.blades.iter().sum();
+    assert!(total > 10_000, "the test scene should place many blades");
+    assert_eq!(total as usize, instances.len(), "stats {stats:?}");
+    assert!(stats.gpu.blades[0] > 0 && stats.gpu.slices > 0, "{stats:?}");
+    assert_eq!(stats.gpu.overflows, 0, "High holds this scene");
+    assert!(stats.tables.rebuilds >= 1);
+    // A 70 m by 50 m field is 5 by 4 chunks of 16 m.
+    assert_eq!((stats.tables.fields, stats.tables.chunks), (1, 5 * 4));
+    assert!(stats.tables.last_rebuild > Duration::ZERO);
+
+    // The same numbers are Bevy diagnostics.
+    let store = app.world().resource::<DiagnosticsStore>();
+    let value = |path: &_| store.get(path).and_then(Diagnostic::value);
+    assert_eq!(
+        value(&GrassDiagnostics::BLADES_NEAR),
+        Some(f64::from(stats.gpu.blades[0]))
+    );
+    assert_eq!(
+        value(&GrassDiagnostics::BLADES_MID),
+        Some(f64::from(stats.gpu.blades[1]))
+    );
+    assert_eq!(
+        value(&GrassDiagnostics::BLADES_FAR),
+        Some(f64::from(stats.gpu.blades[2]))
+    );
+    assert_eq!(
+        value(&GrassDiagnostics::VISIBLE_SLICES),
+        Some(f64::from(stats.gpu.slices))
+    );
+    assert_eq!(value(&GrassDiagnostics::OVERFLOWS), Some(0.0));
+    assert!(value(&GrassDiagnostics::TABLE_REBUILDS).is_some());
+    assert!(value(&GrassDiagnostics::REBUILD_TIME).is_some());
+
+    // Too small a buffer overflows, and the game can see it: the capacity
+    // change makes new buffers, whose first reading comes 120 frames on.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        instance_capacity: 2_000,
+        ..GrassSettings::HIGH
+    };
+    let mut overflows = 0;
+    for _ in 0..600 {
+        app.update();
+        overflows = app.world().resource::<GrassStats>().gpu.overflows;
+        if overflows > 0 {
+            break;
+        }
+    }
+    assert!(overflows >= 1, "an overflow went unreported");
+    let store = app.world().resource::<DiagnosticsStore>();
+    let diagnosed = store
+        .get(&GrassDiagnostics::OVERFLOWS)
+        .and_then(Diagnostic::value)
+        .unwrap();
+    assert!(diagnosed >= 1.0);
+    // What was wanted is still reported: far more than fit.
+    let wanted: u32 = app.world().resource::<GrassStats>().gpu.blades.iter().sum();
+    assert!(wanted > 2_000 + 1_000 + 1_000, "{wanted}");
 }
