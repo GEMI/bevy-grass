@@ -6,9 +6,13 @@ blade lit by Bevy's own PBR.
 
 ![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
 
-| ![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg) | ![Wildflower meadow](docs/images/flowers.jpg) |
-| --- | --- |
-| ![The same wild field from a top-down ARPG camera](docs/images/arpg.jpg) | ![A meadow with a cleared patch and wheat behind](docs/images/meadow.jpg) |
+Twelve of the 22 presets, each a 4 m square, under a top-down ARPG camera
+(`cargo run --release --example showcase` draws it):
+
+![Twelve presets of grass in small square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, AUTUMN_TALL, SUMMER_TALL, SUMMER_LUSH, TALL_PRAIRIE, WHEAT, MEADOW, DRY_SAVANNA, STYLIZED and LAWN](docs/images/showcase.jpg)
+
+| ![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg) | ![Wildflower meadow](docs/images/flowers.jpg) | ![The same wild field from a top-down ARPG camera](docs/images/arpg.jpg) |
+| --- | --- | --- |
 
 - **No blades are stored.** Every frame, compute shaders decide which blades
   exist near each camera and build them on the GPU. A 4 km field costs what a
@@ -605,6 +609,7 @@ cargo run --release --example meadow
 | Example | Shows |
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
+| `showcase` | Twelve presets in small square patches under an ARPG camera, each with its name under it: the picture at the top of this page (`--fixed-time --screenshot PATH` takes it) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–4 pick the wind, S toggles grass shadows |

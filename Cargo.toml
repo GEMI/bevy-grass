@@ -58,6 +58,9 @@ bevy = { version = "0.20", default-features = false, features = [
   "3d",
   "tonemapping_luts",
   "free_camera",
+  # The showcase example writes each preset's name on the screen.
+  "ui",
+  "default_font",
   # The examples reload `.grass.ron` files when they are saved.
   "file_watcher",
 ] }
