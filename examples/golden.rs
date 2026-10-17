@@ -300,14 +300,19 @@ fn check(name: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), Str
         save(&rendered, &golden_path)?;
         return Ok(());
     }
-    let golden = image::open(&golden_path)
-        .map_err(|error| {
-            format!(
-                "{name}: no golden at {} ({error}); run with --bless to make one",
+    let golden = match image::open(&golden_path) {
+        Ok(golden) => golden.to_rgba8(),
+        Err(error) => {
+            // Keep the capture, so CI can hand it over as the first golden.
+            let kept = root().join("target/golden").join(format!("{name}.png"));
+            save(&rendered, &kept)?;
+            return Err(format!(
+                "{name}: no golden at {} ({error}); run with --bless to make one, \
+                 or take the image from target/golden/",
                 golden_path.display()
-            )
-        })?
-        .to_rgba8();
+            ));
+        }
+    };
     let mut total = 0u64;
     let mut loud = 0u64;
     let mut difference = image::RgbaImage::new(WIDTH, HEIGHT);

@@ -36,8 +36,8 @@ jobs:
 
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The
-  # first run on a new renderer has no goldens: bless them locally with the
-  # same renderer (see examples/golden.rs) or take them from the artifact.
+  # first run on a new renderer has no goldens: take the captures from the
+  # artifact into tests/golden/<renderer>/, or bless them locally (examples/golden.rs).
   golden:
     strategy:
       fail-fast: false
