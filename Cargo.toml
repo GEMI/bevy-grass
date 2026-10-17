@@ -10,11 +10,13 @@ readme = "README.md"
 keywords = ["bevy", "grass", "foliage", "gamedev", "rendering"]
 categories = ["game-development", "rendering"]
 
-# Bevy is pinned to the exact version DEMO ARPG GAME pins. The feature list is a strict
+# Any Bevy 0.20.x (patch releases do not break the render internals this crate
+# touches; a game that wants exactly 0.20.0 pins it in its own Cargo.toml and
+# Cargo picks that for both). The feature list is a strict
 # subset of DEMO ARPG GAME's, so adding this crate never changes how Bevy is compiled
 # for the game (a Bevy feature change costs DEMO ARPG GAME a full Bevy rebuild).
 [dependencies]
-bevy = { version = "=0.20.0", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
   "std",
   "bevy_asset",
   "bevy_log",
@@ -40,7 +42,7 @@ debug = ["bevy/bevy_gizmos"]
 [dev-dependencies]
 # The crate's own tests cover the debug plugin too.
 bevy_grass = { path = ".", features = ["debug"] }
-bevy = { version = "=0.20.0", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
   "3d",
   "tonemapping_luts",
   "free_camera",

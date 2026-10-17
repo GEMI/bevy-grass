@@ -354,6 +354,27 @@ Lessons:
 - **Quantize per frame only what the eye cannot see step.** Positions were 16-bit and fine. The bend changes every frame, so its steps showed as motion.
 - **A shadow texel must be smaller than a blade near the camera**, or grass shadows blink. Games should keep the first cascade short (10–15 m in perspective). DEMO ARPG GAME's single map, about 30 m deep, has texels of roughly 2 cm against blades 4–8 cm wide.
 
+## After the API and polish passes (October 17, 2026)
+
+The API work (settings, per-camera overrides, the split style, incremental tables, a plugin group, field overrides, interactor height, the wind clock) was measured against the build from before it, to check that nothing got slower.
+
+**Method.** `tools/bench_ab.py`, four interleaved rounds in both scenes (dev profile with optimised dependencies, T1200, 1920 × 1080, 4× MSAA, High tier, 1,380 frames a run), three builds: `4747d7d` (before), `5b61aba` (the P1 pass: settings, split style, tables) and the working tree after the P2 pass. Medians of the four rounds:
+
+| Scene | Before | After P1 | After P2 | No grass |
+| --- | --- | --- | --- | --- |
+| Perspective, frame p50 | 5.780 ms | 5.804 ms | 5.799 ms | 2.702 ms |
+| DEMO ARPG GAME's camera, frame p50 | 5.008 ms | 5.024 ms | 5.024 ms | 2.724 ms |
+| Perspective, main pass | 3.825 ms | 3.851 ms | 3.838 ms | 0.716 ms |
+| DEMO ARPG GAME's camera, main pass | 3.450 ms | 3.448 ms | 3.462 ms | 0.698 ms |
+| Perspective, blade generation | 0.108 ms | 0.110 ms | 0.109 ms | |
+| DEMO ARPG GAME's camera, blade generation | 0.071 ms | 0.071 ms | 0.071 ms | |
+
+Paired differences against the build before, as a share of grass cost: P1 +0.0% (perspective) and +0.6% (DEMO ARPG GAME's camera) at p50; P2 +0.6% and +0.8% at p50, and +1.8% and −1.5% at p95. All are inside the ±2% noise of this machine, so **nothing got slower**, which is what the design predicts: the changes are table work on the CPU when something changes, and in the shaders one `round` per blade (sway) and per full-detail vertex (flutter).
+
+The no-grass baseline drifted from 2.3 to 3.0 ms over the session (the laptop warming up); the builds were interleaved in each round, so the paired differences are not affected. The raw rows are in `target/bench-ab/results.jsonl` (not committed).
+
+The CPU side, per frame, is unchanged in kind: the main-world systems compare change flags, and tables are rebuilt only when something changed. P1-9's tests also pin that a style change every frame rewrites only the entries of the fields using it, and reads no image.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

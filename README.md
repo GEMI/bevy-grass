@@ -60,7 +60,7 @@ bevy_grass = { git = "https://github.com/GEMI/bevy-grass" }
 
 Requirements:
 
-- **Bevy 0.20.0.** bevy_grass pins `=0.20.0` and enables only `bevy_asset`,
+- **Bevy 0.20.** bevy_grass accepts any Bevy 0.20.x (it is tested on 0.20.0) and enables only `bevy_asset`,
   `bevy_log`, `bevy_render`, `bevy_core_pipeline` and `bevy_pbr`, all of which
   `DefaultPlugins` games already have. Adding it never changes how Bevy is
   compiled for your game.

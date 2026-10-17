@@ -416,7 +416,7 @@ DEMO ARPG GAME's camera sets the hardest constraints, not the plugin. Everything
 
 | DEMO ARPG GAME fact | Source | Consequence for bevy-grass |
 | --- | --- | --- |
-| Bevy pinned to `=0.20.0` with a fixed feature list | `Cargo.toml`, ADR-025 | bevy-grass pins `bevy = "=0.20.0"` with `default-features = false` and enables only features already on DEMO ARPG GAME's list. One extra Bevy feature would force DEMO ARPG GAME into a ten-minute rebuild of all of Bevy. |
+| Bevy pinned to `=0.20.0` with a fixed feature list | `Cargo.toml`, ADR-025 | bevy-grass depends on `bevy = "0.20"` (any 0.20.x; DEMO ARPG GAME keeps its own `=0.20.0` pin and Cargo picks that for both) with `default-features = false` and enables only features already on DEMO ARPG GAME's list. One extra Bevy feature would force DEMO ARPG GAME into a ten-minute rebuild of all of Bevy. |
 | Orthographic camera: 30° pitch, fixed 45° yaw, 14.64 m tall frame, so 26.0 × 29.3 m of ground at 16:9 | ADR-043, `client/src/camera.rs` | No distance LOD: every blade is the same size on screen. The grass radius becomes the view frame plus margins. About 760 m² is visible, which is 12–20 chunks of 8 m. |
 | 73.8 px per screen metre; the smallest readable feature is 2 px (about 3 cm tall or 3.8 cm across) | Art bible §2 | A real 5 mm blade is sub-pixel and shimmers, and DEMO ARPG GAME has no TAA. DEMO ARPG GAME blades are 4–8 cm wide and fewer: 40–80 per m², or 30k–75k in frame. Vertex count is not the risk at this camera; overdraw and fragment shading are. |
 | One directional shadow map, no cascades. The shadow pass is already the largest item in the frame. | ADR-060 | Shadow modes must work with a single map in orthographic views. Grass casting stays off in DEMO ARPG GAME until M3 measures its cost. |
@@ -707,7 +707,7 @@ One API change: the species list is not `Copy`, so `GrassStyle { height, ..style
 
 **Breaking changes.** The `GrassPlugin` fields and the per-style `min_width_px` are gone. `GrassStyle` fields moved under `blade`, `variation` and `ground_tint`. A species' `style:` in RON accepts blade keys only; the shipped presets were regenerated, so older copies of them error until their species blocks are trimmed. `GrassSun`, `GrassCamera`, `GrassStats` and `GrassSystems` are new. DEMO ARPG GAME's `grass.rs` (on its local `grass-bevy-grass` branch) was not part of this pass and will need updating for the new API.
 
-**Still open from the review.** P0-1 (one field whose style has not loaded still stalls the whole rebuild), P0-2 (the default style handle renders nothing), P0-3 (masks and heightmaps read through the image's colour space), P0-4 (the `=0.20.0` pin, unchanged) and P0-5 (one validation for the file and code paths). P2 was not started.
+**Still open from the review.** P0-1 (one field whose style has not loaded still stalls the whole rebuild), P0-2 (the default style handle renders nothing), P0-3 (masks and heightmaps read through the image's colour space) and P0-5 (one validation for the file and code paths). P0-4, the `=0.20.0` pin, was relaxed to `0.20` on October 17, and the P2 items were built the same day.
 
 **Worth knowing.** In Bevy 0.20, `Entity` orders opposite to spawn order. "First light" uses the entity index, but the field table is still sorted by `Entity`, so fields sit in it in reverse spawn order.
 
@@ -733,6 +733,10 @@ The P2 items of `review.md`. Nothing was committed at the time of writing.
 | P2-14 `PartialEq` | `GrassField` and `GrassGround` now have it (`GrassStyle`, `GrassSpecies` and the rest already did). |
 
 **Checks.** 121 unit tests (106 before), 15 doctests (11), and 7 GPU tests on the T1200 (6); clippy with `-D warnings`, rustfmt and rustdoc with warnings denied are clean; all 22 golden images match.
+
+**Performance.** Paired against the build from before the API work, in both benchmark scenes (four rounds): +0.6% to +0.8% of grass cost at p50 and −1.5% to +1.8% at p95, inside the ±2% noise. Nothing got slower; the numbers are in `docs/performance.md`.
+
+**Bevy version.** P0-4 is done: the dependency is `bevy = "0.20"`, any 0.20.x, not `=0.20.0`. Only 0.20.0 has been tested, as no later patch exists yet.
 
 #### M5 Editing and ground (about 2 weeks)
 
@@ -771,5 +775,5 @@ These risks surfaced while planning, in addition to the risks listed in the road
 | `Shadow` phase items and PBR shader imports are Bevy internals that change between releases | Breaks on the 0.21 upgrade | Spikes B and C stay in the repository as tests. All of this code lives in `bevy_glue.rs`. |
 | Ordering of grass compute relative to Bevy's GPU preprocessing inside `Core3d` | Grass draws stale or empty buffers | Order explicitly before the prepass and shadow systems; Spike A verifies it. **Resolved in M0:** the grass compute runs in the `RenderGraph` schedule before `camera_driver`, so before every phase. |
 | DEMO ARPG GAME enables Bevy's `webgl2` feature | If it lowered limits on native builds, storage buffers in vertex shaders would be unavailable | Bevy should apply it only to wasm32 builds. Spike A runs with DEMO ARPG GAME's exact feature list to confirm. **Partly checked in M0:** adding bevy-grass leaves DEMO ARPG GAME's resolved Bevy features identical; grass has not yet run inside DEMO ARPG GAME. |
-| Open P0 items of `review.md` (a field waiting on an unloaded asset stalls every field's rebuild; the default style handle draws nothing; the `=0.20.0` pin) | "No grass and no message" for new users, and the crate cannot be used on another 0.20.x | Fix P0-1 to P0-5 before M6; they are about a day of work |
+| Open P0 items of `review.md` (a field waiting on an unloaded asset stalls every field's rebuild; the default style handle draws nothing; masks read through the image's colour space; two validation paths) | "No grass and no message" for new users | Fix P0-1, P0-2, P0-3 and P0-5 before M6; they are about a day of work (P0-4, the Bevy pin, is done) |
 | Grass hides loot and telegraphs | Breaks DEMO ARPG GAME's readability rules (AR-04) | Interactors on actors and loot, D1, and the sign-off in step 3.8 |

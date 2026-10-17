@@ -88,6 +88,10 @@ files are written with the new ones.
   scroll is accumulated in `f64` on the CPU, so neither jumps, and a change
   of the wind's speed or direction no longer jerks the gusts either.
 
+**Changed**
+
+- Bevy is `0.20`, not `=0.20.0`: any 0.20.x works, and a game that pins `=0.20.0` itself still gets exactly that. Only 0.20.0 has been tested, since no later patch exists yet.
+
 **Internal**
 
 - The `.grass.ron` format is declared once, in one macro, from the settings it
