@@ -166,6 +166,9 @@ multipliers of the wind's movement that are 1 in every preset.
   settings; a test runs the GPU against it with other distances.
 - `GrassDebugPlugin` draws the trample window and the interactor discs the
   settings give, and needs `GrassSettings` (which `GrassPlugin` inserts).
+- Lavapipe golden folders are named after the Mesa and LLVM builds, and CI
+  pins the Linux golden runner to Ubuntu 24.04. A `golden-bless` job writes
+  and uploads them on that same runner.
 
 ## 0.1.0
 
