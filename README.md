@@ -803,7 +803,7 @@ off at 0 or empty, and costs nothing while no field uses it.
 | `GrassStyle::FOREST` | `FOREST_MOSS`, `FOREST_FERNS`, `FOREST_FLOOR`, `FOREST_BRACKEN`: short, wide forest-floor plants in clumps, with fallen leaves and ferns mixed in |
 | `GrassStyle::PLANTS` | `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`: to grow alone, or to mix in as species through the `GrassBlade` of the same name (`GrassBlade::CLOVER`) |
 
-Every preset is declared once, in [`src/presets.rs`](src/presets.rs). Adding one is a single entry in the block of its group: the constant, the `PRESETS` list, the group array and the embedded asset are all generated from it, and `BLESS_STYLES=1 cargo test` writes its `.grass.ron` file. No second list to update.
+Every preset is declared once, in [`src/presets/`](src/presets), one file per group. Adding one is a single entry in the block for its group: the constant, the group's `PRESETS` list, the group array and the embedded asset are all generated from it, and `BLESS_STYLES=1 cargo test` writes its `.grass.ron` file. No second list to update.
 
 ### `GrassSpecies`
 

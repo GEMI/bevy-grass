@@ -13,9 +13,11 @@ This directory holds reference data, not the test code itself:
 
 Other test layers live next to the code they test:
 
-- Unit tests are inline `#[cfg(test)]` modules in each `src/*.rs` file.
-- `src/render/gpu_test.rs` is the opt-in GPU readback test
-  (`cargo test -- --ignored gpu`).
+- Unit tests live in sibling `src/**/tests.rs` modules (such as
+  `src/settings/tests.rs` next to `src/settings.rs`), plus `src/tests.rs` for
+  crate-level tests.
+- `src/render/gpu_test.rs`, with its suites under `src/render/gpu_test/`, is
+  the opt-in GPU readback test (`cargo test -- --ignored gpu`).
 - `examples/bench.rs` contains the benchmark assertions, run by CI with
   `cargo test --example bench`.
 

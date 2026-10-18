@@ -23,7 +23,7 @@ The API and settings pass and the polish pass, below, as one version.
 
 **Internal**
 
-- Every preset definition and the one preset list now live in `src/presets.rs`.
+- Every preset definition and the one preset list now live in `src/presets/`, one file per group.
   One entry generates the constant, the group array, `PRESETS` and the embedded
   asset, so adding a preset no longer means editing a second list in
   `style_file.rs`. Presets ship as `.grass.ron` files generated from the same
