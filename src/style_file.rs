@@ -53,8 +53,8 @@ use bevy::reflect::TypePath;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{GrassBlade, GrassSpecies, GrassStyle};
-use crate::fields::MAX_SPECIES;
 use crate::presets::PRESETS;
+use crate::style::MAX_SPECIES;
 
 impl GrassStyle {
     /// The preset constant called `name`, such as `"SUMMER_TALL"`.

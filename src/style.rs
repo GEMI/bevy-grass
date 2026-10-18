@@ -15,6 +15,9 @@ use bevy::math::Vec2;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 
+/// Most species one field mixes, its style's own blades included.
+pub(crate) const MAX_SPECIES: usize = 16;
+
 /// What one kind of plant looks like: how tall and wide its blades are, how
 /// they are coloured, move and are shaped. A [`GrassStyle`] has one for its own
 /// grass, and each [`GrassSpecies`] one for its plant.

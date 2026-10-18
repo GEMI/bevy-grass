@@ -28,6 +28,7 @@ use crate::api::{
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{self, ChunkLayout};
 use crate::stats::TableStats;
+use crate::style::MAX_SPECIES;
 use crate::{GrassStats, GrassSystems};
 
 /// Marks a field without a mask or heightmap.
@@ -44,9 +45,6 @@ pub(crate) const CHUNK_SIZE: f32 = 16.0;
 /// Entries beyond this index cannot be addressed by an instance's 8-bit
 /// field index. Every species of a field is an entry.
 const MAX_ENTRIES: usize = 256;
-
-/// Most species one field mixes, its style's own blades included.
-pub(crate) const MAX_SPECIES: usize = 16;
 
 /// One species of one field as the shaders see it. Mirrors `Field` in
 /// `common.wesl`.
