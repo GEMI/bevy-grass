@@ -8,17 +8,20 @@ use bevy::transform::components::GlobalTransform;
 
 use super::resources::FrameUniform;
 use crate::GrassSettings;
-use crate::api::{GrassInteractor, GrassSun, GrassWind};
+use crate::api::{GrassInteractor, GrassSun};
 use crate::clock::GrassClock;
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::sun::{SunCandidate, pick_sun};
 use crate::trample;
+use crate::wind::GrassWindFrame;
 
 /// What the main world handed over this frame.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ExtractedGrass {
     pub tables: FieldTables,
     pub frame: FrameUniform,
+    /// This frame of wind, as the shaders read it.
+    pub wind: GrassWindFrame,
     /// Direction the first shadow-casting directional light shines, if any.
     pub shadow_light: Option<Vec3>,
     /// Direction to the light the deferred G-buffer treats as the sun: the
@@ -43,7 +46,7 @@ type SunLight = (
 pub(crate) fn extract_grass(
     mut extracted: ResMut<ExtractedGrass>,
     tables: Extract<Res<FieldTables>>,
-    wind: Extract<Res<GrassWind>>,
+    wind: Extract<Res<GrassWindFrame>>,
     clock: Extract<Res<GrassClock>>,
     lights: Extract<Query<SunLight>>,
     interactors: Extract<Query<(&GrassInteractor, &GlobalTransform)>>,
@@ -57,20 +60,18 @@ pub(crate) fn extract_grass(
     extracted.frame = FrameUniform {
         time: clock.time,
         previous_time: clock.previous_time,
-        wind_strength: wind.strength,
-        gust_scale: wind.gust_scale,
-        gust_speed: wind.gust_speed,
         chunk_size: CHUNK_SIZE,
         chunk_count: extracted.tables.chunks.len() as u32,
-        wind_direction: wind.direction,
-        gust_offset: clock.gust_offset,
-        previous_gust_offset: clock.previous_gust_offset,
+        lod_rows: UVec4::new(rows[0], rows[1], rows[2], 0),
+    };
+    // The renderer clamps the wind to non-negative values, as it does the
+    // settings, so a custom source cannot make the blades misbehave.
+    extracted.wind = GrassWindFrame {
         sway: wind.sway.max(0.0),
         sway_speed: wind.sway_speed.max(0.0),
         flutter: wind.flutter.max(0.0),
         gust_contrast: wind.gust_contrast.max(0.0),
-        lod_rows: UVec4::new(rows[0], rows[1], rows[2], 0),
-        ..Default::default()
+        ..**wind
     };
     // The light grass follows: the one marked `GrassSun`, or else the first
     // that casts shadows. The G-buffer's sun is that light, or else the first.

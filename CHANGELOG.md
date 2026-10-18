@@ -7,6 +7,38 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Wind as a plugin (October 18, 2026)
+
+The wind is now a self-contained model behind one per-frame resource, so it
+can be replaced without touching the grass renderer.
+
+**Breaking, and what to write instead**
+
+| Before | Now |
+| --- | --- |
+| `GrassPlugin { settings }` | `GrassPlugin { settings, ..default() }`; the new `wind: bool` is `true` |
+
+**Added**
+
+- `GrassWindFrame`, the exact per-frame values the shaders read. The built-in
+  wind writes it; another wind model writes it instead.
+- `GrassWindPlugin`, the built-in wind model (direction, strength, scrolling
+  gusts, sway and flutter), now separate from `GrassPlugin`. Leave it out with
+  `GrassPlugin { wind: false, ..default() }`.
+- `GrassWindSystems::Sample`, where a custom wind source writes its frame, so
+  the blades and `FarGrassMaterial` read the same wind.
+- `examples/custom_wind.rs`, a complete scene driven by a `Weather` resource
+  instead of the built-in model.
+- `src/wind/`, containing the settings, the gust clock and the tests; the
+  shader side lives in `shaders/wind.wesl`.
+
+**Internal**
+
+- The wind has its own GPU uniform and bindings instead of sharing the frame
+  uniform, and `FarGrassUniform` embeds the same `Wind` struct. The built-in
+  model can therefore be extracted or replaced without changing the blades'
+  layout.
+
 ### Forest-floor presets (October 18, 2026)
 
 **Added**

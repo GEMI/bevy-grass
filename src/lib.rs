@@ -61,10 +61,11 @@ mod style;
 mod style_file;
 mod sun;
 mod trample;
+pub mod wind;
 
 pub use api::{
     GrassBlade, GrassCamera, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
-    GrassSpecies, GrassStyle, GrassSun, GrassVariation, GrassWind, GroundTint, NoGrass,
+    GrassSpecies, GrassStyle, GrassSun, GrassVariation, GroundTint, NoGrass,
 };
 #[cfg(feature = "debug")]
 pub use debug::{GrassDebug, GrassDebugPlugin, GrassGizmos};
@@ -72,6 +73,7 @@ pub use far::{FarGrass, FarGrassMaterial, FarGrassPlugin, FarGrassUniform};
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
 pub use stats::{GpuStats, GrassDiagnostics, GrassStats, TableStats};
 pub use style_file::{GrassStyleFileError, GrassStyleFilePlugin, GrassStyleLoader};
+pub use wind::{GrassWind, GrassWindFrame, GrassWindPlugin, GrassWindSystems};
 
 use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, PostUpdate, Update};
 use bevy::asset::{AssetApp, embedded_asset, load_embedded_asset};
@@ -87,7 +89,8 @@ pub mod prelude {
         FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassCamera, GrassField,
         GrassFieldOverrides, GrassGround, GrassInteractor, GrassPlugin, GrassPlugins, GrassQuality,
         GrassSettings, GrassShadows, GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin,
-        GrassSun, GrassSystems, GrassVariation, GrassWind, GroundTint, NoGrass,
+        GrassSun, GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin,
+        GrassWindSystems, GroundTint, NoGrass,
     };
     #[cfg(feature = "debug")]
     pub use crate::{GrassDebug, GrassDebugPlugin};
@@ -160,7 +163,10 @@ pub enum GrassSystems {
 ///     .add_plugins(DefaultPlugins)
 ///     .add_plugins(
 ///         GrassPlugins
-///             .set(GrassPlugin { settings: GrassSettings::MEDIUM })
+///             .set(GrassPlugin {
+///                 settings: GrassSettings::MEDIUM,
+///                 ..default()
+///             })
 ///             .disable::<FarGrassPlugin>(),
 ///     )
 ///     .run();
@@ -190,18 +196,44 @@ impl PluginGroup for GrassPlugins {
 /// out the far-grass material or the style files.
 ///
 /// The settings are the [`GrassSettings`] resource from then on; change that
-/// to change them at runtime.
-#[derive(Debug, Clone, Copy, Default)]
+/// to change them at runtime. The built-in wind can be left out:
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// App::new()
+///     .add_plugins(DefaultPlugins)
+///     .add_plugins(GrassPlugins.set(GrassPlugin {
+///         wind: false,
+///         ..default()
+///     }))
+///     // Write `GrassWindFrame` from your own wind plugin.
+///     .run();
+/// ```
+#[derive(Debug, Clone, Copy)]
 pub struct GrassPlugin {
     /// How much grass is drawn, how far, and at what cost: a tier such as
     /// [`GrassSettings::MEDIUM`], with any setting changed.
     pub settings: GrassSettings,
+    /// Add the built-in [`GrassWindPlugin`]. Turn it off to drive the grass
+    /// with another wind model that writes [`GrassWindFrame`].
+    pub wind: bool,
+}
+
+impl Default for GrassPlugin {
+    fn default() -> Self {
+        Self {
+            settings: GrassSettings::default(),
+            wind: true,
+        }
+    }
 }
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "shaders/blade.wesl");
         load_shader_library!(app, "shaders/common.wesl");
+        load_shader_library!(app, "shaders/wind.wesl");
         load_shader_library!(app, "shaders/look.wesl");
         load_shader_library!(app, "shaders/far.wesl");
         embedded_asset!(app, "shaders/grass.wesl");
@@ -218,6 +250,7 @@ impl Plugin for GrassPlugin {
         };
         register_types(app);
         app.init_resource::<GrassWind>()
+            .init_resource::<GrassWindFrame>()
             .init_resource::<clock::GrassClock>()
             .add_systems(Update, clock::tick)
             .init_resource::<sun::ShadowSetupReport>()
@@ -232,6 +265,9 @@ impl Plugin for GrassPlugin {
                 ),
             )
             .add_plugins(render::GrassRenderPlugin { shaders });
+        if self.wind {
+            app.add_plugins(GrassWindPlugin);
+        }
     }
 }
 
@@ -253,6 +289,7 @@ fn register_types(app: &mut App) {
         .register_type::<GrassSun>()
         .register_type::<GrassCamera>()
         .register_type::<GrassWind>()
+        .register_type::<GrassWindFrame>()
         .register_type::<GrassSettings>()
         .register_type::<GrassQuality>()
         .register_type::<GrassShadows>();

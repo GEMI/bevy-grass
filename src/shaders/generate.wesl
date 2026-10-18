@@ -15,10 +15,11 @@
 //! and `generate` samples them at every blade's root.
 
 import package::shaders::common::{
-    Frame, View, Field, Chunk, LodTable, BladeData, TILE_POINTS, NO_MAP, WIDTH_RANGE, TAU, periodic,
+    Frame, View, Field, Chunk, LodTable, BladeData, TILE_POINTS, NO_MAP, WIDTH_RANGE, TAU,
     LOD_VERTEX_STRIDE, hash, hash2, unit, density_falloff, select_lod, coverage_width, pack,
     trample_unpack, trample_slot, in_trample_window,
 };
+import package::shaders::wind::{Wind, wind_bend};
 
 // Shared by every view.
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -36,6 +37,7 @@ import package::shaders::common::{
 /// `mirror::tuft_table`: the nearest tuft centre for every quarter of a
 /// tuft spacing of a 64-tuft tile.
 @group(0) @binding(10) var<storage, read> tuft_table: array<u32>;
+@group(0) @binding(11) var<uniform> wind: Wind;
 
 /// One slice of a visible chunk's candidates: the chunk, the slice's first
 /// candidate and how many it holds. A dense chunk is several slices, so
@@ -270,32 +272,6 @@ fn ground_height(field: Field, local: vec2<f32>) -> f32 {
     return field.min_corner.y + mix(mix(a, b, t.x), mix(c, d, t.x), t.y) * field.extent.z;
 }
 
-/// Tip offset from wind, as a fraction of blade height, in world XZ.
-///
-/// Gusts, a scrolling noise texture sampled at the root, give the waves that
-/// roll across a field; sway, a per-blade sine, keeps neighbours from moving
-/// in lockstep. Flutter is added per vertex by the draw.
-fn wind_bend(
-    root: vec2<f32>,
-    seed: f32,
-    stiffness: f32,
-    time: f32,
-    gust_offset: vec2<f32>,
-) -> vec2<f32> {
-    let raw = frame.wind_direction;
-    let direction = select(vec2<f32>(1.0, 0.0), normalize(raw), dot(raw, raw) > 1e-8);
-    let strength = frame.wind_strength;
-    let uv = root / max(frame.gust_scale, 0.01) - gust_offset;
-    let gust = textureSampleLevel(gust_texture, gust_sampler, uv, 0.0).r;
-    let softness = 1.0 - 0.75 * stiffness;
-    let frequency = periodic(mix(1.1, 2.4, stiffness) * (0.85 + 0.3 * seed) * frame.sway_speed);
-    let sway = sin(time * frequency + seed * TAU);
-    let across = vec2<f32>(-direction.y, direction.x);
-    let push = strength * (0.15 + 1.4 * frame.gust_contrast * gust * gust);
-    let wobble = (direction * 0.5 + across * 0.5) * sway * (0.04 + 0.14 * strength) * frame.sway;
-    return clamp((direction * push + wobble) * softness, vec2<f32>(-1.0), vec2<f32>(1.0));
-}
-
 struct Generated {
     keep: bool,
     bucket: u32,
@@ -404,8 +380,8 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     // it less the flatter it lies.
     let push = trample_push(root.xz);
     let calm = 1.0 - min(length(push), 1.0);
-    blade.bend = wind_bend(root.xz, seed_unit, look.motion.y, frame.time, frame.gust_offset) * calm + push;
-    blade.previous_bend = wind_bend(root.xz, seed_unit, look.motion.y, frame.previous_time, frame.previous_gust_offset) * calm + push;
+    blade.bend = wind_bend(wind, root.xz, seed_unit, look.motion.y, frame.time, false, gust_texture, gust_sampler) * calm + push;
+    blade.previous_bend = wind_bend(wind, root.xz, seed_unit, look.motion.y, frame.previous_time, true, gust_texture, gust_sampler) * calm + push;
 
     out.keep = true;
     out.bucket = select(lod, 0u, view.fixed_lod != 3u);

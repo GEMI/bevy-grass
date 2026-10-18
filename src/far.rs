@@ -16,8 +16,8 @@ use bevy::render::render_resource::{
 use bevy::render::texture::GpuImage;
 use bevy::shader::ShaderRef;
 
-use crate::api::{GrassStyle, GrassWind};
-use crate::clock::GrassClock;
+use crate::api::GrassStyle;
+use crate::wind::{GrassWindFrame, GrassWindSystems};
 use crate::{GrassQuality, GrassSettings};
 
 /// A terrain material whose colour turns to grass with distance from the
@@ -44,7 +44,7 @@ use crate::{GrassQuality, GrassSettings};
 /// ```
 ///
 /// The fade follows [`GrassSettings::radius`], and the gusts follow
-/// [`GrassWind`], so changing either changes the far grass too. It needs
+/// [`GrassWindFrame`], so changing either changes the far grass too. It needs
 /// [`FarGrassPlugin`], which `GrassPlugins` includes. A camera that overrides
 /// the radius with [`GrassCamera`](crate::GrassCamera) does not move the fade:
 /// it belongs to the ground, not to a view.
@@ -72,16 +72,12 @@ pub struct FarGrass {
     /// Where grass grows, in world X and Z. `None`: everywhere the material
     /// is.
     pub area: Option<Rect>,
-    /// The wind, kept equal to the [`GrassWind`] resource by the plugin.
+    /// The wind, kept equal to the [`GrassWindFrame`] resource by the plugin.
     #[reflect(ignore)]
-    wind: GrassWind,
+    wind: GrassWindFrame,
     /// [`GrassSettings::radius`], kept equal to the resource by the plugin.
     #[reflect(ignore)]
     radius: f32,
-    /// How far the gusts have scrolled, kept equal to the blades' by the
-    /// plugin.
-    #[reflect(ignore)]
-    gust_offset: Vec2,
     #[texture(101)]
     #[sampler(102)]
     gusts: Handle<Image>,
@@ -106,9 +102,8 @@ impl FarGrass {
             fade: None,
             sheen: 0.3,
             area: None,
-            wind: GrassWind::default(),
+            wind: GrassWindFrame::default(),
             radius: GrassQuality::default().radius(),
-            gust_offset: Vec2::ZERO,
             gusts: GUST_TEXTURE,
         }
     }
@@ -159,8 +154,7 @@ pub struct FarGrassUniform {
     color: Vec4,
     fade: Vec4,
     area: Vec4,
-    wind: Vec4,
-    strength: Vec4,
+    wind: GrassWindFrame,
 }
 
 impl AsBindGroupShaderType<FarGrassUniform> for FarGrass {
@@ -179,18 +173,7 @@ impl AsBindGroupShaderType<FarGrassUniform> for FarGrass {
                 if self.area.is_some() { 1.0 } else { 0.0 },
             ),
             area: Vec4::new(area.min.x, area.min.y, area.max.x, area.max.y),
-            wind: Vec4::new(
-                self.wind.direction.x,
-                self.wind.direction.y,
-                self.wind.gust_scale,
-                self.wind.gust_speed,
-            ),
-            strength: Vec4::new(
-                self.wind.strength,
-                self.gust_offset.x,
-                self.gust_offset.y,
-                0.0,
-            ),
+            wind: self.wind,
         }
     }
 }
@@ -226,12 +209,11 @@ pub(crate) fn add_gust_texture(images: Option<ResMut<Assets<Image>>>) {
     let _ = images.insert(&GUST_TEXTURE, image);
 }
 
-/// Keeps every far-grass material's wind equal to the [`GrassWind`] resource
-/// and its fade equal to [`GrassSettings::radius`].
+/// Keeps every far-grass material's wind equal to the [`GrassWindFrame`]
+/// resource and its fade equal to [`GrassSettings::radius`].
 fn sync_with_grass(
-    wind: Res<GrassWind>,
+    wind: Res<GrassWindFrame>,
     settings: Res<GrassSettings>,
-    clock: Res<GrassClock>,
     mut materials: ResMut<Assets<FarGrassMaterial>>,
 ) {
     let radius = settings.sanitized().radius;
@@ -239,7 +221,7 @@ fn sync_with_grass(
         .iter()
         .filter(|(_, material)| {
             let far = &material.extension;
-            far.wind != *wind || far.radius != radius || far.gust_offset != clock.gust_offset
+            far.wind != *wind || far.radius != radius
         })
         .map(|(id, _)| id)
         .collect();
@@ -247,7 +229,6 @@ fn sync_with_grass(
         if let Some(mut material) = materials.get_mut(id) {
             material.extension.wind = *wind;
             material.extension.radius = radius;
-            material.extension.gust_offset = clock.gust_offset;
         }
     }
 }
@@ -261,10 +242,9 @@ pub struct FarGrassPlugin;
 impl Plugin for FarGrassPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/far_ground.wesl");
-        app.init_resource::<GrassWind>()
-            .init_resource::<GrassClock>()
+        app.init_resource::<GrassWindFrame>()
             .add_plugins(bevy::pbr::MaterialPlugin::<FarGrassMaterial>::default())
             .add_systems(PreStartup, add_gust_texture)
-            .add_systems(Update, sync_with_grass.after(crate::clock::tick));
+            .add_systems(Update, sync_with_grass.after(GrassWindSystems::Sample));
     }
 }

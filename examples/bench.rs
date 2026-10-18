@@ -278,6 +278,7 @@ fn main() {
                 max_interactors: cli.interactors.max(64),
                 ..cli.quality.settings()
             },
+            ..default()
         }));
     }
     if cli.gpu_timing && !app.is_plugin_added::<RenderDiagnosticsPlugin>() {

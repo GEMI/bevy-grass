@@ -3,9 +3,10 @@
 //! Bindings are group 2 in every grass draw pipeline.
 
 import package::shaders::common::{
-    Frame, View, Field, Instance, TAU, WIDTH_RANGE, periodic, LOD_VERTEX_STRIDE, unpack, blade_curve, lod_rows,
+    Frame, View, Field, Instance, TAU, WIDTH_RANGE, LOD_VERTEX_STRIDE, unpack, blade_curve, lod_rows,
     instance_random,
 };
+import package::shaders::wind::{Wind, wind_flutter};
 
 @group(2) @binding(0) var<uniform> frame: Frame;
 /// The camera whose blades these are, even when a light view draws them.
@@ -15,6 +16,7 @@ import package::shaders::common::{
 /// Smooth noise, wrapping: the gust noise, which colour patches come from.
 @group(2) @binding(4) var noise_texture: texture_2d<f32>;
 @group(2) @binding(5) var noise_sampler: sampler;
+@group(2) @binding(6) var<uniform> wind: Wind;
 
 /// One vertex of one blade, before it is placed: which blade, which LOD and
 /// which vertex of its strip.
@@ -132,8 +134,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // Flutter: a small, fast shiver near the tip of full-detail blades.
     if blade.lod == 0u {
         let time = select(frame.time, frame.previous_time, eye.previous);
-        let flutter = sin(time * periodic(11.0) + instance.seed * 37.0 + t * 4.0) * 0.012 * frame.wind_strength * frame.flutter;
-        point += across * flutter * t * t * height;
+        point += across * wind_flutter(wind, instance.seed, t, height, time);
     }
 
     // Widen blades narrower than the camera's minimum on-screen width, keeping

@@ -87,6 +87,7 @@ fn main() {
             instance_capacity: 60_000,
             ..default()
         },
+        ..default()
     }))
     // The wind's clock stands still at 0, so the picture is the same however
     // long the GPU takes.

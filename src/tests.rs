@@ -123,6 +123,7 @@ fn every_public_type_has_the_type_data_tools_look_for() {
     check!(GrassCamera: ReflectComponent, ReflectDefault);
     // Resources: inspector resource panels.
     check!(GrassWind: ReflectResource, ReflectComponent, ReflectDefault);
+    check!(GrassWindFrame: ReflectResource, ReflectDefault);
     check!(GrassSettings: ReflectResource, ReflectComponent, ReflectDefault);
     // The style asset: inspector asset panels.
     check!(GrassStyle: ReflectAsset, ReflectDefault);
@@ -195,6 +196,10 @@ fn the_small_components_and_the_settings_round_trip() {
     let wind = GrassWind::from_reflect(read.as_ref()).expect("a wind");
     assert_eq!(wind.strength, GrassWind::STORM.strength);
     assert_eq!(wind.gust_speed, GrassWind::STORM.gust_speed);
+
+    let frame = GrassWindFrame::from(GrassWind::GUSTY);
+    let read = through_ron(frame.as_partial_reflect(), &registry);
+    assert_eq!(GrassWindFrame::from_reflect(read.as_ref()), Some(frame));
 
     let read = through_ron(NoGrass.as_partial_reflect(), &registry);
     assert!(NoGrass::from_reflect(read.as_ref()).is_some());

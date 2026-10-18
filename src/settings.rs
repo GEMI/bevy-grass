@@ -28,6 +28,7 @@ use crate::api::GrassCamera;
 ///         radius: 140.0,
 ///         ..GrassSettings::HIGH
 ///     },
+///     ..default()
 /// }));
 ///
 /// // And later, from the graphics menu:

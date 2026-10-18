@@ -549,7 +549,11 @@ pub(crate) fn prepare_view_bind_groups(
     pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
 ) {
-    let (Some(frame), Some(fields)) = (shared.frame.binding(), shared.fields.binding()) else {
+    let (Some(frame), Some(fields), Some(wind)) = (
+        shared.frame.binding(),
+        shared.fields.binding(),
+        shared.wind.binding(),
+    ) else {
         return;
     };
     for (buffers, mut groups) in &mut views {
@@ -584,6 +588,7 @@ pub(crate) fn prepare_view_bind_groups(
                 fields.clone(),
                 &shared.gust_view,
                 &shared.gust_sampler,
+                wind.clone(),
             )),
         ));
     }

@@ -158,6 +158,7 @@ app.add_plugins(GrassPlugins.set(GrassPlugin {
         max_interactors: 512,
         ..GrassSettings::MEDIUM
     },
+    ..default()
 }));
 ```
 
@@ -238,6 +239,36 @@ before, and four multipliers that are 1 in every preset: `sway` (how far each
 blade sways on its own), `sway_speed` (how fast), `flutter` (the shiver of the
 tips of near blades) and `gust_contrast` (how much stronger the gusts are than
 the wind between them; 0 is a steady wind).
+
+### Bring your own wind
+
+`GrassWind` drives the built-in model: gusts from a scrolling noise texture,
+per-blade sway and tip flutter. That model is a plugin of its own, and the
+grass actually reads one `GrassWindFrame` a frame. Turn the built-in model off
+and any wind source can write that frame:
+
+```rust
+app.add_plugins(GrassPlugins.set(GrassPlugin {
+    wind: false,
+    ..default()
+}));
+// ...and in `Update`, in `GrassWindSystems::Sample`:
+fn drive_wind(weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
+    *wind = GrassWindFrame {
+        direction: weather.direction,
+        strength: weather.strength,
+        ..GrassWind::BREEZE.into()
+    };
+}
+```
+
+`GrassWindFrame` has the shader's values directly: direction, strength, gust
+size and scroll (`gust_offset` and `previous_gust_offset`, for motion
+vectors), sway, flutter and gust contrast. Put the system in
+`GrassWindSystems::Sample` so the blades and the far-grass material read the
+same frame. The built-in model remains available by itself as
+`GrassWindPlugin`; [`examples/custom_wind.rs`](examples/custom_wind.rs) is a
+complete scene driven this way.
 
 ### Draw differently on one camera
 
@@ -769,6 +800,7 @@ cargo run --release --example meadow
 | Example | Shows |
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
+| `custom_wind` | The built-in wind turned off: a `Weather` resource writes `GrassWindFrame` in `GrassWindSystems::Sample`, and both the blades and `FarGrassMaterial` follow it |
 | `showcase` | The 26 presets on four pages, two rows at a time under an ARPG camera, each with its name in large type: the pictures at the top of this page (`--page 1` to `--page 4`; `--fixed-time --screenshot PATH` takes one) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
@@ -792,8 +824,10 @@ Everything a game needs is in `bevy_grass::prelude`.
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
-| `GrassPlugin` | Plugin | The grass itself (fields, styles, wind, interaction, rendering). One field, `settings: GrassSettings` (`High` by default) |
+| `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings, ..default() })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
+| `GrassPlugin` | Plugin | The grass itself (fields, styles, interaction, rendering). `settings: GrassSettings` (`High` by default), and `wind: bool` (the built-in `GrassWindPlugin`, on by default) |
+| `GrassWindPlugin` | Plugin | The built-in wind model. Part of `GrassPlugin`; leave it out with `wind: false` and write `GrassWindFrame` yourself |
+| `GrassWindFrame` | Resource | The wind the shaders read this frame: direction, strength, gust size and scroll, sway, flutter and gust contrast. The built-in model or your own source writes it in `GrassWindSystems::Sample` |
 | `GrassSettings` | Resource | `radius` (m), `density_scale`, `min_width_px`, `shadows`, `orthographic_lod`, `instance_capacity` (blades per camera), `max_interactors`, and the settings that were once fixed numbers: `blade_rows`, `lod1_start`, `lod2_start`, `fade_start`, `lod_blend`, `lod2_density`, `fade_density`, `mid_range_density`, `max_widening`, `turn_to_camera`, `orthographic_extent`, `max_chunk_slices`, `readback_interval`, `trample_recovery`, `trample_cell_size`, `max_interactor_radius` (all in [the table above](#tune-the-distances-the-blades-the-wind-and-the-trampling)). Presets `COMPETITIVE`, `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA` (see the table below). Change it at any time |
 | `GrassQuality` | Enum | `Competitive`, `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
 | `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |
@@ -907,7 +941,7 @@ Every preset is declared once, in [`src/presets/`](src/presets), one file per gr
 | --- | --- |
 | `FarGrassMaterial` | `ExtendedMaterial<StandardMaterial, FarGrass>` for terrain, forward and deferred |
 | `FarGrassPlugin` | Registers the material. Part of `GrassPlugins` |
-| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1), `area: Option<Rect>`. Its wind follows the `GrassWind` resource, and its gusts the blades' |
+| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1), `area: Option<Rect>`. Its wind follows `GrassWindFrame`, the same frame the blades read |
 | `FarGrass::new(&style)` | Colour from the style; the fade follows the grass radius, also when it changes |
 | `.with_fade(Vec2)` | A fade of your own, whatever the radius |
 | `.with_area(rect)` | Only inside this world-XZ rectangle |

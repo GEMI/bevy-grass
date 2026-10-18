@@ -15,30 +15,13 @@ const NO_MAP: u32 = 0xffffffffu;
 /// Twin of `trample::TEXELS`.
 const TRAMPLE_TEXELS: i32 = 256;
 
-/// Per frame, shared by every view.
+/// Per frame, shared by every view. The wind lives in its own `Wind`
+/// uniform (`wind.wesl`), so another wind model can be dropped in.
 struct Frame {
     time: f32,
     previous_time: f32,
-    wind_strength: f32,
-    gust_scale: f32,
-    gust_speed: f32,
     chunk_size: f32,
     chunk_count: u32,
-    _pad0: u32,
-    wind_direction: vec2<f32>,
-    /// How far the gusts have scrolled, in repeats of the gust texture,
-    /// now and a frame ago, each in [0, 1). Accumulated on the CPU, so it
-    /// does not jump when `time` wraps or the wind changes.
-    gust_offset: vec2<f32>,
-    previous_gust_offset: vec2<f32>,
-    /// `GrassWind`'s `sway`, `sway_speed`, `flutter` and `gust_contrast`: how
-    /// much the blades sway, how fast, how much their tips flutter, and how
-    /// much stronger the gusts are than the wind between them. 1 each by
-    /// default.
-    sway: f32,
-    sway_speed: f32,
-    flutter: f32,
-    gust_contrast: f32,
     /// Rows in a blade of each LOD (`GrassSettings::blade_rows`), x for LOD 0.
     lod_rows: vec4<u32>,
 }

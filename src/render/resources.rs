@@ -26,6 +26,7 @@ use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::fields::{ChunkGpu, FieldGpu, FieldTables};
 use crate::shader_model::{self, GUST_SIZE, gust_noise};
+use crate::wind::GrassWindFrame;
 
 /// The embedded shaders, loaded in the main app and handed to the render app.
 #[derive(Resource, Debug, Clone)]
@@ -42,19 +43,8 @@ pub(crate) struct GrassShaders {
 pub(crate) struct FrameUniform {
     pub time: f32,
     pub previous_time: f32,
-    pub wind_strength: f32,
-    pub gust_scale: f32,
-    pub gust_speed: f32,
     pub chunk_size: f32,
     pub chunk_count: u32,
-    pub _pad0: u32,
-    pub wind_direction: Vec2,
-    pub gust_offset: Vec2,
-    pub previous_gust_offset: Vec2,
-    pub sway: f32,
-    pub sway_speed: f32,
-    pub flutter: f32,
-    pub gust_contrast: f32,
     pub lod_rows: UVec4,
 }
 
@@ -103,6 +93,7 @@ impl GrassLayouts {
                     read(),
                     // The tuft table.
                     read(),
+                    uniform_buffer::<GrassWindFrame>(false),
                 ),
             ),
         );
@@ -138,6 +129,7 @@ impl GrassLayouts {
                     // The noise the colour patches come from.
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
+                    uniform_buffer::<GrassWindFrame>(false),
                 ),
             ),
         );
@@ -164,6 +156,7 @@ impl GrassLayouts {
 #[derive(Resource)]
 pub(crate) struct GrassShared {
     pub frame: UniformBuffer<FrameUniform>,
+    pub wind: UniformBuffer<GrassWindFrame>,
     pub fields: StorageBuffer<Vec<FieldGpu>>,
     chunks: StorageBuffer<Vec<ChunkGpu>>,
     masks: StorageBuffer<Vec<u32>>,
@@ -256,6 +249,7 @@ pub(crate) fn init_shared(
 
     let mut shared = GrassShared {
         frame: UniformBuffer::default(),
+        wind: UniformBuffer::default(),
         fields: StorageBuffer::default(),
         chunks: StorageBuffer::default(),
         masks: StorageBuffer::default(),
@@ -357,6 +351,8 @@ pub(crate) fn prepare_shared(
     }
     shared.frame.set(extracted.frame);
     shared.frame.write_buffer(&device, &queue);
+    shared.wind.set(extracted.wind);
+    shared.wind.write_buffer(&device, &queue);
 }
 
 /// Rebuilds the shared bind groups. Cheap, and a write can reallocate the
@@ -376,9 +372,17 @@ pub(crate) fn prepare_shared_bind_groups(
         shared.masks.binding(),
         shared.heights.binding(),
         shared.lods.binding(),
+        shared.wind.binding(),
     );
-    if let (Some(frame), Some(fields), Some(chunks), Some(masks), Some(heights), Some(lods)) =
-        bindings
+    if let (
+        Some(frame),
+        Some(fields),
+        Some(chunks),
+        Some(masks),
+        Some(heights),
+        Some(lods),
+        Some(wind),
+    ) = bindings
     {
         groups.compute = Some(device.create_bind_group(
             "grass_shared",
@@ -395,6 +399,7 @@ pub(crate) fn prepare_shared_bind_groups(
                 lods,
                 shared.clumps.as_entire_binding(),
                 shared.tufts.as_entire_binding(),
+                wind,
             )),
         ));
     }

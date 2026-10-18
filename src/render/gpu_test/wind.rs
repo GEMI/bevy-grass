@@ -83,11 +83,11 @@ fn gpu_the_wind_can_be_shaped_beyond_its_strength_and_gusts() {
     for _ in 0..3 {
         app.update();
     }
-    let frame = app
+    let wind = app
         .sub_app(RenderApp)
         .world()
         .resource::<ExtractedGrass>()
-        .frame;
-    assert_eq!((frame.sway_speed, frame.flutter), (0.5, 0.0));
-    assert_eq!((frame.sway, frame.gust_contrast), (1.0, 1.0));
+        .wind;
+    assert_eq!((wind.sway_speed, wind.flutter), (0.5, 0.0));
+    assert_eq!((wind.sway, wind.gust_contrast), (1.0, 1.0));
 }
