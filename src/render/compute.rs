@@ -13,8 +13,8 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::RenderContext;
 
 use super::resources::{GrassLayouts, GrassShaders, GrassShared, GrassSharedBindGroups};
-use super::trample;
 use super::view::{GrassViewBindGroups, GrassViewBuffers};
+use crate::trample;
 
 /// Cells in a trample window.
 const TRAMPLE_CELLS: u32 = (trample::TEXELS * trample::TEXELS) as u32;

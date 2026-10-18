@@ -5,7 +5,6 @@ mod compute;
 #[cfg(test)]
 mod gpu_test;
 pub(crate) mod resources;
-pub(crate) mod trample;
 pub(crate) mod view;
 
 use bevy::app::{App, Plugin};

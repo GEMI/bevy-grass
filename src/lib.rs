@@ -60,6 +60,7 @@ mod stats;
 mod style;
 mod style_file;
 mod sun;
+mod trample;
 
 pub use api::{
     GrassBlade, GrassCamera, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,

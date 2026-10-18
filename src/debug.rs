@@ -34,7 +34,7 @@ use bevy::transform::components::GlobalTransform;
 
 use crate::api::{GrassInteractor, NoGrass};
 use crate::fields::{CHUNK_SIZE, FieldTables};
-use crate::render::trample;
+use crate::trample;
 use crate::{GrassSettings, GrassSystems};
 
 /// Adds the grass debug gizmos. Toggle what they show with [`GrassDebug`].

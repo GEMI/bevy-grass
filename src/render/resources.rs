@@ -25,13 +25,13 @@ use bevy::render::view::{ViewUniform, ViewUniforms};
 use bevy::shader::Shader;
 use bevy::transform::components::GlobalTransform;
 
-use super::trample;
 use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::api::{GrassInteractor, GrassSun, GrassWind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
 use crate::shader_model::{self, GUST_SIZE, gust_noise};
 use crate::sun::{SunCandidate, pick_sun};
+use crate::trample;
 
 /// The embedded shaders, loaded in the main app and handed to the render app.
 #[derive(Resource, Debug, Clone)]
