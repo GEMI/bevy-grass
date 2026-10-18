@@ -1,6 +1,6 @@
 //! The public types: everything a game touches.
 
-use bevy::asset::Handle;
+use bevy::asset::{Assets, Handle};
 use bevy::camera::visibility::Visibility;
 use bevy::color::Color;
 use bevy::ecs::change_detection::{DetectChanges, Ref};
@@ -40,6 +40,10 @@ pub use crate::style::{GrassBlade, GrassSpecies, GrassStyle, GrassVariation, Gro
 /// - **[`RenderLayers`](bevy::camera::visibility::RenderLayers):** a camera draws the field only if the two share a
 ///   layer. A field or camera without the component is on layer 0, as for
 ///   meshes. Layers 0 to 31 are supported.
+///
+/// [`GrassField::new`] adds a style for you. A field left with the empty
+/// default style handle draws nothing and, after a few frames, logs one
+/// warning saying how to give it a style.
 #[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(Transform, Visibility)]
@@ -47,7 +51,8 @@ pub struct GrassField {
     /// Width (X) and depth (Z) of the field, in metres, before the
     /// transform's scale.
     pub size: Vec2,
-    /// How the blades look. Add a preset with `styles.add(GrassStyle::MEADOW)`.
+    /// How the blades look. Add a preset with `styles.add(GrassStyle::MEADOW)`,
+    /// or use [`GrassField::new`] to add it in the same call.
     pub style: Handle<GrassStyle>,
     /// Where the blade roots sit.
     pub ground: GrassGround,
@@ -55,6 +60,61 @@ pub struct GrassField {
     /// (0 bare, 1 full), green is a height multiplier. `None` means full
     /// density everywhere. The first row of the image is the field's −Z edge.
     pub density_map: Option<Handle<Image>>,
+}
+
+impl GrassField {
+    /// A field of `size` metres whose blades look like `style`, which is
+    /// added to `styles`. Every other setting is the default.
+    ///
+    /// This is the shortest way to spawn a field from a preset:
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// # fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
+    /// commands.spawn(GrassField::new(
+    ///     Vec2::splat(64.0),
+    ///     GrassStyle::MEADOW,
+    ///     &mut styles,
+    /// ));
+    /// # }
+    /// ```
+    ///
+    /// To make several fields share one style, add it once and use its handle
+    /// in each field instead:
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// # fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
+    /// let style = styles.add(GrassStyle::MEADOW);
+    /// commands.spawn(GrassField {
+    ///     size: Vec2::splat(64.0),
+    ///     style: style.clone(),
+    ///     ..default()
+    /// });
+    /// commands.spawn(GrassField {
+    ///     size: Vec2::splat(32.0),
+    ///     style,
+    ///     ..default()
+    /// });
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn new(size: Vec2, style: GrassStyle, styles: &mut Assets<GrassStyle>) -> Self {
+        Self {
+            size,
+            style: styles.add(style),
+            ..Self::default()
+        }
+    }
+
+    /// The same as [`GrassField::new`], named for callers who start from a
+    /// preset.
+    #[must_use]
+    pub fn from_preset(size: Vec2, preset: GrassStyle, styles: &mut Assets<GrassStyle>) -> Self {
+        Self::new(size, preset, styles)
+    }
 }
 
 /// Changes how one field looks without a style asset of its own: "this

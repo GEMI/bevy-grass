@@ -99,6 +99,22 @@ fn fields_and_styles_can_be_compared() {
 }
 
 #[test]
+fn a_field_can_be_built_from_a_preset_in_one_call() {
+    let mut app = app();
+    let mut styles = app.world_mut().resource_mut::<Assets<GrassStyle>>();
+
+    let field = GrassField::new(Vec2::splat(8.0), GrassStyle::MEADOW, &mut styles);
+    assert_eq!(field.size, Vec2::splat(8.0));
+    assert_eq!(field.ground, GrassGround::Flat);
+    assert_eq!(field.density_map, None);
+    assert_eq!(styles.get(&field.style), Some(&GrassStyle::MEADOW));
+
+    let alias = GrassField::from_preset(Vec2::splat(4.0), GrassStyle::WHEAT, &mut styles);
+    assert_eq!(alias.size, Vec2::splat(4.0));
+    assert_eq!(styles.get(&alias.style), Some(&GrassStyle::WHEAT));
+}
+
+#[test]
 fn every_public_type_has_the_type_data_tools_look_for() {
     let app = app();
     let registry = app.world().resource::<AppTypeRegistry>().read();

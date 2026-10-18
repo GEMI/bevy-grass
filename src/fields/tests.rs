@@ -130,6 +130,32 @@ fn only_a_field_moving_rebuilds_the_tables() {
 }
 
 #[test]
+fn a_field_without_a_style_waits_then_builds_once_it_has_one() {
+    let mut app = app();
+    let field = app
+        .world_mut()
+        .spawn((
+            GrassField {
+                size: Vec2::splat(32.0),
+                ..Default::default()
+            },
+            GlobalTransform::IDENTITY,
+        ))
+        .id();
+
+    // Long enough for the missing-style warning to have run.
+    for _ in 0..MISSING_STYLE_FRAMES + 2 {
+        app.update();
+    }
+    assert!(app.world().resource::<FieldTables>().fields.is_empty());
+
+    let style = add_style(&mut app, GrassStyle::MEADOW);
+    app.world_mut().get_mut::<GrassField>(field).unwrap().style = style;
+    settle(&mut app);
+    assert!(!app.world().resource::<FieldTables>().fields.is_empty());
+}
+
+#[test]
 fn species_chances_give_each_its_share() {
     let species = |shares: &[f32]| -> Vec<GrassSpecies> {
         shares

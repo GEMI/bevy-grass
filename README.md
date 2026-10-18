@@ -122,16 +122,21 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(GrassField {
-        size: Vec2::splat(64.0),
-        style: styles.add(GrassStyle::MEADOW),
-        ..default()
-    });
+    commands.spawn(GrassField::new(
+        Vec2::splat(64.0),
+        GrassStyle::MEADOW,
+        &mut styles,
+    ));
 }
 ```
 
 A field is a rectangle centred on its `Transform`, lying in the XZ plane. A
 scene needs a camera, a light and something to stand on, as here.
+`GrassField::new` adds the preset to `Assets<GrassStyle>` and returns the field
+in one call. If a field is built with `..default()` and no style, it waits for
+a style that will never load: after a few frames it logs a warning naming the
+entity and how to give it one (`styles.add(GrassStyle::MEADOW)` or a loaded
+`.grass.ron`).
 
 `GrassPlugins` is a plugin group: `GrassPlugin` (the grass itself),
 `FarGrassPlugin` (the terrain material for ground past the last blade) and
@@ -852,7 +857,7 @@ are the same in every tier. `GrassQuality` has a `const fn` for each column as w
 | Item | Kind | What it does |
 | --- | --- | --- |
 | `GrassSystems` | System set | `DetectChanges`, then `Rebuild`, in `PostUpdate`: order your systems against them |
-| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier) |
+| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier). `GrassField::new(size, style, &mut styles)` adds the style for you |
 | `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
 | `GrassFieldOverrides` | Component | On a field: `tint: Option<Color>` (multiplies blade colours), `density_scale`, `height_scale`, for one field without a style of its own |
 | `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `GrassSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground) |

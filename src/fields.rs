@@ -278,7 +278,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             (
-                (warn_unsupported, detect_changes).in_set(GrassSystems::DetectChanges),
+                (warn_unsupported, warn_missing_style, detect_changes)
+                    .in_set(GrassSystems::DetectChanges),
                 rebuild.in_set(GrassSystems::Rebuild),
             ),
         );
@@ -323,6 +324,11 @@ type AccessChanged = (
 
 /// The number of render layers a view or field can name.
 const LAYER_BITS: usize = 32;
+
+/// How many frames a field may have no style before it is worth a warning:
+/// long enough for a field spawned in `Startup` to have its style added, short
+/// enough to answer "why is nothing drawing?" while the user is looking.
+const MISSING_STYLE_FRAMES: u8 = 3;
 
 /// `layers` as the bit mask the shaders test; a missing component is layer 0,
 /// as for meshes. Layers beyond 31 do not fit and are left out.
@@ -396,6 +402,34 @@ pub(crate) fn warn_unsupported(
             warn!(
                 "bevy_grass: the GrassField {entity} is on a render layer above 31; grass \
                  supports layers 0 to 31, so the others are ignored."
+            );
+        }
+    }
+}
+
+/// Warns, once per field, when a field still has the empty default style
+/// handle after a few frames. Such a handle never loads, so the field waits
+/// forever and nothing is drawn; the warning says how to give it a style.
+pub(crate) fn warn_missing_style(
+    fields: Query<(Entity, &GrassField)>,
+    styles: Res<Assets<GrassStyle>>,
+    mut waiting: Local<HashMap<Entity, u8>>,
+) {
+    waiting.retain(|entity, _| fields.contains(*entity));
+    let default = AssetId::<GrassStyle>::default();
+    for (entity, field) in &fields {
+        let missing = field.style.id() == default && !styles.contains(&field.style);
+        if !missing {
+            waiting.remove(&entity);
+            continue;
+        }
+        let frames = waiting.entry(entity).or_insert(0);
+        *frames = frames.saturating_add(1);
+        if *frames == MISSING_STYLE_FRAMES {
+            warn!(
+                "bevy_grass: the GrassField {entity} has no style, so nothing is drawn; use \
+                 styles.add(GrassStyle::MEADOW) or load a .grass.ron, or construct it with \
+                 GrassField::new(size, GrassStyle::MEADOW, &mut styles)."
             );
         }
     }

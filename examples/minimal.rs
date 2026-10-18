@@ -36,9 +36,9 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(64.0, 64.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
     ));
-    commands.spawn(GrassField {
-        size: Vec2::splat(64.0),
-        style: styles.add(GrassStyle::MEADOW),
-        ..default()
-    });
+    commands.spawn(GrassField::new(
+        Vec2::splat(64.0),
+        GrassStyle::MEADOW,
+        &mut styles,
+    ));
 }

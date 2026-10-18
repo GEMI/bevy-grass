@@ -12,11 +12,11 @@
 //! }
 //!
 //! fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>) {
-//!     commands.spawn(GrassField {
-//!         size: Vec2::splat(64.0),
-//!         style: styles.add(GrassStyle::MEADOW),
-//!         ..default()
-//!     });
+//!     commands.spawn(GrassField::new(
+//!         Vec2::splat(64.0),
+//!         GrassStyle::MEADOW,
+//!         &mut styles,
+//!     ));
 //! }
 //! ```
 //!

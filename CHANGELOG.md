@@ -7,6 +7,21 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Missing-style feedback and a constructor (October 18, 2026)
+
+**Added**
+
+- `GrassField::new(size, style, &mut styles)` adds a style (usually a preset)
+  and returns the field in one call. `GrassField::from_preset` is the same
+  constructor under a preset-flavoured name.
+- A field with the empty default style handle now logs one warning after a few
+  frames, naming the entity and how to give it a style, instead of waiting
+  forever with no visible feedback.
+
+**Changed**
+
+- The README quick start and `examples/minimal.rs` use `GrassField::new`.
+
 ### Wind as a plugin (October 18, 2026)
 
 The wind is now a self-contained model behind one per-frame resource, so it
