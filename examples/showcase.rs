@@ -1,8 +1,8 @@
-//! Twelve presets in small square patches, side by side, under an ARPG camera
-//! (orthographic, 30° below the horizon, a 45° yaw), each with its name under
-//! it. One picture to show what the presets look like.
+//! Sixteen presets in small square patches, side by side, under an ARPG
+//! camera (orthographic, 30° below the horizon, a 45° yaw), each with its name
+//! under it. One picture to show what the presets look like.
 //!
-//! The patches sit on a straight grid of the screen, four across and three
+//! The patches sit on a straight grid of the screen, four across and four
 //! deep; each is a square of ground, so it shows as a diamond.
 //!
 //! ```text
@@ -19,9 +19,9 @@ use bevy_grass::prelude::*;
 
 const PITCH_DEGREES: f32 = 30.0;
 const YAW_DEGREES: f32 = 45.0;
-/// The frame is this many metres tall, so about 29 m wide.
-const VIEW_HEIGHT_METRES: f32 = 16.5;
-const CAMERA_DISTANCE: f32 = 40.0;
+/// The frame is this many metres tall, so about 40 m wide.
+const VIEW_HEIGHT_METRES: f32 = 22.5;
+const CAMERA_DISTANCE: f32 = 46.0;
 /// Side of each patch of grass, in metres.
 const PATCH: f32 = 4.2;
 /// Screen distance between the centres of neighbouring patches, in metres of
@@ -29,18 +29,43 @@ const PATCH: f32 = 4.2;
 const PITCH_ACROSS: f32 = 6.9;
 const PITCH_DOWN: f32 = 5.2;
 
-/// The presets shown, row by row from the back. The names are the constants
-/// of `GrassStyle`, and what is written under each patch.
-const PRESETS: [[&str; 4]; 3] = [
+/// The sixteen presets shown, row by row from the back, picked from the
+/// groups. The names are what is written under each patch.
+fn presets() -> [[&'static str; 4]; 4] {
+    let pick = |group: &[GrassStyle], index: usize| -> &'static str {
+        let style = &group[index];
+        GrassStyle::presets()
+            .find(|(_, preset)| preset == style)
+            .map(|(name, _)| name)
+            .expect("every style in a group is a preset")
+    };
     [
-        "SUMMER_WILD",
-        "AUTUMN_WILD",
-        "WILDFLOWER_MEADOW",
-        "AUTUMN_TALL",
-    ],
-    ["SUMMER_TALL", "SUMMER_LUSH", "TALL_PRAIRIE", "WHEAT"],
-    ["MEADOW", "DRY_SAVANNA", "STYLIZED", "LAWN"],
-];
+        [
+            pick(&GrassStyle::WILD, 0),
+            pick(&GrassStyle::WILD, 1),
+            pick(&GrassStyle::WILD, 2),
+            pick(&GrassStyle::AUTUMN, 0),
+        ],
+        [
+            pick(&GrassStyle::SUMMER, 0),
+            pick(&GrassStyle::SUMMER, 1),
+            pick(&GrassStyle::GENERAL, 1),
+            pick(&GrassStyle::GENERAL, 2),
+        ],
+        [
+            pick(&GrassStyle::GENERAL, 0),
+            pick(&GrassStyle::GENERAL, 3),
+            pick(&GrassStyle::GENERAL, 5),
+            pick(&GrassStyle::GENERAL, 4),
+        ],
+        [
+            pick(&GrassStyle::FOREST, 2),
+            pick(&GrassStyle::FOREST, 1),
+            pick(&GrassStyle::FOREST, 0),
+            pick(&GrassStyle::FOREST, 3),
+        ],
+    ]
+}
 
 /// A name under a patch: where on the ground its front corner is.
 #[derive(Component)]
@@ -121,11 +146,11 @@ fn setup(
     ));
 
     let pitch = PITCH_DEGREES.to_radians().sin();
-    for (row, names) in PRESETS.iter().enumerate() {
+    for (row, names) in presets().iter().enumerate() {
         for (column, name) in names.iter().enumerate() {
             let across = (column as f32 - 1.5) * PITCH_ACROSS;
             // Rows run from the back (top of the screen) to the front.
-            let up = (1.0 - row as f32) * PITCH_DOWN;
+            let up = (1.5 - row as f32) * PITCH_DOWN;
             let center = right * across + away * (up / pitch);
             let style = GrassStyle::preset(name).expect("a preset constant");
             commands.spawn((

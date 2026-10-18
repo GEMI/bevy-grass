@@ -7,6 +7,28 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Forest-floor presets (October 18, 2026)
+
+**Added**
+
+- Four forest-floor `GrassStyle` presets, also shipped as `.grass.ron` files:
+  `FOREST_MOSS` (a short, wide moss carpet), `FOREST_FERNS` (arching fern
+  clumps), `FOREST_FLOOR` (moss with ferns, fallen leaves, clover and broad
+  leaves mixed in) and `FOREST_BRACKEN` (rusty autumn ferns over leaf litter).
+- `GrassStyle::FOREST`, the group holding the four.
+- `GrassBlade::{MOSS, FERN, BRACKEN, LEAF_LITTER}`, for building a forest floor
+  of your own or mixing one of its plants into another style.
+- `examples/forest_floor.rs`, the four presets side by side.
+- `showcase` and `styles` now show the forest-floor presets too.
+
+**Internal**
+
+- Every preset definition and the one preset list now live in `src/presets.rs`.
+  One entry generates the constant, the group array, `PRESETS` and the embedded
+  asset, so adding a preset no longer means editing a second list in
+  `style_file.rs`. Presets ship as `.grass.ron` files generated from the same
+  constants by `BLESS_STYLES=1 cargo test`.
+
 ### The 240 Hz gate (October 17, 2026)
 
 The measurements that make the 240 FPS target testable instead of a comment.

@@ -37,11 +37,11 @@
 //! grass's colour onto the ground beyond the last blade.
 //!
 //! A style can vary its grass the way real fields do: other plants among the
-//! blades (seed heads, flowers, clover, broad leaves: [`GrassSpecies`]),
+//! blades (seed heads, flowers, clover, broad leaves, ferns: [`GrassSpecies`]),
 //! tufts and bare patches, blades that twist, droop and fold, and colour
 //! patches, dry tips and dead blades. Every kind is a setting of
 //! [`GrassStyle`], off at 0, and costs nothing while no field uses it;
-//! `GrassStyle::WILD` uses them all.
+//! `GrassStyle::WILD` and the forest-floor presets use them all.
 
 mod api;
 mod clock;
@@ -51,6 +51,7 @@ mod far;
 mod fields;
 mod mirror;
 mod packed;
+mod presets;
 mod render;
 mod settings;
 mod stats;

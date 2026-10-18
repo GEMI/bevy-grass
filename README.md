@@ -6,10 +6,10 @@ blade lit by Bevy's own PBR.
 
 ![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
 
-Twelve of the 22 presets, each a 4 m square, under a top-down ARPG camera
+Sixteen of the 26 presets, each a 4 m square, under a top-down ARPG camera
 (`cargo run --release --example showcase` draws it):
 
-![Twelve presets of grass in small square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, AUTUMN_TALL, SUMMER_TALL, SUMMER_LUSH, TALL_PRAIRIE, WHEAT, MEADOW, DRY_SAVANNA, STYLIZED and LAWN](docs/images/showcase.jpg)
+![Sixteen presets of grass in small square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, AUTUMN_TALL, SUMMER_TALL, SUMMER_LUSH, TALL_PRAIRIE, WHEAT, MEADOW, DRY_SAVANNA, STYLIZED, LAWN, FOREST_FLOOR, FOREST_FERNS, FOREST_MOSS and FOREST_BRACKEN](docs/images/showcase.jpg)
 
 | ![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg) | ![Wildflower meadow](docs/images/flowers.jpg) | ![The same wild field from a top-down ARPG camera](docs/images/arpg.jpg) |
 | --- | --- | --- |
@@ -22,14 +22,15 @@ Twelve of the 22 presets, each a 4 m square, under a top-down ARPG camera
   colour, sheen, and a ground material that carries the grass colour past the
   last blade.
 - **Varies the way real fields do.** Mix in other plants (seed heads, flowers,
-  clover, broad leaves) in any proportion. Gather blades into tufts, leave bare
-  patches, and let blades twist, droop and fold. Add colour patches, dry tips
-  and dead blades. Every kind is optional and costs nothing when off.
+  clover, broad leaves, ferns) in any proportion. Gather blades into tufts,
+  leave bare patches, and let blades twist, droop and fold. Add colour patches,
+  dry tips and dead blades. Every kind is optional and costs nothing when off.
 - **Part of Bevy's renderer.** Grass casts and receives shadows and is fogged.
   It draws into the depth, normal and motion-vector prepass (SSAO and TAA see
   it, with exact motion vectors) and into the deferred G-buffer.
-- **22 presets**, from lawn to prairie to wildflower meadow, also shipped as
-  `.grass.ron` files that reload while the game runs.
+- **26 presets**, from lawn to prairie to wildflower meadow to forest-floor
+  moss, ferns and bracken, also shipped as `.grass.ron` files that reload
+  while the game runs.
 
 > **Status:** pre-release (0.2). Everything on this page is built and
 > tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
@@ -682,10 +683,11 @@ cargo run --release --example meadow
 | Example | Shows |
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
-| `showcase` | Twelve presets in small square patches under an ARPG camera, each with its name under it: the picture at the top of this page (`--fixed-time --screenshot PATH` takes it) |
+| `showcase` | Sixteen presets in small square patches under an ARPG camera, each with its name under it: the picture at the top of this page (`--fixed-time --screenshot PATH` takes it) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
-| `styles` | All 22 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
+| `styles` | All 26 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
+| `forest_floor` | The four forest-floor presets side by side (`--only forest_ferns` shows one close up) |
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures themselves (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a fixed flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |
@@ -798,7 +800,10 @@ off at 0 or empty, and costs nothing while no field uses it.
 | `GrassStyle::SUMMER` | `SUMMER_TALL`, `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`: tall green grass, 0.7–1.5 m |
 | `GrassStyle::AUTUMN` | `AUTUMN_TALL`, `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`: tall brown grass that mixes with the summer set |
 | `GrassStyle::WILD` | `SUMMER_WILD`, `AUTUMN_WILD`, `WILDFLOWER_MEADOW`: every kind of variation |
+| `GrassStyle::FOREST` | `FOREST_MOSS`, `FOREST_FERNS`, `FOREST_FLOOR`, `FOREST_BRACKEN`: short, wide forest-floor plants in clumps, with fallen leaves and ferns mixed in |
 | `GrassStyle::PLANTS` | `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`: to grow alone, or to mix in as species through the `GrassBlade` of the same name (`GrassBlade::CLOVER`) |
+
+Every preset is declared once, in [`src/presets.rs`](src/presets.rs). Adding one is a single entry in the block of its group: the constant, the `PRESETS` list, the group array and the embedded asset are all generated from it, and `BLESS_STYLES=1 cargo test` writes its `.grass.ron` file. No second list to update.
 
 ### `GrassSpecies`
 

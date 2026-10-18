@@ -33,6 +33,10 @@
 //!     ],
 //! )
 //! ```
+//!
+//! The forest-floor presets (`FOREST_MOSS`, `FOREST_FERNS`, `FOREST_FLOOR`,
+//! `FOREST_BRACKEN`) are good bases for a wood: short, wide blades, clumps of
+//! ferns and fallen leaves mixed in.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -50,32 +54,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{GrassBlade, GrassSpecies, GrassStyle};
 use crate::fields::MAX_SPECIES;
-
-/// The presets a file can name as its `base`.
-static PRESETS: [(&str, GrassStyle); 22] = [
-    ("MEADOW", GrassStyle::MEADOW),
-    ("TALL_PRAIRIE", GrassStyle::TALL_PRAIRIE),
-    ("WHEAT", GrassStyle::WHEAT),
-    ("DRY_SAVANNA", GrassStyle::DRY_SAVANNA),
-    ("LAWN", GrassStyle::LAWN),
-    ("STYLIZED", GrassStyle::STYLIZED),
-    ("SUMMER_TALL", GrassStyle::SUMMER_TALL),
-    ("SUMMER_LUSH", GrassStyle::SUMMER_LUSH),
-    ("SUMMER_MEADOW", GrassStyle::SUMMER_MEADOW),
-    ("SUMMER_SEEDING", GrassStyle::SUMMER_SEEDING),
-    ("AUTUMN_TALL", GrassStyle::AUTUMN_TALL),
-    ("AUTUMN_RUST", GrassStyle::AUTUMN_RUST),
-    ("AUTUMN_STRAW", GrassStyle::AUTUMN_STRAW),
-    ("AUTUMN_FADED", GrassStyle::AUTUMN_FADED),
-    ("SUMMER_WILD", GrassStyle::SUMMER_WILD),
-    ("AUTUMN_WILD", GrassStyle::AUTUMN_WILD),
-    ("WILDFLOWER_MEADOW", GrassStyle::WILDFLOWER_MEADOW),
-    ("SEED_HEADS", GrassStyle::SEED_HEADS),
-    ("WHITE_FLOWERS", GrassStyle::WHITE_FLOWERS),
-    ("YELLOW_FLOWERS", GrassStyle::YELLOW_FLOWERS),
-    ("CLOVER", GrassStyle::CLOVER),
-    ("BROAD_LEAF", GrassStyle::BROAD_LEAF),
-];
+use crate::presets::PRESETS;
 
 impl GrassStyle {
     /// The preset constant called `name`, such as `"SUMMER_TALL"`.
@@ -527,39 +506,6 @@ impl std::error::Error for GrassStyleFileError {}
 #[derive(Debug, Default, TypePath)]
 pub struct GrassStyleLoader;
 
-/// The presets as files, compiled into the crate. Each is one line of the
-/// list: the file's name, and its bytes.
-macro_rules! embedded_presets {
-    ($($name:literal),* $(,)?) => {
-        &[$(($name, include_bytes!(concat!("../assets/grass_styles/", $name, ".grass.ron")) as &[u8])),*]
-    };
-}
-
-static EMBEDDED_PRESETS: &[(&str, &[u8])] = embedded_presets![
-    "meadow",
-    "tall_prairie",
-    "wheat",
-    "dry_savanna",
-    "lawn",
-    "stylized",
-    "summer_tall",
-    "summer_lush",
-    "summer_meadow",
-    "summer_seeding",
-    "autumn_tall",
-    "autumn_rust",
-    "autumn_straw",
-    "autumn_faded",
-    "summer_wild",
-    "autumn_wild",
-    "wildflower_meadow",
-    "seed_heads",
-    "white_flowers",
-    "yellow_flowers",
-    "clover",
-    "broad_leaf",
-];
-
 /// Teaches the app to load `.grass.ron` style files, and ships the presets as
 /// files. Part of `GrassPlugins`; it needs [`GrassPlugin`](crate::GrassPlugin).
 ///
@@ -580,7 +526,7 @@ static EMBEDDED_PRESETS: &[(&str, &[u8])] = embedded_presets![
 /// ```
 ///
 /// The names are the presets' lower-case names, such as `meadow`,
-/// `tall_prairie` and `wildflower_meadow`.
+/// `tall_prairie`, `wildflower_meadow` and `forest_ferns`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GrassStyleFilePlugin;
 
@@ -588,9 +534,13 @@ impl Plugin for GrassStyleFilePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset_loader::<GrassStyleLoader>();
         if let Some(registry) = app.world().get_resource::<EmbeddedAssetRegistry>() {
-            for (name, bytes) in EMBEDDED_PRESETS {
-                let path = format!("bevy_grass/styles/{name}.grass.ron");
-                registry.insert_asset(PathBuf::new(), Path::new(&path), *bytes);
+            // Generated from the preset list, so an embedded preset cannot
+            // drift from its constant or from the shipped `.grass.ron` file.
+            for (name, style) in PRESETS {
+                let file = name.to_ascii_lowercase();
+                let path = format!("bevy_grass/styles/{file}.grass.ron");
+                let text = style.to_ron();
+                registry.insert_asset(PathBuf::new(), Path::new(&path), text.into_bytes());
             }
         }
     }
@@ -652,13 +602,23 @@ mod tests {
         assert!(file.mentions_min_width(), "so the loader can warn about it");
     }
 
-    /// The shipped files, which must stay equal to the constants.
-    fn shipped(name: &str) -> String {
-        let file = format!(
+    fn preset_path(name: &str) -> String {
+        format!(
             "{}/assets/grass_styles/{}.grass.ron",
             env!("CARGO_MANIFEST_DIR"),
-            name.to_lowercase()
-        );
+            name.to_ascii_lowercase()
+        )
+    }
+
+    /// The shipped files, which must stay equal to the constants. With
+    /// `BLESS_STYLES` set, the file's text is generated from the constant so
+    /// a missing file is created rather than failing the test.
+    fn shipped(name: &str) -> String {
+        if std::env::var_os("BLESS_STYLES").is_some() {
+            let style = GrassStyle::preset(name).expect("a preset");
+            return format!("{}{}\n", style_doc(name), style.to_ron());
+        }
+        let file = preset_path(name);
         std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("{file}: {error}"))
     }
 
@@ -668,13 +628,7 @@ mod tests {
         let bless = std::env::var_os("BLESS_STYLES").is_some();
         for (name, style) in GrassStyle::presets() {
             if bless {
-                let file = format!(
-                    "{}/assets/grass_styles/{}.grass.ron",
-                    env!("CARGO_MANIFEST_DIR"),
-                    name.to_lowercase()
-                );
-                let doc = style_doc(name);
-                std::fs::write(&file, format!("{doc}{}\n", style.to_ron())).unwrap();
+                std::fs::write(preset_path(name), shipped(name)).unwrap();
             }
             let read = GrassStyle::from_ron(&shipped(name)).unwrap();
             assert_eq!(read, style, "{name}");
@@ -683,20 +637,6 @@ mod tests {
 
     #[test]
     fn every_preset_is_shipped_as_an_embedded_file_that_is_the_preset() {
-        assert_eq!(EMBEDDED_PRESETS.len(), PRESETS.len());
-        for (name, style) in GrassStyle::presets() {
-            let lower = name.to_lowercase();
-            let (_, bytes) = EMBEDDED_PRESETS
-                .iter()
-                .find(|(file, _)| *file == lower)
-                .unwrap_or_else(|| panic!("{name} is not embedded"));
-            let text = std::str::from_utf8(bytes).unwrap();
-            assert_eq!(GrassStyle::from_ron(text).unwrap(), style, "{name}");
-        }
-    }
-
-    #[test]
-    fn a_preset_can_be_loaded_by_its_embedded_path() {
         use bevy::MinimalPlugins;
         use bevy::asset::{AssetPlugin, AssetServer, Assets};
 
@@ -704,25 +644,42 @@ mod tests {
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<GrassStyle>()
             .add_plugins(GrassStyleFilePlugin);
-        let handle = app
-            .world()
-            .resource::<AssetServer>()
-            .load::<GrassStyle>("embedded://bevy_grass/styles/wildflower_meadow.grass.ron");
+        let handles: Vec<_> = {
+            let server = app.world().resource::<AssetServer>();
+            GrassStyle::presets()
+                .map(|(name, _)| {
+                    let path = format!(
+                        "embedded://bevy_grass/styles/{}.grass.ron",
+                        name.to_ascii_lowercase()
+                    );
+                    (name, server.load::<GrassStyle>(path))
+                })
+                .collect()
+        };
         for _ in 0..500 {
             app.update();
-            if app
-                .world()
-                .resource::<Assets<GrassStyle>>()
-                .get(&handle)
-                .is_some()
+            let styles = app.world().resource::<Assets<GrassStyle>>();
+            if handles
+                .iter()
+                .all(|(_, handle)| styles.get(handle).is_some())
             {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let styles = app.world().resource::<Assets<GrassStyle>>();
-        let loaded = styles.get(&handle).expect("the preset did not load");
-        assert_eq!(*loaded, GrassStyle::WILDFLOWER_MEADOW);
+        for (name, style) in GrassStyle::presets() {
+            let handle = handles
+                .iter()
+                .find(|(preset, _)| *preset == name)
+                .unwrap_or_else(|| panic!("{name} is not embedded"))
+                .1
+                .clone();
+            let loaded = styles
+                .get(&handle)
+                .unwrap_or_else(|| panic!("{name} did not load"));
+            assert_eq!(*loaded, style, "{name}");
+        }
     }
 
     #[test]
