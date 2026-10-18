@@ -503,11 +503,6 @@ fn add_prepass_item<P>(
 /// Puts the grass item into the opaque phase of every camera (or, for a
 /// deferred camera, its deferred phase), into its prepass when it has one,
 /// and into the shadow phase of every directional-light view it owns.
-// One flat pass over the cameras; split up it would only be harder to follow.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one flat pass over the cameras; splitting it would only be harder to follow"
-)]
 pub(crate) fn queue_grass(
     mut pipelines: GrassPipelines,
     mut phases: GrassPhases,
@@ -522,7 +517,6 @@ pub(crate) fn queue_grass(
     let draw_shadow = phases.shadow_draws.read().id::<DrawGrassShadow>();
     let has_grass = shared.chunk_count > 0;
     let features = extracted.tables.features;
-    let with_features = |mesh| GrassPipelineKey { mesh, features };
     let deferred_default = deferred_by_default(&pipelines.renderer_method);
     let triangles = MeshPipelineKey::from_primitive_topology_and_strip_index(
         PrimitiveTopology::TriangleList,
@@ -533,77 +527,55 @@ pub(crate) fn queue_grass(
         &views
     {
         let retained = view.retained_view_entity;
-        let item = (entity, main_entity);
         let ready = groups.is_some_and(|groups| groups.draw.is_some());
-        let draws = has_grass && ready && !no_grass;
-        let prepass_key = pipelines
-            .prepass_view_keys
-            .get(&retained)
-            .map(|key| *key | triangles);
-
-        // A deferred camera draws grass into its G-buffer and nowhere else.
-        let mut deferred = false;
-        if let Some(phase) = phases.deferred.get_mut(&retained) {
-            phase.remove(main_entity);
-            if let (true, true, true, Some(mesh_key)) =
-                (draws, deferred_prepass, deferred_default, prepass_key)
-            {
-                let pipeline = pipelines.prepass_specialized.specialize(
-                    &pipelines.cache,
-                    &pipelines.prepass,
-                    with_features(mesh_key | MeshPipelineKey::DEFERRED_PREPASS),
-                );
-                add_prepass_item(phase, pipeline, draw_deferred, item);
-                deferred = true;
-            }
-        }
-
-        // A forward camera with a prepass draws grass there too, so SSAO,
-        // TAA and anything else reading the prepass sees it.
-        if let Some(phase) = phases.prepass.get_mut(&retained) {
-            phase.remove(main_entity);
-            if let (true, false, Some(mesh_key)) = (draws, deferred, prepass_key) {
-                let pipeline = pipelines.prepass_specialized.specialize(
-                    &pipelines.cache,
-                    &pipelines.prepass,
-                    with_features(mesh_key),
-                );
-                add_prepass_item(phase, pipeline, draw_prepass, item);
-            }
-        }
-
-        let Some(opaque) = phases.opaque.get_mut(&retained) else {
-            continue;
+        let camera = CameraQueue {
+            entity,
+            main_entity,
+            draws: has_grass && ready && !no_grass,
+            deferred_prepass,
+            view_key: pipelines.view_keys.get(&retained).copied(),
+            prepass_key: pipelines
+                .prepass_view_keys
+                .get(&retained)
+                .map(|key| *key | triangles),
+            lights,
+            grass_camera,
         };
-        opaque.remove(main_entity);
-        if draws
-            && !deferred
-            && let Some(&view_key) = pipelines.view_keys.get(&retained)
-        {
-            let pipeline = pipelines.main_specialized.specialize(
-                &pipelines.cache,
-                &pipelines.main,
-                with_features(view_key | triangles),
+
+        let deferred = phases.deferred.get_mut(&retained).is_some_and(|phase| {
+            queue_deferred(
+                &mut pipelines,
+                phase,
+                &camera,
+                deferred_default,
+                draw_deferred,
+                features,
+            )
+        });
+        if let Some(phase) = phases.prepass.get_mut(&retained) {
+            queue_prepass(
+                &mut pipelines,
+                phase,
+                &camera,
+                deferred,
+                draw_prepass,
+                features,
             );
-            opaque.add(
-                Opaque3dBatchSetKey {
-                    draw_function: draw_main,
-                    pipeline,
-                    material_bind_group_index: None,
-                    lightmap_slab: None,
-                    slabs: MeshSlabs::default(),
-                },
-                Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::default().untyped(),
-                },
-                item,
-                InputUniformIndex::default(),
-                BinnedRenderPhaseType::NonMesh,
+        }
+        if let Some(phase) = phases.opaque.get_mut(&retained) {
+            queue_opaque(
+                &mut pipelines,
+                phase,
+                &camera,
+                deferred,
+                draw_main,
+                features,
+                triangles,
             );
         }
 
-        if let Some(lights) = lights {
-            let pipeline = (draws && pipelines.shadow.supported).then(|| {
+        if let Some(lights) = camera.lights {
+            let pipeline = (camera.draws && pipelines.shadow.supported).then(|| {
                 pipelines.shadow_specialized.specialize(
                     &pipelines.cache,
                     &pipelines.shadow,
@@ -614,17 +586,138 @@ pub(crate) fn queue_grass(
                 &mut phases.shadow,
                 lights,
                 &light_views,
-                item,
+                (camera.entity, camera.main_entity),
                 pipeline,
                 draw_shadow,
                 extracted
                     .settings
-                    .for_camera(grass_camera)
+                    .for_camera(camera.grass_camera)
                     .shadows
                     .cascades(),
             );
         }
     }
+}
+
+/// One camera's queue decisions, shared by the per-phase helpers.
+struct CameraQueue<'a> {
+    entity: Entity,
+    main_entity: MainEntity,
+    draws: bool,
+    deferred_prepass: bool,
+    view_key: Option<MeshPipelineKey>,
+    prepass_key: Option<MeshPipelineKey>,
+    lights: Option<&'a ViewLightEntities>,
+    grass_camera: Option<&'a GrassCamera>,
+}
+
+/// A deferred camera draws grass into its G-buffer and nowhere else. Returns
+/// whether the item was queued there.
+fn queue_deferred(
+    pipelines: &mut GrassPipelines,
+    phase: &mut BinnedRenderPhase<Opaque3dDeferred>,
+    camera: &CameraQueue,
+    deferred_default: bool,
+    draw_function: DrawFunctionId,
+    features: LookFeatures,
+) -> bool {
+    phase.remove(camera.main_entity);
+    if !camera.draws || !camera.deferred_prepass || !deferred_default {
+        return false;
+    }
+    let Some(mesh_key) = camera.prepass_key else {
+        return false;
+    };
+    let pipeline = pipelines.prepass_specialized.specialize(
+        &pipelines.cache,
+        &pipelines.prepass,
+        GrassPipelineKey {
+            mesh: mesh_key | MeshPipelineKey::DEFERRED_PREPASS,
+            features,
+        },
+    );
+    add_prepass_item(
+        phase,
+        pipeline,
+        draw_function,
+        (camera.entity, camera.main_entity),
+    );
+    true
+}
+
+/// A forward camera with a prepass draws grass there too, so SSAO, TAA and
+/// anything else reading the prepass sees it.
+fn queue_prepass(
+    pipelines: &mut GrassPipelines,
+    phase: &mut BinnedRenderPhase<Opaque3dPrepass>,
+    camera: &CameraQueue,
+    deferred: bool,
+    draw_function: DrawFunctionId,
+    features: LookFeatures,
+) {
+    phase.remove(camera.main_entity);
+    if !camera.draws || deferred {
+        return;
+    }
+    let Some(mesh_key) = camera.prepass_key else {
+        return;
+    };
+    let pipeline = pipelines.prepass_specialized.specialize(
+        &pipelines.cache,
+        &pipelines.prepass,
+        GrassPipelineKey {
+            mesh: mesh_key,
+            features,
+        },
+    );
+    add_prepass_item(
+        phase,
+        pipeline,
+        draw_function,
+        (camera.entity, camera.main_entity),
+    );
+}
+
+/// A forward camera draws grass into its opaque phase.
+fn queue_opaque(
+    pipelines: &mut GrassPipelines,
+    phase: &mut BinnedRenderPhase<Opaque3d>,
+    camera: &CameraQueue,
+    deferred: bool,
+    draw_function: DrawFunctionId,
+    features: LookFeatures,
+    triangles: MeshPipelineKey,
+) {
+    phase.remove(camera.main_entity);
+    if !camera.draws || deferred {
+        return;
+    }
+    let Some(view_key) = camera.view_key else {
+        return;
+    };
+    let pipeline = pipelines.main_specialized.specialize(
+        &pipelines.cache,
+        &pipelines.main,
+        GrassPipelineKey {
+            mesh: view_key | triangles,
+            features,
+        },
+    );
+    phase.add(
+        Opaque3dBatchSetKey {
+            draw_function,
+            pipeline,
+            material_bind_group_index: None,
+            lightmap_slab: None,
+            slabs: MeshSlabs::default(),
+        },
+        Opaque3dBinKey {
+            asset_id: AssetId::<Mesh>::default().untyped(),
+        },
+        (camera.entity, camera.main_entity),
+        InputUniformIndex::default(),
+        BinnedRenderPhaseType::NonMesh,
+    );
 }
 
 /// Puts the grass item into the shadow phase of every directional-light
