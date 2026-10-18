@@ -479,7 +479,7 @@ mod tests {
         let tables = tables(&mut app);
         let chunks = rects(&chunk_shapes(&tables, 100));
         let mut mins: Vec<_> = chunks.iter().map(|(min, ..)| (min.x, min.y)).collect();
-        mins.sort_by(f32_pair_order);
+        mins.sort_by(|a, b| f32_pair_order(*a, *b));
         assert_eq!(
             mins,
             vec![(-16.0, -16.0), (-16.0, 0.0), (0.0, -16.0), (0.0, 0.0)]
@@ -493,7 +493,7 @@ mod tests {
         assert!(chunk_shapes(&tables, 0).is_empty());
     }
 
-    fn f32_pair_order(a: &(f32, f32), b: &(f32, f32)) -> std::cmp::Ordering {
+    fn f32_pair_order(a: (f32, f32), b: (f32, f32)) -> std::cmp::Ordering {
         a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
     }
 

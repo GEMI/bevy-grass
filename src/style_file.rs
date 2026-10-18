@@ -58,6 +58,11 @@ use crate::style::MAX_SPECIES;
 
 impl GrassStyle {
     /// Reads a style from the text of a `.grass.ron` file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrassStyleFileError`] if the text is not valid RON, names an
+    /// unknown base preset, or contains an out-of-range value.
     pub fn from_ron(text: &str) -> Result<Self, GrassStyleFileError> {
         let file: GrassStyleFile = options()
             .from_str(text)
@@ -74,6 +79,12 @@ impl GrassStyle {
 
     /// Writes the style as the text of a `.grass.ron` file, every field
     /// given.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the style cannot be serialized, which the finite
+    /// numeric fields and plain colour values make impossible in practice.
+    #[must_use]
     pub fn to_ron(&self) -> String {
         let file = GrassStyleFile::from_style(self);
         let config = ron::ser::PrettyConfig::new()

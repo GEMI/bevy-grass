@@ -90,6 +90,7 @@ pub struct FarGrass {
 impl FarGrass {
     /// Far grass for fields of `style`, fading in where the blades thin out
     /// (see [`FarGrass::fade`]).
+    #[must_use]
     pub fn new(style: &GrassStyle) -> Self {
         let root = LinearRgba::from(style.blade.root_color);
         let tip = LinearRgba::from(style.blade.tip_color);

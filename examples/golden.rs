@@ -314,30 +314,30 @@ fn root() -> PathBuf {
 }
 
 /// Compares one capture with its golden, or writes it when blessing.
-fn check(name: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), String> {
+fn check(capture: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), String> {
     let stride = data.len() / HEIGHT as usize;
     let mut pixels = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
     for row in data.chunks(stride).take(HEIGHT as usize) {
         pixels.extend_from_slice(&row[..(WIDTH * 4) as usize]);
     }
-    let rendered = image::RgbaImage::from_raw(WIDTH, HEIGHT, pixels)
-        .ok_or_else(|| format!("{name}: readback has the wrong size"))?;
+    let actual = image::RgbaImage::from_raw(WIDTH, HEIGHT, pixels)
+        .ok_or_else(|| format!("{capture}: readback has the wrong size"))?;
     let golden_path = root()
         .join("tests/golden")
         .join(renderer)
-        .join(format!("{name}.png"));
+        .join(format!("{capture}.png"));
     if bless {
-        save(&rendered, &golden_path)?;
+        save(&actual, &golden_path)?;
         return Ok(());
     }
     let golden = match image::open(&golden_path) {
         Ok(golden) => golden.to_rgba8(),
         Err(error) => {
             // Keep the capture, so CI can hand it over as the first golden.
-            let kept = root().join("target/golden").join(format!("{name}.png"));
-            save(&rendered, &kept)?;
+            let kept = root().join("target/golden").join(format!("{capture}.png"));
+            save(&actual, &kept)?;
             return Err(format!(
-                "{name}: no golden at {} ({error}); run with --bless to make one, \
+                "{capture}: no golden at {} ({error}); run with --bless to make one, \
                  or take the image from target/golden/",
                 golden_path.display()
             ));
@@ -346,7 +346,7 @@ fn check(name: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), Str
     let mut total = 0u64;
     let mut loud = 0u64;
     let mut difference = image::RgbaImage::new(WIDTH, HEIGHT);
-    for ((a, b), out) in rendered
+    for ((a, b), out) in actual
         .pixels()
         .zip(golden.pixels())
         .zip(difference.pixels_mut())
@@ -362,16 +362,16 @@ fn check(name: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), Str
     let loud_share = loud as f64 / pixels;
     if mean <= MAX_MEAN_DIFFERENCE && loud_share <= MAX_LOUD_SHARE {
         info!(
-            "{name}: matches (mean {mean:.3}, {:.3}% loud)",
+            "{capture}: matches (mean {mean:.3}, {:.3}% loud)",
             loud_share * 100.0
         );
         return Ok(());
     }
     let out = root().join("target/golden");
-    save(&rendered, &out.join(format!("{name}.png")))?;
-    save(&difference, &out.join(format!("{name}-diff.png")))?;
+    save(&actual, &out.join(format!("{capture}.png")))?;
+    save(&difference, &out.join(format!("{capture}-diff.png")))?;
     Err(format!(
-        "{name}: differs from its golden (mean {mean:.3} > {MAX_MEAN_DIFFERENCE} or {:.3}% \
+        "{capture}: differs from its golden (mean {mean:.3} > {MAX_MEAN_DIFFERENCE} or {:.3}% \
          of pixels off by more than {LOUD} > {:.3}%); see target/golden/",
         loud_share * 100.0,
         MAX_LOUD_SHARE * 100.0

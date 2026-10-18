@@ -71,6 +71,7 @@ macro_rules! preset_styles {
 
 impl GrassStyle {
     /// The preset constant called `name`, such as `"SUMMER_TALL"`.
+    #[must_use]
     pub fn preset(name: &str) -> Option<Self> {
         PRESETS
             .iter()

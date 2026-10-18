@@ -183,6 +183,7 @@ pub struct GrassSpecies {
 
 impl GrassSpecies {
     /// `share` of the blades look like `blade`, scattered.
+    #[must_use]
     pub const fn new(blade: GrassBlade, share: f32) -> Self {
         Self {
             share,
@@ -201,6 +202,7 @@ impl GrassSpecies {
 impl GrassStyle {
     /// Average distance between neighbouring blades at full density, in
     /// metres: `1 / sqrt(density)`.
+    #[must_use]
     pub fn spacing(&self) -> f32 {
         1.0 / self.density.max(f32::MIN_POSITIVE).sqrt()
     }

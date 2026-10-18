@@ -476,7 +476,7 @@ impl Placement {
     fn of(
         field: &GrassField,
         transform: &GlobalTransform,
-        visibility: &InheritedVisibility,
+        visibility: InheritedVisibility,
         layers: Option<&RenderLayers>,
     ) -> Self {
         let size = scaled_size(field, transform);
@@ -599,7 +599,7 @@ fn gather<'a>(
         };
         inputs.push(Input {
             entity: *entity,
-            placement: Placement::of(field, transform, visibility, *layers),
+            placement: Placement::of(field, transform, **visibility, *layers),
             overrides: overrides.copied().unwrap_or_default(),
             style_id: field.style.id(),
             style: styles.get(&field.style)?,

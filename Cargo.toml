@@ -83,21 +83,20 @@ missing_docs = "warn"
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
-similar_names = "allow"
+
+# Graphics math: bounded f32/integer conversions and exact float comparisons
+# are intentional, and the CPU mirror must match the shaders bit for bit.
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
 cast_lossless = "allow"
-return_self_not_must_use = "allow"
 float_cmp = "allow"
+
+# Bevy systems receive resources, commands and queries by value.
 needless_pass_by_value = "allow"
+# Settings and style assets are naturally boolean-heavy.
 struct_excessive_bools = "allow"
-trivially_copy_pass_by_ref = "allow"
 
 [profile.dev]
 opt-level = 1

@@ -531,12 +531,12 @@ mod tests {
         // `Default` through reflection is the type's default.
         let app = app();
         let registry = app.world().resource::<AppTypeRegistry>().read();
-        let make = registry
+        let make_default = registry
             .get_type_data::<ReflectDefault>(TypeId::of::<GrassSettings>())
             .unwrap();
-        let made = make.default();
+        let value = make_default.default();
         assert_eq!(
-            GrassSettings::from_reflect(made.as_partial_reflect()),
+            GrassSettings::from_reflect(value.as_partial_reflect()),
             Some(GrassSettings::HIGH)
         );
     }

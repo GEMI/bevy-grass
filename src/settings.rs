@@ -425,6 +425,7 @@ pub enum GrassQuality {
 
 impl GrassQuality {
     /// The tier's [`GrassSettings`].
+    #[must_use]
     pub const fn settings(self) -> GrassSettings {
         match self {
             Self::Competitive => GrassSettings::COMPETITIVE,
@@ -436,26 +437,31 @@ impl GrassQuality {
     }
 
     /// Visible blades the tier is budgeted for.
+    #[must_use]
     pub const fn instance_capacity(self) -> u32 {
         self.settings().instance_capacity
     }
 
     /// How far grass reaches from a perspective camera, in metres.
+    #[must_use]
     pub const fn radius(self) -> f32 {
         self.settings().radius
     }
 
     /// Which blades cast shadows.
+    #[must_use]
     pub const fn shadows(self) -> GrassShadows {
         self.settings().shadows
     }
 
     /// Multiplier on every style's density.
+    #[must_use]
     pub const fn density_scale(self) -> f32 {
         self.settings().density_scale
     }
 
     /// The level of detail orthographic cameras draw everything at.
+    #[must_use]
     pub const fn orthographic_lod(self) -> u32 {
         self.settings().orthographic_lod
     }
