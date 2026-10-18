@@ -28,7 +28,8 @@ use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
 use crate::api::{GrassField, GrassInteractor, GrassStyle, GrassWind};
 use crate::fields::{CHUNK_SIZE, FieldTables};
-use crate::mirror::{self, ChunkLayout, DistanceLod, TILE_POINTS};
+use crate::mirror;
+use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};
 
 /// Copies a buffer to the CPU, waiting for the GPU.
 fn read_buffer(
@@ -216,22 +217,26 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             {
                 continue;
             }
-            let pick = mirror::unit(mirror::hash(candidate.seed ^ 0x68));
+            let pick = shader_model::unit(shader_model::hash(candidate.seed ^ 0x68));
             let height = field.shape.x + pick * (field.shape.y - field.shape.x);
             if height < 0.01 || !sphere_visible(&view.planes, root + Vec3::Y * height * 0.5, height)
             {
                 continue;
             }
-            let lod = lod_table.lod(distance, mirror::unit(mirror::hash(candidate.seed ^ 0x10d)));
+            let lod = lod_table.lod(
+                distance,
+                shader_model::unit(shader_model::hash(candidate.seed ^ 0x10d)),
+            );
             let width = field.shape.z
-                * (0.75 + 0.5 * mirror::unit(mirror::hash(candidate.seed ^ 0x77)))
+                * (0.75 + 0.5 * shader_model::unit(shader_model::hash(candidate.seed ^ 0x77)))
                 * mirror::coverage_width(falloff, view.limits.x);
             let relative = root - origin.truncate();
             let qx = quantize(relative.x / (2.0 * origin.w) + 0.5, 65535.0);
             let qz = quantize(relative.z / (2.0 * origin.w) + 0.5, 65535.0);
             let qy = quantize(relative.y / (2.0 * view.limits.w) + 0.5, 65535.0);
-            let facing =
-                (mirror::unit(mirror::hash(candidate.seed ^ 0x66)).fract() * 256.0) as u32 & 0xff;
+            let facing = (shader_model::unit(shader_model::hash(candidate.seed ^ 0x66)).fract()
+                * 256.0) as u32
+                & 0xff;
             out.push([
                 qx | (qz << 16),
                 qy | (facing << 16) | ((candidate.seed >> 24) << 24),

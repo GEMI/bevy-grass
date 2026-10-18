@@ -11,7 +11,7 @@ use bevy::math::{IVec2, Vec2, Vec3};
 
 use crate::GrassSettings;
 
-pub(crate) use crate::shader_model::{
+use crate::shader_model::{
     CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GUST_SIZE, TILE_POINTS,
     TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_threshold, best_candidate_tile, blue_noise_tile,
     clump_table, gust_noise, hash, hash2, lod_indices, sample_noise, toroidal_distance_squared,
