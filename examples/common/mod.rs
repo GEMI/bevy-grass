@@ -16,7 +16,10 @@
 //!
 //! Any other `--flag` is kept for the example itself (`ExampleArgs::has`).
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "each example uses a different subset of these shared helpers"
+)]
 
 use std::time::Duration;
 

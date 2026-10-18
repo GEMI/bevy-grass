@@ -154,7 +154,7 @@ impl ShadowSetupReport {
 
 /// Watches the lights and the fields, and says what is likely to make grass
 /// shadows wrong, once per distinct problem.
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity, reason = "Bevy system queries are verbose")]
 pub(crate) fn check_shadow_setup(
     settings: Res<GrassSettings>,
     tables: Res<FieldTables>,

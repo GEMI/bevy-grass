@@ -59,7 +59,6 @@ fn main() {
     app.run();
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
     args: Res<common::ExampleArgs>,
@@ -174,7 +173,6 @@ fn setup(
 }
 
 /// `--pan` slides the camera sideways and back, about 1 m/s.
-#[allow(clippy::needless_pass_by_value)]
 fn pan(
     args: Res<common::ExampleArgs>,
     time: Res<Time>,

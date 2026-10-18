@@ -53,7 +53,6 @@ fn main() {
         .run();
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
     args: Res<common::ExampleArgs>,

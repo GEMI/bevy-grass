@@ -259,7 +259,7 @@ pub(crate) fn sample_noise(noise: &[u8], uv: Vec2) -> f32 {
     top + (bottom - top) * t.y
 }
 /// The value of `bare_noise` below which `share` of the ground lies.
-#[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
+#[expect(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
 pub(crate) fn bare_threshold(share: f32) -> f32 {
     static SORTED: OnceLock<Vec<f32>> = OnceLock::new();
     let sorted = SORTED.get_or_init(|| {

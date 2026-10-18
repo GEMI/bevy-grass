@@ -288,7 +288,7 @@ pub(crate) fn tuft_at(q: Vec2) -> (Vec2, f32) {
 /// about `size` metres across: two samples of the gust noise, the second
 /// turned and scaled, so the pattern does not visibly repeat. The WESL twin
 /// is `bare_noise`.
-#[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
+#[expect(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
 pub(crate) fn bare_noise(noise: &[u8], at: Vec2, size: f32) -> f32 {
     let uv = at / (size * 8.0);
     let turned = Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;

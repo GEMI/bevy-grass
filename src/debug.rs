@@ -293,7 +293,7 @@ pub(crate) fn shapes(
     shapes
 }
 
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity, reason = "Bevy system queries are verbose")]
 fn draw_debug(
     mut gizmos: Gizmos<GrassGizmos>,
     debug: Res<GrassDebug>,

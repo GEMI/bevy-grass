@@ -504,7 +504,10 @@ fn add_prepass_item<P>(
 /// deferred camera, its deferred phase), into its prepass when it has one,
 /// and into the shadow phase of every directional-light view it owns.
 // One flat pass over the cameras; split up it would only be harder to follow.
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one flat pass over the cameras; splitting it would only be harder to follow"
+)]
 pub(crate) fn queue_grass(
     mut pipelines: GrassPipelines,
     mut phases: GrassPhases,

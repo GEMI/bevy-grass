@@ -55,7 +55,10 @@ fn walk(time: Res<Time>, mut walkers: Query<(&Walker, &mut Transform)>) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one setup function keeps the example's whole scene in one place"
+)]
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

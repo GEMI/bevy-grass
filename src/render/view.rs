@@ -261,7 +261,11 @@ pub(crate) fn frustum_planes(clip_from_world: &Mat4) -> [Vec4; 6] {
 }
 
 /// Creates buffers for new grass views and writes every view's uniform.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+#[expect(
+    clippy::type_complexity,
+    clippy::too_many_arguments,
+    reason = "Bevy systems take their queries and resources as separate parameters"
+)]
 pub(crate) fn prepare_views(
     mut commands: Commands,
     mut views: Query<

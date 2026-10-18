@@ -136,7 +136,6 @@ fn clearing_mask(size: u32, center: Vec2, radius: f32) -> Image {
     )
 }
 
-#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
     args: Res<common::ExampleArgs>,

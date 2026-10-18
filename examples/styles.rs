@@ -123,7 +123,6 @@ fn pick_wind(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn setup(
     mut commands: Commands,
     assets: Res<AssetServer>,
