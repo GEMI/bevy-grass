@@ -944,7 +944,7 @@ records both kinds with numbers.
 Measured on an NVIDIA T1200 laptop GPU (roughly a third of an RTX 3060) on
 Windows at 1920 × 1080, 4× MSAA, grass shadows on, High tier:
 
-| Scene | Grass cost per frame |
+| Scene | Grass GPU time per frame |
 | --- | --- |
 | Perspective flythrough over a 2 × 2 km heightmap, eye height 1.8 m | about 3.8 ms |
 | Top-down ARPG camera (orthographic, 30° pitch), 36 blades per m² | about 3 ms |
@@ -955,6 +955,14 @@ Most of the cost is shading pixels, not geometry: GPUs shade thin blades in
 mostly empty 2 × 2 quads. The CPU cost per frame is a few uniform uploads. The
 design targets 1 ms at the High tier on its RTX 3060 class hardware, which
 has not been measured yet.
+
+The "Grass GPU time" column is the GPU time of the grass passes only, not the
+whole frame. On this laptop the T1200 is the limit: the total frame at the High
+tier is 5.7 ms p50, while the empty Bevy scene (no grass) is 1.36 ms p50 on its
+i7-11850H CPU, or 1.01 ms with single-threaded schedules. Most of that saving is
+the render app's executor; see "Which executor owns the CPU floor?" in
+[docs/performance.md](docs/performance.md). On an RTX 4070 Ti the same grass
+costs 0.32 ms at the High tier; see "On faster hardware" below.
 
 For 240 FPS, `GrassQuality::Competitive` is the 240 Hz-oriented tier: 40 m of
 half-density grass with no grass shadow casting. Its acceptance test is the
@@ -1012,10 +1020,13 @@ larger radius and full shadows add 0.04–0.15 ms on top. The design target of
 1 ms at the High tier on RTX 3060 class hardware is still unmeasured, but this
 card spends a third of that.
 
-The frame itself stays at about 2.8–2.9 ms (roughly 350 fps), with or
-without grass, because this CPU is the limit and not the GPU: an empty Bevy
-scene alone takes 2.1 ms. With a faster CPU the frame should follow the GPU
-figures above (not tested). Fat LTO (`--profile release-lto`) and
+The frame itself stays at about 2.8–2.9 ms (roughly 350 fps) on the RTX 4070 Ti
+with its 2013 i5-4570S, with or without grass, because that CPU is the limit and
+not the GPU: an empty Bevy scene alone takes 2.1 ms there. A faster CPU should
+let the frame follow the GPU figures above (not tested there). On the newer
+i7-11850H laptop measured here the empty scene is 1.36 ms p50, or 1.01 ms with
+single-threaded schedules; the High-tier frame there is 5.7 ms, limited by the
+T1200 and not the CPU. Fat LTO (`--profile release-lto`) and
 single-threaded schedules (`--single-threaded`) cut that frame by 16–19%; see "The frame-time floor" in
 [`docs/performance.md`](docs/performance.md). Details and method are under
 "On an RTX 4070 Ti at stock clocks" there. The same GPU, clocked down to
