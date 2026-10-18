@@ -25,8 +25,8 @@ use bevy::transform::components::GlobalTransform;
 use crate::api::{
     GrassBlade, GrassField, GrassFieldOverrides, GrassGround, GrassSpecies, GrassStyle,
 };
-use crate::mirror::{self, ChunkLayout};
 use crate::packed::{self, PackedImages};
+use crate::shader_model::{self, ChunkLayout};
 use crate::stats::TableStats;
 use crate::{GrassStats, GrassSystems};
 
@@ -989,7 +989,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
         // The seed comes from where the field is, not from its entity, so
         // the same field looks the same however the scene was spawned.
         placement: UVec4::new(
-            mirror::hash2(corner.x.to_bits(), corner.z.to_bits()),
+            shader_model::hash2(corner.x.to_bits(), corner.z.to_bits()),
             layout.tiles_per_side,
             mask_offset,
             height_offset,
@@ -1008,7 +1008,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
             variation.tufts.clamp(0.0, 1.0),
             variation.tuft_spacing.max(0.01),
             if variation.bare_share > 0.0 {
-                mirror::bare_threshold(variation.bare_share)
+                shader_model::bare_threshold(variation.bare_share)
             } else {
                 -1.0
             },

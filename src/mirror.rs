@@ -1,36 +1,30 @@
-//! CPU mirrors of the functions the shaders run.
+//! Test-only CPU oracle for the GPU's placement and generation logic.
 //!
-//! Every function here has a WESL twin in `shaders/common.wesl` or
-//! `shaders/generate.wesl` that must give the same answer, bit for bit where
-//! integers are involved. At runtime the CPU only needs the hash, the tile and
-//! the chunk layout (to build the field table); the rest exists so that the
-//! placement properties the design depends on (determinism, stable thinning,
-//! smooth LOD, constant blade length) are tested here, and so that the GPU
-//! readback test has a reference to compare against.
+//! This module mirrors the WESL shaders bit for bit where integers are
+//! involved. It is compiled only for tests, so production code cannot
+//! accidentally depend on it. Its WESL twins live in `shaders/common.wesl`
+//! and `shaders/generate.wesl`.
 
-use std::sync::OnceLock;
-
-use bevy::math::IVec2;
-use bevy::math::Vec2;
-#[cfg(test)]
-use bevy::math::Vec3;
-
-use crate::GrassSettings;
-#[cfg(test)]
 use std::f32::consts::TAU;
 
-/// Points in the blue-noise tile.
-pub(crate) const TILE_POINTS: u32 = 1024;
+use bevy::math::{IVec2, Vec2, Vec3};
+
+use crate::GrassSettings;
+
+pub(crate) use crate::shader_model::{
+    CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GUST_SIZE, TILE_POINTS,
+    TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_threshold, best_candidate_tile, blue_noise_tile,
+    clump_table, gust_noise, hash, hash2, lod_indices, sample_noise, toroidal_distance_squared,
+    tuft_table, unit,
+};
 
 /// Vertical range an instance's root height can encode, in metres either side
 /// of the view's instance origin.
-#[cfg(test)]
 pub(crate) const HEIGHT_RANGE: f32 = 256.0;
 
 /// An instance's width encodes up to this many times its style's width, room
 /// for the ±25% per-blade variation times the coverage widening, up to
 /// `GrassSettings::MAX_WIDENING` (3.2×; 2.5× by default).
-#[cfg(test)]
 pub(crate) const WIDTH_RANGE: f32 = 4.0;
 
 /// Vertex-index stride between levels of detail.
@@ -38,117 +32,8 @@ pub(crate) const WIDTH_RANGE: f32 = 4.0;
 /// The draw for LOD `n` uses `base_vertex = n * LOD_VERTEX_STRIDE`, so the
 /// vertex shader recovers the level from `vertex_index` alone. That avoids
 /// `first_instance` in indirect draws, which needs an optional GPU feature.
-#[cfg(test)]
 pub(crate) const LOD_VERTEX_STRIDE: u32 = 64;
-
-/// PCG hash (Jarzynski and Olano, 2020). The WESL twin is `hash`.
-pub(crate) fn hash(x: u32) -> u32 {
-    let state = x.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
-    let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277_803_737);
-    (word >> 22) ^ word
-}
-
-/// Hash of two values. The WESL twin is `hash2`.
-pub(crate) fn hash2(a: u32, b: u32) -> u32 {
-    hash(a ^ hash(b))
-}
-
-/// A hash mapped to `[0, 1)` with 24 bits of precision. The WESL twin is `unit`.
-pub(crate) fn unit(h: u32) -> f32 {
-    (h >> 8) as f32 / 16_777_216.0
-}
-
-/// The blue-noise tile: [`TILE_POINTS`] points in the unit square, wrapping at
-/// its edges.
-///
-/// The points are in *progressive* order: every prefix of the list is itself
-/// evenly spread. Thinning keeps the blades whose index is below a threshold,
-/// so the grass stays evenly spread at every density instead of clumping as
-/// it thins. Generated once with Mitchell's best-candidate algorithm and a
-/// fixed seed, so it is identical on every machine and every run.
-pub(crate) fn blue_noise_tile() -> &'static [Vec2] {
-    static TILE: OnceLock<Vec<Vec2>> = OnceLock::new();
-    TILE.get_or_init(|| best_candidate_tile(TILE_POINTS as usize, 12, 0x6b8a_3a00))
-}
-
-fn best_candidate_tile(count: usize, candidates: u32, seed: u32) -> Vec<Vec2> {
-    let mut points: Vec<Vec2> = Vec::with_capacity(count);
-    let mut rng = seed;
-    let mut next = || {
-        rng = hash(rng);
-        unit(rng)
-    };
-    while points.len() < count {
-        let mut best = Vec2::ZERO;
-        let mut best_distance = -1.0;
-        for _ in 0..candidates {
-            let candidate = Vec2::new(next(), next());
-            let nearest = points
-                .iter()
-                .map(|p| toroidal_distance_squared(*p, candidate))
-                .fold(f32::INFINITY, f32::min);
-            if nearest > best_distance {
-                best_distance = nearest;
-                best = candidate;
-            }
-        }
-        points.push(best);
-    }
-    points
-}
-
-/// Squared distance between two points of the unit square, wrapping at the edges.
-pub(crate) fn toroidal_distance_squared(a: Vec2, b: Vec2) -> f32 {
-    let d = (a - b).abs();
-    let d = d.min(Vec2::ONE - d);
-    d.length_squared()
-}
-
-/// How a chunk is covered by copies of the blue-noise tile.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct ChunkLayout {
-    /// Tile copies along each side of the chunk.
-    pub tiles_per_side: u32,
-    /// Side of one tile copy, in metres.
-    pub tile_size: f32,
-    /// Blades per square metre when every candidate is kept.
-    pub candidate_density: f32,
-}
-
-impl ChunkLayout {
-    /// The coarsest layout with at least `density` candidates per square
-    /// metre, never fewer than one tile per chunk. Rounding the tile count to
-    /// the nearest instead silently capped some styles: 45 blades per m²
-    /// drew 36. Spare candidates cost nothing, because a chunk only evaluates
-    /// the prefix it can keep.
-    pub(crate) fn for_density(chunk_size: f32, density: f32) -> Self {
-        let ideal = chunk_size * (density.max(0.0) / TILE_POINTS as f32).sqrt();
-        let tiles_per_side = (ideal.ceil() as u32).max(1);
-        let tile_size = chunk_size / tiles_per_side as f32;
-        Self {
-            tiles_per_side,
-            tile_size,
-            candidate_density: TILE_POINTS as f32 / (tile_size * tile_size),
-        }
-    }
-
-    /// Tile copies in one chunk.
-    #[cfg(test)]
-    pub(crate) fn cells(&self) -> u32 {
-        self.tiles_per_side * self.tiles_per_side
-    }
-
-    /// Candidates that must be evaluated so that every blade whose rank is
-    /// below `keep` is among them. The WESL twin is in `cull`.
-    #[cfg(test)]
-    pub(crate) fn candidates_needed(&self, keep: f32) -> u32 {
-        let points = (keep.clamp(0.0, 1.0) * TILE_POINTS as f32).ceil() as u32;
-        points * self.cells()
-    }
-}
-
 /// One candidate blade, before thinning.
-#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Candidate {
     /// Position inside the chunk, in metres from its minimum corner.
@@ -160,13 +45,26 @@ pub(crate) struct Candidate {
     pub seed: u32,
 }
 
+impl ChunkLayout {
+    /// Tile copies in one chunk.
+    pub(crate) fn cells(&self) -> u32 {
+        self.tiles_per_side * self.tiles_per_side
+    }
+
+    /// Candidates that must be evaluated so that every blade whose rank is
+    /// below `keep` is among them. The WESL twin is in `cull`.
+    pub(crate) fn candidates_needed(&self, keep: f32) -> u32 {
+        let points = (keep.clamp(0.0, 1.0) * TILE_POINTS as f32).ceil() as u32;
+        points * self.cells()
+    }
+}
+
 /// Candidate `index` of chunk `chunk` in a field seeded with `field_seed`.
 ///
 /// Candidates are numbered point-major: all tile copies' first point, then
 /// all their second point, and so on. Rank grows with the index, so a chunk
 /// that keeps only a fraction of its blades evaluates only a prefix of its
 /// candidates. The WESL twin is `candidate`.
-#[cfg(test)]
 pub(crate) fn candidate(
     chunk: [u32; 2],
     field_seed: u32,
@@ -193,56 +91,12 @@ pub(crate) fn candidate(
 /// The share of candidates to keep where the requested density is
 /// `density × scale` blades per square metre (`scale` folds in the mask,
 /// the distance falloff and the quality tier).
-#[cfg(test)]
 pub(crate) fn keep_fraction(density: f32, scale: f32, layout: &ChunkLayout) -> f32 {
     (density * scale / layout.candidate_density).clamp(0.0, 1.0)
 }
 
-/// Distance-based thinning and level of detail for perspective views, from a
-/// [`GrassSettings`]. The tier's own table is the architecture's: 100% to
-/// the start of LOD 1, 50% where LOD 2 starts, 15% where the fade starts.
-///
-/// Orthographic views use none of it: every blade is the same size on screen,
-/// so they keep full density and one fixed LOD per tier (T3 in the plan).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct DistanceLod {
-    /// Beyond this no grass is drawn, in metres.
-    pub radius: f32,
-    /// Where LOD 1 and LOD 2 begin, in metres.
-    pub lod_start: [f32; 2],
-    /// Width of the dithered band around each LOD boundary, in metres.
-    pub band: f32,
-    /// Where the last fade begins, as a share of `radius`.
-    pub fade_start: f32,
-    /// The share of the blades kept where LOD 2 begins, and where the fade
-    /// begins.
-    pub density_at: [f32; 2],
-    /// The share of blades kept from the start of LOD 1 on, on top of the
-    /// thinning; coverage widening makes the survivors wider. Thin blades
-    /// waste most of the fragment work on the 2×2 pixel quads GPUs shade in,
-    /// so half as many blades at 1.4× the width cost 16% less in the
-    /// perspective benchmark and look the same.
-    pub mid_range_density: f32,
-}
-
 impl DistanceLod {
-    /// The table `settings` ask for, scaled to its radius.
-    pub(crate) fn from_settings(settings: &GrassSettings) -> Self {
-        Self {
-            radius: settings.radius,
-            lod_start: [
-                settings.radius * settings.lod1_start,
-                settings.radius * settings.lod2_start,
-            ],
-            band: settings.lod_blend,
-            fade_start: settings.fade_start,
-            density_at: [settings.lod2_density, settings.fade_density],
-            mid_range_density: settings.mid_range_density,
-        }
-    }
-
     /// The High-tier table from the architecture, scaled to `radius`.
-    #[cfg(test)]
     pub(crate) fn for_radius(radius: f32) -> Self {
         Self::from_settings(&GrassSettings {
             radius,
@@ -255,7 +109,6 @@ impl DistanceLod {
     /// of the radius, then fading to nothing at the radius so the edge never
     /// shows as a line), times `mid_range_density` from LOD 1's dither band
     /// on. The WESL twin is `density_falloff`.
-    #[cfg(test)]
     pub(crate) fn falloff(&self, distance: f32) -> f32 {
         let into_lod1 =
             ((distance - (self.lod_start[0] - self.band * 0.5)) / self.band).clamp(0.0, 1.0);
@@ -263,7 +116,6 @@ impl DistanceLod {
     }
 
     /// The architecture's table alone. The WESL twin is `distance_thinning`.
-    #[cfg(test)]
     fn distance_thinning(&self, distance: f32) -> f32 {
         let [lod1, lod2] = self.lod_start;
         let [at_lod2, at_edge] = self.density_at;
@@ -287,7 +139,6 @@ impl DistanceLod {
     /// `[0, 1)`. Inside a band around each boundary the blade switches when
     /// its own dither value says so, so the boundary dissolves into noise
     /// instead of a ring. The WESL twin is `select_lod`.
-    #[cfg(test)]
     pub(crate) fn lod(&self, distance: f32, dither: f32) -> u32 {
         self.lod_start
             .iter()
@@ -302,18 +153,15 @@ impl DistanceLod {
 /// Width multiplier that keeps coverage constant as density thins: blades
 /// widen by the inverse square root of the density drop, at most `max` times
 /// (2.5 by default). The WESL twin is `coverage_width`.
-#[cfg(test)]
 pub(crate) fn coverage_width(falloff: f32, max: f32) -> f32 {
     (1.0 / falloff.max(1.0 / (max * max)).sqrt()).min(max)
 }
 
-#[cfg(test)]
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t.clamp(0.0, 1.0)
 }
 
 /// One blade, unpacked. Every field is in the range the packed form can hold.
-#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Blade {
     /// Root position relative to the view's instance origin, in metres. `x`
@@ -340,24 +188,20 @@ pub(crate) struct Blade {
     pub previous_bend: Vec2,
 }
 
-#[cfg(test)]
 fn quantize(value: f32, bits: u32) -> u32 {
     let max = ((1u64 << bits) - 1) as f32;
     (value.clamp(0.0, 1.0) * max).round() as u32
 }
 
-#[cfg(test)]
 fn dequantize(value: u32, bits: u32) -> f32 {
     value as f32 / ((1u64 << bits) - 1) as f32
 }
 
 /// Steps of last frame's bend per unit of bend.
-#[cfg(test)]
 pub(crate) const BEND_DELTA_STEPS: f32 = 128.0;
 
 /// One axis of a blade's bend in 16 bits: the bend in the low 12, and last
 /// frame's bend as a 4-bit step from it. The WESL twin is `pack_bend`.
-#[cfg(test)]
 fn pack_bend(bend: f32, previous: f32) -> u32 {
     let now = quantize(bend * 0.5 + 0.5, 12);
     let decoded = dequantize(now, 12) * 2.0 - 1.0;
@@ -368,7 +212,6 @@ fn pack_bend(bend: f32, previous: f32) -> u32 {
 }
 
 /// This frame's and last frame's bend from `pack_bend`'s 16 bits.
-#[cfg(test)]
 pub(crate) fn unpack_bend(bits: u32) -> (f32, f32) {
     let now = dequantize(bits & 0xfff, 12) * 2.0 - 1.0;
     let step = ((bits >> 12) & 0xf) as i32 - 8;
@@ -384,7 +227,6 @@ pub(crate) fn unpack_bend(bits: u32) -> (f32, f32) {
 /// | 1 | y (16) over ±`HEIGHT_RANGE`, facing (8), seed (8) |
 /// | 2 | height (8), width (8), field (8), LOD (2), flags (6) |
 /// | 3 | bend x and z (16 each: 12 for this frame, 4 for last frame's as a step from it) |
-#[cfg(test)]
 pub(crate) fn pack(blade: &Blade, extent: f32) -> [u32; 4] {
     let x = quantize(blade.position.x / (2.0 * extent) + 0.5, 16);
     let z = quantize(blade.position.z / (2.0 * extent) + 0.5, 16);
@@ -404,7 +246,6 @@ pub(crate) fn pack(blade: &Blade, extent: f32) -> [u32; 4] {
 }
 
 /// Unpacks the 16-byte instance format.
-#[cfg(test)]
 pub(crate) fn unpack(words: [u32; 4], extent: f32) -> Blade {
     let bend_x = unpack_bend(words[3] & 0xffff);
     let bend_z = unpack_bend(words[3] >> 16);
@@ -425,108 +266,16 @@ pub(crate) fn unpack(words: [u32; 4], extent: f32) -> Blade {
         previous_bend: Vec2::new(bend_x.1, bend_z.1),
     }
 }
-
-/// Clump table entries per metre along each axis.
-pub(crate) const CLUMP_PER_METRE: i32 = 4;
-/// Entries along each side of the clump table: it repeats every 64 m.
-pub(crate) const CLUMP_SIDE: i32 = 256;
-
-/// The clump of every 25 cm square of a 64 m tile, 0–63, one byte each,
-/// four to a word. It is a Voronoi pattern with one jittered point per
-/// square metre, wrapped so the tile repeats seamlessly. Blades in one clump
-/// share a tint, which reads as natural patches rather than per-blade noise.
-///
-/// Built once and uploaded: searching the nine nearest points per blade on
-/// the GPU made blade generation 40–130% slower; a table lookup costs one
-/// load.
-pub(crate) fn clump_table() -> &'static [u32] {
-    static TABLE: OnceLock<Vec<u32>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let metres = CLUMP_SIDE / CLUMP_PER_METRE;
-        let mut words = vec![0u32; (CLUMP_SIDE * CLUMP_SIDE / 4) as usize];
-        for z in 0..CLUMP_SIDE {
-            for x in 0..CLUMP_SIDE {
-                let point = (Vec2::new(x as f32, z as f32) + 0.5) / CLUMP_PER_METRE as f32;
-                let cell = point.floor();
-                let mut nearest = f32::MAX;
-                let mut id = 0;
-                for dz in -1..=1 {
-                    for dx in -1..=1 {
-                        let neighbour = cell + Vec2::new(dx as f32, dz as f32);
-                        let wrapped = neighbour.as_ivec2().rem_euclid(IVec2::splat(metres));
-                        let key = hash2(wrapped.x as u32, wrapped.y as u32);
-                        let feature = neighbour + Vec2::new(unit(key), unit(hash(key)));
-                        let distance = feature.distance_squared(point);
-                        if distance < nearest {
-                            nearest = distance;
-                            id = key;
-                        }
-                    }
-                }
-                let index = (z * CLUMP_SIDE + x) as usize;
-                words[index / 4] |= (hash(id ^ 0xc1) >> 26) << ((index % 4) * 8);
-            }
-        }
-        words
-    })
-}
-
 /// The clump a root at `point` (world XZ) belongs to, 0–63. The WESL twin
 /// is `clump_of`.
-#[cfg(test)]
 pub(crate) fn clump_of(point: Vec2) -> u8 {
     let entry = (point * CLUMP_PER_METRE as f32).floor().as_ivec2() & (CLUMP_SIDE - 1);
     let index = (entry.y * CLUMP_SIDE + entry.x) as usize;
     ((clump_table()[index / 4] >> ((index % 4) * 8)) & 63) as u8
 }
 
-/// Tuft table entries per tuft spacing, along each axis.
-pub(crate) const TUFT_ENTRIES_PER_TUFT: i32 = 4;
-/// Entries along each side of the tuft table: it repeats every 64 tufts.
-pub(crate) const TUFT_SIDE: i32 = 256;
-
-/// Where the tufts are: one centre per tuft spacing (a square of side 1 in
-/// tuft units), jittered, as a Voronoi pattern like the clump table's. Each
-/// entry covers a quarter of a tuft spacing and holds its nearest centre,
-/// relative to the entry's own centre, in tuft spacings: x and z as signed
-/// bytes over ±2 in the low two bytes, and a random byte per tuft in the
-/// third. Wraps every 64 tufts.
-///
-/// A table for the same reason as the clump table: searching nine centres
-/// per blade is what made generation 40–130% slower there.
-pub(crate) fn tuft_table() -> &'static [u32] {
-    static TABLE: OnceLock<Vec<u32>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let tufts = TUFT_SIDE / TUFT_ENTRIES_PER_TUFT;
-        let byte = |offset: f32| ((offset / 4.0 + 0.5).clamp(0.0, 1.0) * 255.0).round() as u32;
-        (0..TUFT_SIDE * TUFT_SIDE)
-            .map(|index| {
-                let entry = Vec2::new((index % TUFT_SIDE) as f32, (index / TUFT_SIDE) as f32);
-                let point = (entry + 0.5) / TUFT_ENTRIES_PER_TUFT as f32;
-                let cell = point.floor();
-                let mut nearest = (f32::MAX, Vec2::ZERO, 0);
-                for dz in -1..=1 {
-                    for dx in -1..=1 {
-                        let neighbour = cell + Vec2::new(dx as f32, dz as f32);
-                        let wrapped = neighbour.as_ivec2().rem_euclid(IVec2::splat(tufts));
-                        let key = hash2(wrapped.x as u32, wrapped.y as u32) ^ 0x7f4a_7c15;
-                        let centre = neighbour + Vec2::new(unit(key), unit(hash(key)));
-                        let distance = centre.distance_squared(point);
-                        if distance < nearest.0 {
-                            nearest = (distance, centre - point, key);
-                        }
-                    }
-                }
-                let (_, offset, key) = nearest;
-                byte(offset.x) | (byte(offset.y) << 8) | ((hash(key ^ 0x3c) >> 24) << 16)
-            })
-            .collect()
-    })
-}
-
 /// The nearest tuft centre to `q` (in tuft spacings) and the tuft's random
 /// value in `[0, 1]`. The WESL twin is `tuft_at`.
-#[cfg(test)]
 pub(crate) fn tuft_at(q: Vec2) -> (Vec2, f32) {
     let entry = (q * TUFT_ENTRIES_PER_TUFT as f32).floor();
     let wrapped = entry.as_ivec2() & (TUFT_SIDE - 1);
@@ -535,64 +284,22 @@ pub(crate) fn tuft_at(q: Vec2) -> (Vec2, f32) {
     let centre = (entry + 0.5) / TUFT_ENTRIES_PER_TUFT as f32 + offset;
     (centre, ((word >> 16) & 0xff) as f32 / 255.0)
 }
-
-/// One bilinear sample of the gust noise (an R8 texture, wrapping), as the
-/// GPU's sampler takes it.
-fn sample_noise(noise: &[u8], uv: Vec2) -> f32 {
-    let size = (noise.len() as f32).sqrt() as i32;
-    let p = uv * size as f32 - 0.5;
-    let base = p.floor();
-    let t = p - base;
-    let at = |x: i32, y: i32| {
-        let x = (base.x as i32 + x).rem_euclid(size);
-        let y = (base.y as i32 + y).rem_euclid(size);
-        f32::from(noise[(y * size + x) as usize]) / 255.0
-    };
-    let top = at(0, 0) + (at(1, 0) - at(0, 0)) * t.x;
-    let bottom = at(0, 1) + (at(1, 1) - at(0, 1)) * t.x;
-    top + (bottom - top) * t.y
-}
-
 /// The noise bare patches are cut from, at world point `at`, for patches
 /// about `size` metres across: two samples of the gust noise, the second
 /// turned and scaled, so the pattern does not visibly repeat. The WESL twin
 /// is `bare_noise`.
-#[cfg(test)]
 #[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
 pub(crate) fn bare_noise(noise: &[u8], at: Vec2, size: f32) -> f32 {
     let uv = at / (size * 8.0);
     let turned = Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
     0.5 * (sample_noise(noise, uv) + sample_noise(noise, turned))
 }
-
-/// The value of `bare_noise` below which `share` of the ground lies.
-#[allow(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
-pub(crate) fn bare_threshold(share: f32) -> f32 {
-    static SORTED: OnceLock<Vec<f32>> = OnceLock::new();
-    let sorted = SORTED.get_or_init(|| {
-        let noise = crate::render::resources::gust_noise(crate::render::resources::GUST_SIZE);
-        let mut values: Vec<f32> = (0..32_768u32)
-            .map(|i| {
-                let uv = Vec2::new(unit(hash(i ^ 0xba5e)), unit(hash(i ^ 0xbead))) * 16.0;
-                let turned =
-                    Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
-                0.5 * (sample_noise(&noise, uv) + sample_noise(&noise, turned))
-            })
-            .collect();
-        values.sort_by(f32::total_cmp);
-        values
-    });
-    let index = (share.clamp(0.0, 1.0) * (sorted.len() - 1) as f32).round() as usize;
-    sorted[index]
-}
-
 /// Which of a field's species a blade is: 0 for the style's own, `k` for
 /// the `k`th of `species`, given as (chance, clustering) pairs. A species'
 /// chance applies to the blades the species before it left. A clustered
 /// species draws its random number from the blade's clump instead of the
 /// blade: shuffled per species, and spread within the clump by the blade's
 /// own number, so the shares stay exact. The WESL twin is in `evaluate`.
-#[cfg(test)]
 pub(crate) fn pick_species(seed: u32, clump: u32, species: &[(f32, f32)]) -> usize {
     for (index, (chance, clustering)) in species.iter().enumerate() {
         let k = index as u32 + 1;
@@ -623,7 +330,6 @@ pub(crate) fn pick_species(seed: u32, clump: u32, species: &[(f32, f32)]) -> usi
 /// that strong bends stay within 1% of the rest length. A drooping blade
 /// reaches further, its tip sags and its control point rises: it stands up
 /// from the root and arches over.
-#[cfg(test)]
 pub(crate) fn blade_curve(height: f32, lean: f32, bend: Vec2, droop: f32) -> [Vec3; 3] {
     let wanted = (Vec2::new(0.0, lean) + bend) * height;
     // An upright blade has no side to droop toward.
@@ -657,35 +363,16 @@ pub(crate) fn blade_curve(height: f32, lean: f32, bend: Vec2, droop: f32) -> [Ve
 }
 
 /// A point on a quadratic Bézier curve.
-#[cfg(test)]
 pub(crate) fn bezier(points: &[Vec3; 3], t: f32) -> Vec3 {
     let u = 1.0 - t;
     points[0] * (u * u) + points[1] * (2.0 * u * t) + points[2] * (t * t)
 }
-
-/// Index list for one level of detail, with vertex indices local to the level.
-///
-/// Rows run root to tip; row `r` is vertices `2r` (left) and `2r + 1` (right),
-/// and the tip is vertex `2 * rows`.
-pub(crate) fn lod_indices(rows: u32) -> Vec<u32> {
-    let tip = 2 * rows;
-    let mut indices = Vec::with_capacity((2 * rows as usize - 1) * 3);
-    for r in 0..rows - 1 {
-        let (l, rt) = (2 * r, 2 * r + 1);
-        indices.extend_from_slice(&[l, rt, l + 2, rt, rt + 2, l + 2]);
-    }
-    indices.extend_from_slice(&[2 * (rows - 1), 2 * (rows - 1) + 1, tip]);
-    indices
-}
-
 /// Cells along a trample window's side. Twin of `trample::TEXELS`.
-#[cfg(test)]
 const TRAMPLE_TEXELS: i32 = 256;
 
 /// A push packed for `atomicMax`: strength in the top 10 bits, so the larger
 /// word is always the stronger push, and the direction as two 11-bit
 /// components below. The WESL twin is `trample_pack`.
-#[cfg(test)]
 pub(crate) fn trample_pack(push: Vec2) -> u32 {
     let strength = push.length().clamp(0.0, 1.0);
     let direction = if strength > 1e-6 {
@@ -698,7 +385,6 @@ pub(crate) fn trample_pack(push: Vec2) -> u32 {
 }
 
 /// The WESL twin is `trample_unpack`.
-#[cfg(test)]
 pub(crate) fn trample_unpack(word: u32) -> Vec2 {
     let strength = (word >> 22) as f32 / 1023.0;
     let direction =
@@ -708,7 +394,6 @@ pub(crate) fn trample_unpack(word: u32) -> Vec2 {
 
 /// Index of a world cell's slot in the window buffer. The WESL twin is
 /// `trample_slot`.
-#[cfg(test)]
 pub(crate) fn trample_slot(cell: IVec2) -> u32 {
     let wrapped = cell & IVec2::splat(TRAMPLE_TEXELS - 1);
     (wrapped.y * TRAMPLE_TEXELS + wrapped.x) as u32
@@ -716,18 +401,15 @@ pub(crate) fn trample_slot(cell: IVec2) -> u32 {
 
 /// The world cell a slot holds while the window's lowest cell is `origin`.
 /// The WESL twin is `trample_cell`.
-#[cfg(test)]
 pub(crate) fn trample_cell(slot: IVec2, origin: IVec2) -> IVec2 {
     origin + ((slot - origin) & IVec2::splat(TRAMPLE_TEXELS - 1))
 }
 
 /// The WESL twin is `in_trample_window`.
-#[cfg(test)]
 pub(crate) fn in_trample_window(cell: IVec2, origin: IVec2) -> bool {
     cell.cmpge(origin).all() && cell.cmplt(origin + TRAMPLE_TEXELS).all()
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1060,7 +742,7 @@ mod tests {
 
     #[test]
     fn bare_patches_cover_their_share() {
-        let noise = crate::render::resources::gust_noise(crate::render::resources::GUST_SIZE);
+        let noise = gust_noise(GUST_SIZE);
         for share in [0.05, 0.2, 0.5] {
             let threshold = bare_threshold(share);
             let bare = (0..20_000)

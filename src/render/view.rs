@@ -21,7 +21,7 @@ use super::trample;
 use crate::GrassSettings;
 use crate::api::{GrassCamera, NoGrass};
 use crate::fields::{has_unsupported_layer, layer_mask};
-use crate::mirror::DistanceLod;
+use crate::shader_model::DistanceLod;
 use crate::stats::GpuReadings;
 
 /// Bytes per instance.

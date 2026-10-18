@@ -30,11 +30,8 @@ use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::api::{GrassInteractor, GrassSun, GrassWind};
 use crate::fields::{CHUNK_SIZE, ChunkGpu, FieldGpu, FieldTables};
-use crate::mirror;
+use crate::shader_model::{self, GUST_SIZE, gust_noise};
 use crate::sun::{SunCandidate, pick_sun};
-
-/// Side of the gust texture, in texels.
-pub(crate) const GUST_SIZE: u32 = 256;
 
 /// The embedded shaders, loaded in the main app and handed to the render app.
 #[derive(Resource, Debug, Clone)]
@@ -302,7 +299,7 @@ pub(crate) fn init_shared(
     let mut lods = UniformBuffer::from(table);
     lods.write_buffer(&device, &queue);
 
-    let tile_points: Vec<[f32; 2]> = mirror::blue_noise_tile()
+    let tile_points: Vec<[f32; 2]> = shader_model::blue_noise_tile()
         .iter()
         .map(Vec2::to_array)
         .collect();
@@ -314,13 +311,13 @@ pub(crate) fn init_shared(
 
     let clumps = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("grass_clumps"),
-        contents: bytemuck::cast_slice(mirror::clump_table()),
+        contents: bytemuck::cast_slice(shader_model::clump_table()),
         usage: BufferUsages::STORAGE,
     });
 
     let tufts = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("grass_tufts"),
-        contents: bytemuck::cast_slice(mirror::tuft_table()),
+        contents: bytemuck::cast_slice(shader_model::tuft_table()),
         usage: BufferUsages::STORAGE,
     });
 
@@ -417,7 +414,7 @@ fn blade_indices(device: &RenderDevice, rows: [u32; 3]) -> (Buffer, LodTable) {
     let mut index_count = UVec4::ZERO;
     let mut first_index = UVec4::ZERO;
     for (lod, rows) in rows.iter().enumerate() {
-        let lod_indices = mirror::lod_indices(*rows);
+        let lod_indices = shader_model::lod_indices(*rows);
         first_index[lod] = index_data.len() as u32;
         index_count[lod] = lod_indices.len() as u32;
         index_data.extend(lod_indices);
@@ -511,74 +508,4 @@ pub(crate) fn prepare_shared_bind_groups(
             &BindGroupEntries::single(view),
         )
     });
-}
-
-/// Tileable gust noise: three octaves of value noise on lattices that divide
-/// the texture, so it wraps without a seam. Values span the full 0–255 range.
-pub(crate) fn gust_noise(size: u32) -> Vec<u8> {
-    const OCTAVES: [(u32, f32); 3] = [(4, 0.6), (8, 0.28), (16, 0.12)];
-    let lattice = |period: u32, octave: u32, x: u32, y: u32| {
-        mirror::unit(mirror::hash2(mirror::hash2(x % period, y % period), octave))
-    };
-    let smooth = |t: f32| t * t * (3.0 - 2.0 * t);
-    let mut values = Vec::with_capacity((size * size) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let mut value = 0.0;
-            for (octave, (period, weight)) in OCTAVES.iter().enumerate() {
-                let fx = x as f32 / size as f32 * *period as f32;
-                let fy = y as f32 / size as f32 * *period as f32;
-                let (ix, iy) = (fx.floor() as u32, fy.floor() as u32);
-                let (tx, ty) = (smooth(fx.fract()), smooth(fy.fract()));
-                let o = octave as u32;
-                let top =
-                    lattice(*period, o, ix, iy) * (1.0 - tx) + lattice(*period, o, ix + 1, iy) * tx;
-                let bottom = lattice(*period, o, ix, iy + 1) * (1.0 - tx)
-                    + lattice(*period, o, ix + 1, iy + 1) * tx;
-                value += (top * (1.0 - ty) + bottom * ty) * weight;
-            }
-            values.push(value);
-        }
-    }
-    let (low, high) = values
-        .iter()
-        .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
-    let span = (high - low).max(1e-6);
-    values
-        .iter()
-        .map(|v| ((v - low) / span * 255.0).round() as u8)
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gust_noise_wraps_without_a_seam() {
-        let size = 64;
-        let noise = gust_noise(size);
-        let at = |x: u32, y: u32| i32::from(noise[(y * size + x) as usize]);
-        // The step across the wrap is no larger than the largest step inside.
-        let inner = (0..size - 1)
-            .flat_map(|y| (0..size - 1).map(move |x| (x, y)))
-            .map(|(x, y)| {
-                (at(x, y) - at(x + 1, y))
-                    .abs()
-                    .max((at(x, y) - at(x, y + 1)).abs())
-            })
-            .max()
-            .unwrap();
-        for i in 0..size {
-            assert!((at(size - 1, i) - at(0, i)).abs() <= inner);
-            assert!((at(i, size - 1) - at(i, 0)).abs() <= inner);
-        }
-    }
-
-    #[test]
-    fn gust_noise_uses_the_full_range() {
-        let noise = gust_noise(64);
-        assert_eq!(noise.iter().min(), Some(&0));
-        assert_eq!(noise.iter().max(), Some(&255));
-    }
 }

@@ -49,11 +49,13 @@ mod clock;
 mod debug;
 mod far;
 mod fields;
+#[cfg(test)]
 mod mirror;
 mod packed;
 mod presets;
 mod render;
 mod settings;
+mod shader_model;
 mod stats;
 mod style;
 mod style_file;

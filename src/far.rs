@@ -203,7 +203,7 @@ pub(crate) fn add_gust_texture(images: Option<ResMut<Assets<Image>>>) {
     let Some(mut images) = images else {
         return;
     };
-    let size = crate::render::resources::GUST_SIZE;
+    let size = crate::shader_model::GUST_SIZE;
     let mut image = Image::new(
         Extent3d {
             width: size,
@@ -211,7 +211,7 @@ pub(crate) fn add_gust_texture(images: Option<ResMut<Assets<Image>>>) {
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        crate::render::resources::gust_noise(size),
+        crate::shader_model::gust_noise(size),
         TextureFormat::R8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
