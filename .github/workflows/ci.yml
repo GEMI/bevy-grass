@@ -34,15 +34,29 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
       # The bench's budget/percentile tests live in the example, which the
       # plain `cargo test` does not run.
       - run: cargo test --example bench
       - run: python -m py_compile tools/bench_240.py
-      - run: cargo doc --no-deps
+      - run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
+
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete,typos
+      - run: cargo machete
+      - run: typos
+      - uses: EmbarkStudios/cargo-deny-action@v2
 
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The

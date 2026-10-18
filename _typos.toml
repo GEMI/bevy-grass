@@ -1,0 +1,5 @@
+[default]
+# LOD, WESL, PNG and the `iy` lattice coordinate are domain terms, not typos.
+# `hieght` is deliberately misspelled in a parser test.
+extend-words = { lod = "lod", Lod = "Lod", LOD = "LOD", wesl = "wesl", WESL = "WESL", png = "png", PNG = "PNG", iy = "iy", hieght = "hieght" }
+extend-ignore-re = ["PNGs"]
