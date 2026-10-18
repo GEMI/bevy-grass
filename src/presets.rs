@@ -69,6 +69,21 @@ macro_rules! preset_styles {
     };
 }
 
+impl GrassStyle {
+    /// The preset constant called `name`, such as `"SUMMER_TALL"`.
+    pub fn preset(name: &str) -> Option<Self> {
+        PRESETS
+            .iter()
+            .find(|(preset, _)| *preset == name)
+            .map(|(_, style)| style.clone())
+    }
+
+    /// Every preset constant, with its name.
+    pub fn presets() -> impl Iterator<Item = (&'static str, Self)> {
+        PRESETS.iter().map(|(name, style)| (*name, style.clone()))
+    }
+}
+
 // The plants that grow among grass. Each is also a style of its own, with the
 // same name on `GrassStyle`: a field of nothing but clover works.
 impl GrassBlade {

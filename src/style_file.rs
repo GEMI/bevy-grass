@@ -57,19 +57,6 @@ use crate::presets::PRESETS;
 use crate::style::MAX_SPECIES;
 
 impl GrassStyle {
-    /// The preset constant called `name`, such as `"SUMMER_TALL"`.
-    pub fn preset(name: &str) -> Option<Self> {
-        PRESETS
-            .iter()
-            .find(|(preset, _)| *preset == name)
-            .map(|(_, style)| style.clone())
-    }
-
-    /// Every preset constant, with its name.
-    pub fn presets() -> impl Iterator<Item = (&'static str, Self)> {
-        PRESETS.iter().map(|(name, style)| (*name, style.clone()))
-    }
-
     /// Reads a style from the text of a `.grass.ron` file.
     pub fn from_ron(text: &str) -> Result<Self, GrassStyleFileError> {
         let file: GrassStyleFile = options()
