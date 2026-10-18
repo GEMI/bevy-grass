@@ -2,9 +2,11 @@
 
 pub(crate) mod bevy_glue;
 mod compute;
+mod extract;
 #[cfg(test)]
 mod gpu_test;
 pub(crate) mod resources;
+mod shadows;
 pub(crate) mod view;
 
 use bevy::app::{App, Plugin};
