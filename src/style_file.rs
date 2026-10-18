@@ -53,7 +53,7 @@ use bevy::reflect::TypePath;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{GrassBlade, GrassSpecies, GrassStyle};
-use crate::presets::PRESETS;
+use crate::presets::all_presets;
 use crate::style::MAX_SPECIES;
 
 impl GrassStyle {
@@ -473,9 +473,8 @@ impl fmt::Display for GrassStyleFileError {
             Self::UnknownBase(name) => write!(
                 f,
                 "no preset called {name:?}; the presets are {}",
-                PRESETS
-                    .iter()
-                    .map(|(name, _)| *name)
+                all_presets()
+                    .map(|(name, _)| name)
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -528,7 +527,7 @@ impl Plugin for GrassStyleFilePlugin {
         if let Some(registry) = app.world().get_resource::<EmbeddedAssetRegistry>() {
             // Generated from the preset list, so an embedded preset cannot
             // drift from its constant or from the shipped `.grass.ron` file.
-            for (name, style) in PRESETS {
+            for (name, style) in all_presets() {
                 let file = name.to_ascii_lowercase();
                 let path = format!("bevy_grass/styles/{file}.grass.ron");
                 let text = style.to_ron();
