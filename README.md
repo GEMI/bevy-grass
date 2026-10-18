@@ -6,10 +6,18 @@ blade lit by Bevy's own PBR.
 
 ![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
 
-Sixteen of the 26 presets, each a 4 m square, under a top-down ARPG camera
-(`cargo run --release --example showcase` draws it):
+All 26 presets, two rows per picture, each a square of about 6 m under a
+top-down ARPG camera and labelled in large type. Run
+`cargo run --release --example showcase` for page 1; `--page 2` to `--page 4`
+draw the rest (`--fixed-time --screenshot PATH` saves one).
 
-![Sixteen presets of grass in small square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, AUTUMN_TALL, SUMMER_TALL, SUMMER_LUSH, TALL_PRAIRIE, WHEAT, MEADOW, DRY_SAVANNA, STYLIZED, LAWN, FOREST_FLOOR, FOREST_FERNS, FOREST_MOSS and FOREST_BRACKEN](docs/images/showcase.jpg)
+![Six general presets of grass in square patches, each with its name under it: MEADOW, TALL_PRAIRIE, WHEAT, DRY_SAVANNA, LAWN and STYLIZED](docs/images/showcase_general.jpg)
+
+![Eight summer and autumn presets of grass in square patches, each with its name under it: SUMMER_TALL, SUMMER_LUSH, SUMMER_MEADOW, SUMMER_SEEDING, AUTUMN_TALL, AUTUMN_RUST, AUTUMN_STRAW and AUTUMN_FADED](docs/images/showcase_summer_autumn.jpg)
+
+![Six wild and flowering presets of grass in square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, SEED_HEADS, WHITE_FLOWERS and YELLOW_FLOWERS](docs/images/showcase_wild_plants.jpg)
+
+![Six forest-floor and plant presets in square patches, each with its name under it: FOREST_MOSS, FOREST_FERNS, FOREST_FLOOR, FOREST_BRACKEN, CLOVER and BROAD_LEAF](docs/images/showcase_forest.jpg)
 
 | ![A summer field gone wild: tufts, bare patches, seed heads and a few flowers among tall grass](docs/images/wild.jpg) | ![Wildflower meadow](docs/images/flowers.jpg) | ![The same wild field from a top-down ARPG camera](docs/images/arpg.jpg) |
 | --- | --- | --- |
@@ -683,7 +691,7 @@ cargo run --release --example meadow
 | Example | Shows |
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
-| `showcase` | Sixteen presets in small square patches under an ARPG camera, each with its name under it: the picture at the top of this page (`--fixed-time --screenshot PATH` takes it) |
+| `showcase` | The 26 presets on four pages, two rows at a time under an ARPG camera, each with its name in large type: the pictures at the top of this page (`--page 1` to `--page 4`; `--fixed-time --screenshot PATH` takes one) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `styles` | All 26 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |

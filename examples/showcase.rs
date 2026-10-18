@@ -1,13 +1,15 @@
-//! Sixteen presets in small square patches, side by side, under an ARPG
-//! camera (orthographic, 30° below the horizon, a 45° yaw), each with its name
-//! under it. One picture to show what the presets look like.
+//! The 26 presets, two rows at a time, under an ARPG camera (orthographic,
+//! 30° below the horizon, a 45° yaw), each with its name in large type under
+//! it. Four pages show them all without shrinking the pictures until the
+//! names stop being readable.
 //!
-//! The patches sit on a straight grid of the screen, four across and four
-//! deep; each is a square of ground, so it shows as a diamond.
+//! The patches sit on a straight grid of the screen, three or four across and
+//! two deep; each is a square of ground, so it shows as a diamond.
 //!
 //! ```text
 //! cargo run --release --example showcase
-//! cargo run --release --example showcase -- --fixed-time --screenshot shots/showcase.png
+//! cargo run --release --example showcase -- --page 2
+//! cargo run --release --example showcase -- --page 2 --fixed-time --screenshot shots/showcase_page2.png
 //! ```
 
 mod common;
@@ -19,52 +21,72 @@ use bevy_grass::prelude::*;
 
 const PITCH_DEGREES: f32 = 30.0;
 const YAW_DEGREES: f32 = 45.0;
-/// The frame is this many metres tall, so about 40 m wide.
-const VIEW_HEIGHT_METRES: f32 = 22.5;
+/// The frame is this tall, in metres of screen. The rows and labels are laid
+/// out to fill it.
+const VIEW_HEIGHT_METRES: f32 = 19.0;
 const CAMERA_DISTANCE: f32 = 46.0;
-/// Side of each patch of grass, in metres.
-const PATCH: f32 = 4.2;
-/// Screen distance between the centres of neighbouring patches, in metres of
-/// ground seen along the screen's horizontal and, projected, vertical.
-const PITCH_ACROSS: f32 = 6.9;
-const PITCH_DOWN: f32 = 5.2;
 
-/// The sixteen presets shown, row by row from the back, picked from the
-/// groups. The names are what is written under each patch.
-fn presets() -> [[&'static str; 4]; 4] {
-    let pick = |group: &[GrassStyle], index: usize| -> &'static str {
-        let style = &group[index];
-        GrassStyle::presets()
-            .find(|(_, preset)| preset == style)
-            .map(|(name, _)| name)
-            .expect("every style in a group is a preset")
-    };
-    [
-        [
-            pick(&GrassStyle::WILD, 0),
-            pick(&GrassStyle::WILD, 1),
-            pick(&GrassStyle::WILD, 2),
-            pick(&GrassStyle::AUTUMN, 0),
+/// The pages, row by row from the back (top of the screen) to the front. Six
+/// or eight presets each: three or four across and two deep. Splitting
+/// `PLANTS` between pages 3 and 4 keeps every page readable and leaves the
+/// four forest-floor presets together.
+const PAGES: [&[&[&str]]; 4] = [
+    &[
+        &["MEADOW", "TALL_PRAIRIE", "WHEAT"],
+        &["DRY_SAVANNA", "LAWN", "STYLIZED"],
+    ],
+    &[
+        &[
+            "SUMMER_TALL",
+            "SUMMER_LUSH",
+            "SUMMER_MEADOW",
+            "SUMMER_SEEDING",
         ],
-        [
-            pick(&GrassStyle::SUMMER, 0),
-            pick(&GrassStyle::SUMMER, 1),
-            pick(&GrassStyle::GENERAL, 1),
-            pick(&GrassStyle::GENERAL, 2),
-        ],
-        [
-            pick(&GrassStyle::GENERAL, 0),
-            pick(&GrassStyle::GENERAL, 3),
-            pick(&GrassStyle::GENERAL, 5),
-            pick(&GrassStyle::GENERAL, 4),
-        ],
-        [
-            pick(&GrassStyle::FOREST, 2),
-            pick(&GrassStyle::FOREST, 1),
-            pick(&GrassStyle::FOREST, 0),
-            pick(&GrassStyle::FOREST, 3),
-        ],
-    ]
+        &["AUTUMN_TALL", "AUTUMN_RUST", "AUTUMN_STRAW", "AUTUMN_FADED"],
+    ],
+    &[
+        &["SUMMER_WILD", "AUTUMN_WILD", "WILDFLOWER_MEADOW"],
+        &["SEED_HEADS", "WHITE_FLOWERS", "YELLOW_FLOWERS"],
+    ],
+    &[
+        &["FOREST_MOSS", "FOREST_FERNS", "FOREST_FLOOR"],
+        &["FOREST_BRACKEN", "CLOVER", "BROAD_LEAF"],
+    ],
+];
+
+/// How big a patch and the layout are, for the number of presets in a row.
+struct Layout {
+    /// Side of each patch of grass, in metres.
+    patch: f32,
+    /// Screen distance between the centres of neighbouring patches: across,
+    /// and (projected) up the screen.
+    across: f32,
+    down: f32,
+    /// Width and font size of the name under a patch.
+    label_width: f32,
+    label_font: f32,
+}
+
+impl Layout {
+    fn for_columns(columns: usize) -> Self {
+        match columns {
+            3 => Self {
+                patch: 6.2,
+                across: 10.8,
+                down: 8.0,
+                label_width: 560.0,
+                label_font: 48.0,
+            },
+            4 => Self {
+                patch: 5.6,
+                across: 8.2,
+                down: 7.4,
+                label_width: 400.0,
+                label_font: 40.0,
+            },
+            _ => unreachable!("a showcase page has three or four presets in a row"),
+        }
+    }
 }
 
 /// A name under a patch: where on the ground its front corner is.
@@ -75,20 +97,106 @@ struct Label {
 
 fn main() {
     let mut app = App::new();
-    common::ExampleArgs::parse().install(&mut app, "bevy_grass: showcase");
-    app.add_plugins(GrassPlugins)
+    let args = common::ExampleArgs::parse();
+    let page = args.value("--page").map_or(1, |value| {
+        value
+            .parse::<usize>()
+            .unwrap_or_else(|_| panic!("--page takes a number from 1 to {}", PAGES.len()))
+    });
+    assert!(
+        (1..=PAGES.len()).contains(&page),
+        "--page takes a number from 1 to {}",
+        PAGES.len()
+    );
+    args.install(
+        &mut app,
+        &format!("bevy_grass: showcase (page {page}/{})", PAGES.len()),
+    );
+    app.insert_resource(ShowcasePage(page - 1))
+        .add_plugins(GrassPlugins)
         .insert_resource(ClearColor(Color::srgb(0.16, 0.13, 0.08)))
         .add_systems(Startup, setup)
         .add_systems(Update, place_labels)
         .run();
 }
 
+/// The page being drawn, zero-based.
+#[derive(Resource)]
+struct ShowcasePage(usize);
+
 fn setup(
     mut commands: Commands,
+    page: Res<ShowcasePage>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut styles: ResMut<Assets<GrassStyle>>,
 ) {
+    let rows = PAGES[page.0];
+    let columns = rows[0].len();
+    assert!(
+        rows.iter().all(|row| row.len() == columns),
+        "every row of a showcase page has the same number of presets"
+    );
+    let layout = Layout::for_columns(columns);
+    let (right, away) = spawn_camera_and_ground(&mut commands, &mut meshes, &mut materials);
+
+    let pitch = PITCH_DEGREES.to_radians().sin();
+    let last_row = rows.len() as f32 - 1.0;
+    for (row, names) in rows.iter().enumerate() {
+        // Centre the two rows on the screen.
+        let up = (last_row * 0.5 - row as f32) * layout.down;
+        for (column, name) in names.iter().enumerate() {
+            let across = (column as f32 - (columns as f32 - 1.0) * 0.5) * layout.across;
+            let center = right * across + away * (up / pitch);
+            let style = GrassStyle::preset(name).expect("a preset constant");
+            commands.spawn((
+                GrassField {
+                    size: Vec2::splat(layout.patch),
+                    style: styles.add(style),
+                    ..default()
+                },
+                Transform::from_translation(center),
+            ));
+            // The patch is a square of ground, a diamond from here: its
+            // nearest corner is half a diagonal toward the camera.
+            let corner = center - away * (layout.patch * std::f32::consts::FRAC_1_SQRT_2);
+            commands
+                .spawn((
+                    Label { corner },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(layout.label_width),
+                        justify_content: JustifyContent::Center,
+                        // Hidden until the camera knows where the corner is.
+                        display: Display::None,
+                        ..default()
+                    },
+                ))
+                .with_child((
+                    Text::new(*name),
+                    TextFont {
+                        font_size: layout.label_font.into(),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.97, 0.95, 0.88)),
+                    TextLayout::justify(Justify::Center),
+                    Node {
+                        padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.05, 0.04, 0.03, 0.78)),
+                ));
+        }
+    }
+}
+
+/// The camera, its light and the ground. Returns the screen's horizontal and
+/// the direction "up the screen" runs on the ground.
+fn spawn_camera_and_ground(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> (Vec3, Vec3) {
     let rotation = Quat::from_euler(
         EulerRot::YXZ,
         YAW_DEGREES.to_radians(),
@@ -97,8 +205,6 @@ fn setup(
     );
     let mut transform = Transform::from_rotation(rotation);
     transform.translation = Vec3::ZERO - transform.forward() * CAMERA_DISTANCE;
-    // The screen's horizontal, and the way "up the screen" runs on the
-    // ground: moving a metre along it rises sin(pitch) metres on the screen.
     let right = transform.right().as_vec3();
     let away = Vec3::new(transform.forward().x, 0.0, transform.forward().z).normalize();
     commands.spawn((
@@ -143,69 +249,25 @@ fn setup(
             ..default()
         })),
     ));
-
-    let pitch = PITCH_DEGREES.to_radians().sin();
-    for (row, names) in presets().iter().enumerate() {
-        for (column, name) in names.iter().enumerate() {
-            let across = (column as f32 - 1.5) * PITCH_ACROSS;
-            // Rows run from the back (top of the screen) to the front.
-            let up = (1.5 - row as f32) * PITCH_DOWN;
-            let center = right * across + away * (up / pitch);
-            let style = GrassStyle::preset(name).expect("a preset constant");
-            commands.spawn((
-                GrassField {
-                    size: Vec2::splat(PATCH),
-                    style: styles.add(style),
-                    ..default()
-                },
-                Transform::from_translation(center),
-            ));
-            // The patch is a square of ground, a diamond from here: its
-            // nearest corner is half a diagonal toward the camera.
-            let corner = center - away * (PATCH * std::f32::consts::FRAC_1_SQRT_2);
-            commands
-                .spawn((
-                    Label { corner },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: Val::Px(280.0),
-                        justify_content: JustifyContent::Center,
-                        // Hidden until the camera knows where the corner is.
-                        display: Display::None,
-                        ..default()
-                    },
-                ))
-                .with_child((
-                    Text::new(*name),
-                    TextFont {
-                        font_size: 26.0.into(),
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.95, 0.93, 0.85)),
-                    TextLayout::justify(Justify::Center),
-                    Node {
-                        padding: UiRect::axes(Val::Px(12.0), Val::Px(4.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.05, 0.04, 0.03, 0.72)),
-                ));
-        }
-    }
+    (right, away)
 }
 
 /// Puts each name under its patch, from where the camera sees the patch's
 /// front corner.
 fn place_labels(
     camera: Single<(&Camera, &GlobalTransform)>,
+    page: Res<ShowcasePage>,
     mut labels: Query<(&Label, &mut Node)>,
 ) {
     let (camera, transform) = *camera;
+    let columns = PAGES[page.0][0].len();
+    let layout = Layout::for_columns(columns);
     for (label, mut node) in &mut labels {
         let Ok(at) = camera.world_to_viewport(transform, label.corner) else {
             continue;
         };
         node.display = Display::Flex;
-        node.left = Val::Px(at.x - 140.0);
-        node.top = Val::Px(at.y + 6.0);
+        node.left = Val::Px(at.x - layout.label_width * 0.5);
+        node.top = Val::Px(at.y + 8.0);
     }
 }
