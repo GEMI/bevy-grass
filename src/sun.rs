@@ -9,6 +9,7 @@
 
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::light::{CascadeShadowConfig, DirectionalLight, DirectionalLightShadowMap};
 use bevy::log::warn;
 use bevy::math::Vec3;
@@ -152,21 +153,24 @@ impl ShadowSetupReport {
     }
 }
 
-/// Watches the lights and the fields, and says what is likely to make grass
-/// shadows wrong, once per distinct problem.
-#[expect(clippy::type_complexity, reason = "Bevy system queries are verbose")]
-pub(crate) fn check_shadow_setup(
-    settings: Res<GrassSettings>,
-    tables: Res<FieldTables>,
-    map: Option<Res<DirectionalLightShadowMap>>,
-    lights: Query<(
-        Entity,
-        &DirectionalLight,
-        &GlobalTransform,
-        Option<&CascadeShadowConfig>,
-        Has<GrassSun>,
-    )>,
+/// The light queries `check_shadow_setup` reads.
+#[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
+#[derive(SystemParam)]
+pub(crate) struct ShadowSetupQueries<'w, 's> {
+    lights: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static DirectionalLight,
+            &'static GlobalTransform,
+            Option<&'static CascadeShadowConfig>,
+            Has<GrassSun>,
+        ),
+    >,
     changed: Query<
+        'w,
+        's,
         (),
         Or<(
             Changed<DirectionalLight>,
@@ -174,7 +178,20 @@ pub(crate) fn check_shadow_setup(
             Added<GrassSun>,
         )>,
     >,
-    mut removed: RemovedComponents<GrassSun>,
+    removed: RemovedComponents<'w, 's, GrassSun>,
+}
+
+/// Watches the lights and the fields, and says what is likely to make grass
+/// shadows wrong, once per distinct problem.
+pub(crate) fn check_shadow_setup(
+    settings: Res<GrassSettings>,
+    tables: Res<FieldTables>,
+    map: Option<Res<DirectionalLightShadowMap>>,
+    ShadowSetupQueries {
+        lights,
+        changed,
+        mut removed,
+    }: ShadowSetupQueries,
     mut report: ResMut<ShadowSetupReport>,
 ) {
     let removed = removed.read().count() > 0;

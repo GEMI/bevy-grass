@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use bevy::camera::Camera3d;
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::log::{debug, warn};
 use bevy::math::{IVec2, IVec4, Mat4, UVec4, Vec3, Vec4};
 use bevy::render::render_resource::{
@@ -260,30 +261,44 @@ pub(crate) fn frustum_planes(clip_from_world: &Mat4) -> [Vec4; 6] {
     })
 }
 
-/// Creates buffers for new grass views and writes every view's uniform.
-#[expect(
-    clippy::type_complexity,
-    clippy::too_many_arguments,
-    reason = "Bevy systems take their queries and resources as separate parameters"
-)]
-pub(crate) fn prepare_views(
-    mut commands: Commands,
-    mut views: Query<
+/// The resources and queries `prepare_views` needs, grouped to keep the
+/// system signature readable.
+#[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
+#[derive(SystemParam)]
+pub(crate) struct PrepareViews<'w, 's> {
+    commands: Commands<'w, 's>,
+    views: Query<
+        'w,
+        's,
         (
             Entity,
-            &ExtractedView,
-            Option<&RenderLayers>,
-            Option<&GrassCamera>,
-            Option<&mut GrassViewBuffers>,
+            &'static ExtractedView,
+            Option<&'static RenderLayers>,
+            Option<&'static GrassCamera>,
+            Option<&'static mut GrassViewBuffers>,
         ),
         (With<Camera3d>, Without<NoGrass>),
     >,
-    mut warned_layers: Local<bool>,
-    mut gone: RemovedComponents<GrassViewBuffers>,
-    readings: Res<GpuReadings>,
-    extracted: Res<ExtractedGrass>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
+    warned_layers: Local<'s, bool>,
+    gone: RemovedComponents<'w, 's, GrassViewBuffers>,
+    readings: Res<'w, GpuReadings>,
+    extracted: Res<'w, ExtractedGrass>,
+    device: Res<'w, RenderDevice>,
+    queue: Res<'w, RenderQueue>,
+}
+
+/// Creates buffers for new grass views and writes every view's uniform.
+pub(crate) fn prepare_views(
+    PrepareViews {
+        mut commands,
+        mut views,
+        mut warned_layers,
+        mut gone,
+        readings,
+        extracted,
+        device,
+        queue,
+    }: PrepareViews,
 ) {
     // A camera that is gone stops counting in the stats.
     for entity in gone.read() {

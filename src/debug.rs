@@ -24,6 +24,7 @@ use bevy::color::Color;
 use bevy::color::palettes::css;
 use bevy::ecs::prelude::*;
 use bevy::ecs::reflect::ReflectResource;
+use bevy::ecs::system::SystemParam;
 use bevy::gizmos::AppGizmoBuilder;
 use bevy::gizmos::config::GizmoConfigGroup;
 use bevy::gizmos::gizmos::{GizmoBuffer, Gizmos};
@@ -293,14 +294,25 @@ pub(crate) fn shapes(
     shapes
 }
 
-#[expect(clippy::type_complexity, reason = "Bevy system queries are verbose")]
+/// The world queries the debug gizmos read.
+#[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
+#[derive(SystemParam)]
+struct DebugQueries<'w, 's> {
+    interactors: Query<'w, 's, (&'static GlobalTransform, &'static GrassInteractor)>,
+    cameras: Query<
+        'w,
+        's,
+        (&'static GlobalTransform, &'static Projection),
+        (With<Camera3d>, Without<NoGrass>),
+    >,
+}
+
 fn draw_debug(
     mut gizmos: Gizmos<GrassGizmos>,
     debug: Res<GrassDebug>,
     settings: Res<GrassSettings>,
     tables: Res<FieldTables>,
-    interactors: Query<(&GlobalTransform, &GrassInteractor)>,
-    cameras: Query<(&GlobalTransform, &Projection), (With<Camera3d>, Without<NoGrass>)>,
+    queries: DebugQueries,
 ) {
     // The renderer clamps the settings; so do the gizmos, to show what it does.
     let settings = settings.sanitized();
@@ -308,14 +320,14 @@ fn draw_debug(
         &debug,
         &settings,
         &tables,
-        interactors.iter().map(|(transform, interactor)| {
+        queries.interactors.iter().map(|(transform, interactor)| {
             (
                 transform.translation(),
                 interactor.radius,
                 interactor.strength,
             )
         }),
-        cameras.iter().map(|(transform, projection)| {
+        queries.cameras.iter().map(|(transform, projection)| {
             (
                 transform.translation(),
                 transform.forward().as_vec3(),
