@@ -572,6 +572,84 @@ examples. `GrassSpecies` and `GrassStyle` are not `Copy`, so to reuse a style
 held in a variable after `..style`, write `..style.clone()` (`GrassBlade` is
 `Copy`).
 
+### Build a mixed preset
+
+A mix is not made by adding two whole presets together. `FOREST_FLOOR`, for
+example, starts from `FOREST_MOSS` and then mixes in fern, leaf-litter, clover
+and broad-leaf blades as species (see [`src/presets/forest.rs`](src/presets/forest.rs)).
+Each species has its own `GrassBlade`, so its shape, height and colours can
+differ from the field's grass and from every other species:
+
+```rust
+let mixed = GrassStyle {
+    blade: GrassBlade::MOSS,
+    density: 140.0,
+    species: vec![
+        GrassSpecies { share: 0.20, clustering: 0.5, blade: GrassBlade::FERN },
+        GrassSpecies {
+            share: 0.10,
+            clustering: 0.4,
+            blade: GrassBlade {
+                height: Vec2::new(0.12, 0.30),
+                width: 0.07,
+                tip_color: Color::srgb(0.45, 0.22, 0.08),
+                ..GrassBlade::BROAD_LEAF
+            },
+        },
+        GrassSpecies {
+            share: 0.04,
+            clustering: 0.8,
+            blade: GrassBlade {
+                head_color: Color::srgb(0.80, 0.30, 0.55),
+                ..GrassBlade::WHITE_FLOWERS
+            },
+        },
+    ]
+    .into(),
+    ..GrassStyle::FOREST_MOSS
+};
+```
+
+The same mix as a `.grass.ron` file, with no Rust code at all:
+
+```ron
+(
+    base: "FOREST_MOSS",
+    density: 140.0,
+    species: [
+        (share: 0.20, clustering: 0.5, style: (base: "FOREST_FERNS")),
+        (share: 0.10, clustering: 0.4, style: (
+            base: "BROAD_LEAF",
+            height: (0.12, 0.30),
+            width: 0.07,
+            tip_color: (0.45, 0.22, 0.08),
+        )),
+        (share: 0.04, clustering: 0.8, style: (
+            base: "WHITE_FLOWERS",
+            head_color: (0.80, 0.30, 0.55),
+        )),
+    ],
+)
+```
+
+Load the file with `assets.load("grass/my_forest.grass.ron")`. To make it a
+named preset in this crate instead, add one entry to the `preset_group!` block
+for its group in [`src/presets/`](src/presets) and run
+`BLESS_STYLES=1 cargo test` to write its file in `assets/grass_styles`.
+
+A species sets only its blade, `share` and `clustering`. Density, ground tint,
+patch colour, dry tips, dead share, tufts and bare patches belong to the whole
+field, so they cannot differ per species. A style mixes at most 16 entries,
+its own blades included. The style's own blades take whatever share is left;
+if the species shares add up to more than 1, they are scaled down and the own
+blades disappear.
+
+Different shapes, sizes and colours per species are therefore easy, but a
+species cannot have its own density: a fern with `share: 0.2` in a 200 blades
+per m² field is still about 40 ferns per m². `clustering` changes where they
+grow, not how many. That is why `FOREST_FLOOR` lowers the moss density to 140
+instead of keeping `FOREST_MOSS`'s 220.
+
 ### Load styles from files, and edit them live
 
 Every preset ships as a file in [`assets/grass_styles`](assets/grass_styles).
