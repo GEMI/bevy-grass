@@ -58,6 +58,27 @@ jobs:
       - run: typos
       - uses: EmbarkStudios/cargo-deny-action@v2
 
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +1.97.1 check --all-targets
+
+  semver:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          baseline-rev: origin/${{ github.base_ref }}
+
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The
   # first run on a new renderer has no goldens: take the captures from the
