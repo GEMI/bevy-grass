@@ -10,7 +10,7 @@
 //!   which is `size` times the scale, wherever the field really is. A
 //!   heightmap field also gets its highest level.
 //! - **chunks** (blue, off by default): the 16 m squares the GPU culls.
-//! - **interactors** (yellow): the disc an interactor flattens, at most
+//! - **interactors** (yellow): every disc an interactor flattens, at most
 //!   [`GrassSettings::max_interactor_radius`] (2 m by default); red where the
 //!   radius asked for is cut off.
 //! - **trample windows** (magenta): the square around each camera's focus
@@ -33,7 +33,7 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
-use crate::api::{GrassInteractor, NoGrass};
+use crate::api::{GrassInteractor, GrassInteractorSpread, NoGrass, interactor_offsets};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::trample;
 use crate::{GrassSettings, GrassSystems};
@@ -60,7 +60,7 @@ pub struct GrassDebug {
     pub fields: bool,
     /// The 16 m chunks of every field. A big field has thousands.
     pub chunks: bool,
-    /// The disc of every interactor.
+    /// Every disc of every interactor.
     pub interactors: bool,
     /// Each camera's trample window.
     pub trample_windows: bool,
@@ -163,7 +163,7 @@ pub(crate) fn chunk_shapes(tables: &FieldTables, max: usize) -> Vec<Shape> {
         .collect()
 }
 
-/// The disc each interactor flattens: `(position, radius, strength)`. Grass
+/// A disc an interactor flattens: `(position, radius, strength)`. Grass
 /// is pushed at most `largest` away (`GrassSettings::max_interactor_radius`), so a bigger radius
 /// is drawn cut off, with the radius asked for in red; one that flattens
 /// nothing (no radius or strength) is grey.
@@ -298,7 +298,15 @@ pub(crate) fn shapes(
 #[expect(clippy::type_complexity, reason = "Bevy query types are verbose")]
 #[derive(SystemParam)]
 struct DebugQueries<'w, 's> {
-    interactors: Query<'w, 's, (&'static GlobalTransform, &'static GrassInteractor)>,
+    interactors: Query<
+        'w,
+        's,
+        (
+            &'static GlobalTransform,
+            &'static GrassInteractor,
+            Option<&'static GrassInteractorSpread>,
+        ),
+    >,
     cameras: Query<
         'w,
         's,
@@ -320,13 +328,15 @@ fn draw_debug(
         &debug,
         &settings,
         &tables,
-        queries.interactors.iter().map(|(transform, interactor)| {
-            (
-                transform.translation(),
-                interactor.radius,
-                interactor.strength,
-            )
-        }),
+        queries
+            .interactors
+            .iter()
+            .flat_map(|(transform, interactor, spread)| {
+                interactor_offsets(spread).iter().map(move |&offset| {
+                    let at = transform.transform_point(offset);
+                    (at, interactor.radius, interactor.strength)
+                })
+            }),
         queries.cameras.iter().map(|(transform, projection)| {
             (
                 transform.translation(),

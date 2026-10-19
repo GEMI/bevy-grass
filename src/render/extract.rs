@@ -8,7 +8,7 @@ use bevy::transform::components::GlobalTransform;
 
 use super::resources::FrameUniform;
 use crate::GrassSettings;
-use crate::api::{GrassInteractor, GrassSun};
+use crate::api::{GrassInteractor, GrassInteractorSpread, GrassSun, interactor_offsets};
 use crate::clock::GrassClock;
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::sun::{SunCandidate, pick_sun};
@@ -49,7 +49,13 @@ pub(crate) fn extract_grass(
     wind: Extract<Res<GrassWindFrame>>,
     clock: Extract<Res<GrassClock>>,
     lights: Extract<Query<SunLight>>,
-    interactors: Extract<Query<(&GrassInteractor, &GlobalTransform)>>,
+    interactors: Extract<
+        Query<(
+            &GrassInteractor,
+            &GlobalTransform,
+            Option<&GrassInteractorSpread>,
+        )>,
+    >,
     settings: Extract<Res<GrassSettings>>,
 ) {
     extracted.settings = settings.sanitized();
@@ -88,19 +94,26 @@ pub(crate) fn extract_grass(
         );
     extracted.shadow_light = shadow_light;
     extracted.sun = sun.map(|shines| -shines);
-    extracted.interactors.clear();
+    // Take the old list so its capacity survives the frame, then fill it
+    // while the tables are borrowed.
+    let mut stamps = std::mem::take(&mut extracted.interactors);
+    stamps.clear();
     let tables = &extracted.tables;
-    let stamps: Vec<Vec4> = interactors
-        .iter()
-        .map(|(interactor, transform)| {
-            let at = transform.translation();
+    for (interactor, transform, spread) in &interactors {
+        for &offset in interactor_offsets(spread) {
+            let at = transform.transform_point(offset);
             // Only an interactor with a height limit needs the ground.
             let ground = interactor
                 .max_height
                 .and_then(|_| tables.highest_ground_at(Vec2::new(at.x, at.z)));
             let reach = trample::reach(interactor.max_height, at.y, ground);
-            Vec4::new(at.x, at.z, interactor.radius, interactor.strength * reach)
-        })
-        .collect();
+            stamps.push(Vec4::new(
+                at.x,
+                at.z,
+                interactor.radius,
+                interactor.strength * reach,
+            ));
+        }
+    }
     extracted.interactors = stamps;
 }

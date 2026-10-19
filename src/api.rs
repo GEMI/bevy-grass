@@ -10,7 +10,7 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::image::Image;
 use bevy::log::warn;
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec3};
 use bevy::platform::collections::HashSet;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
@@ -299,9 +299,9 @@ pub struct GrassSun;
 ///   ([`max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
 ///   A bigger `radius` is cut to it, and the plugin warns once about the
 ///   entity. (Each interactor is stamped in a fixed footprint, which is why a
-///   hundred cost what one does.) For something bigger, use several
-///   interactors around it, or raise the setting: the cost of an interactor
-///   grows with the square of its radius.
+///   hundred cost what one does.) For something bigger, use a
+///   [`GrassInteractorSpread`] or several interactors around it, or raise the
+///   setting: the cost of an interactor grows with the square of its radius.
 /// - **Count: [`GrassSettings::max_interactors`](crate::GrassSettings::max_interactors).**
 ///   A camera stamps that many a frame, the ones nearest to it first.
 /// - **Distance: a 64 m window**
@@ -344,6 +344,164 @@ impl Default for GrassInteractor {
     }
 }
 
+/// Extra discs for one [`GrassInteractor`], in its local space. Use it for
+/// something larger than one disc: a vehicle, a wall, a large creature.
+///
+/// One [`GrassInteractor`] is one disc, and the grass pushes at most
+/// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)
+/// (2 m by default) from it. A spread says "stamp this interactor here, and
+/// here too", which covers a large object without adding entities or
+/// changing the interaction model. An empty `offsets` means one disc at the
+/// entity's origin, the same as having no spread at all.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// # fn setup(mut commands: Commands) {
+/// // A wall-like box: its footprint covered with discs of at most 2 m.
+/// let (radius, spread) = GrassInteractorSpread::covering_aabb(
+///     Vec3::ZERO,
+///     Vec3::new(4.0, 0.5, 0.5),
+///     2.0,
+/// );
+/// commands.spawn((
+///     GrassInteractor { radius, ..default() },
+///     spread,
+/// ));
+/// # }
+/// ```
+///
+/// With the `rapier` cargo feature, `GrassInteractorFromCollider` fills this
+/// in from a collider automatically. The offsets are local, so a moving,
+/// rotating or scaled physics body carries them along.
+#[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
+#[reflect(Component, Default, Debug, PartialEq)]
+#[require(GrassInteractor)]
+pub struct GrassInteractorSpread {
+    /// Disc centres in the interactor's local space. An empty list means one
+    /// disc at the entity's origin.
+    pub offsets: Vec<Vec3>,
+}
+
+impl GrassInteractorSpread {
+    /// Most discs [`GrassInteractorSpread::covering_aabb`] puts in one
+    /// spread. A larger footprint is sampled coarsely rather than making one
+    /// object take every interactor slot in a camera.
+    pub const MAX_DISCS: usize = 32;
+
+    /// No extra discs: one disc at the interactor's origin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The discs covering a local AABB, and the radius they use.
+    ///
+    /// `center` and `half_extents` are in the interactor's local space,
+    /// `radius` is the largest disc the grass may stamp (usually
+    /// [`GrassSettings::max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
+    /// One disc covers a small AABB. A larger one gets a grid of discs of at
+    /// most `radius`, and at most [`GrassInteractorSpread::MAX_DISCS`] discs;
+    /// a footprint too large for that is sampled coarsely.
+    #[must_use]
+    pub fn covering_aabb(center: Vec3, half_extents: Vec3, radius: f32) -> (f32, Self) {
+        let max_radius = if radius.is_finite() {
+            radius.max(0.0)
+        } else {
+            1.0
+        };
+        let center = Vec3::new(
+            finite_coordinate(center.x),
+            finite_coordinate(center.y),
+            finite_coordinate(center.z),
+        );
+        let half = Vec3::new(
+            finite_extent(half_extents.x),
+            finite_extent(half_extents.y),
+            finite_extent(half_extents.z),
+        );
+        let diagonal = half.x.hypot(half.z);
+        if diagonal <= max_radius {
+            return (
+                diagonal,
+                Self {
+                    offsets: vec![center],
+                },
+            );
+        }
+        if max_radius <= 0.0 {
+            return (0.0, Self::new());
+        }
+
+        let width = 2.0 * half.x;
+        let depth = 2.0 * half.z;
+        // A cell of side r√2 is covered by a disc of radius r, corners and all.
+        let cell = max_radius * std::f32::consts::SQRT_2;
+        let mut columns = cell_count(width, cell);
+        let mut rows = cell_count(depth, cell);
+        if columns.saturating_mul(rows) > Self::MAX_DISCS {
+            // Keep the footprint's proportions while fitting the cap.
+            let aspect = if depth > 0.0 {
+                width / depth
+            } else {
+                f32::INFINITY
+            };
+            columns = (Self::MAX_DISCS as f32 * aspect)
+                .sqrt()
+                .round()
+                .clamp(1.0, Self::MAX_DISCS as f32) as usize;
+            rows = (Self::MAX_DISCS / columns).max(1);
+        }
+
+        let step_x = width / columns as f32;
+        let step_z = depth / rows as f32;
+        let mut offsets = Vec::with_capacity(columns * rows);
+        for column in 0..columns {
+            let x = center.x - half.x + (column as f32 + 0.5) * step_x;
+            for row in 0..rows {
+                let z = center.z - half.z + (row as f32 + 0.5) * step_z;
+                offsets.push(Vec3::new(x, center.y, z));
+            }
+        }
+        (max_radius, Self { offsets })
+    }
+}
+
+/// The local disc centres of an interactor: its spread, or one at the origin.
+pub(crate) fn interactor_offsets(spread: Option<&GrassInteractorSpread>) -> &[Vec3] {
+    spread
+        .filter(|spread| !spread.offsets.is_empty())
+        .map_or(&[Vec3::ZERO], |spread| spread.offsets.as_slice())
+}
+
+/// A coordinate that can go into an offset: finite, or 0.
+fn finite_coordinate(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+/// A half extent as a distance: absolute, finite and non-negative. The upper
+/// bound keeps `2 * half` finite, so the grid arithmetic below cannot overflow
+/// into an infinite offset.
+fn finite_extent(value: f32) -> f32 {
+    if value.is_finite() {
+        value.abs().min(f32::MAX / 4.0)
+    } else {
+        0.0
+    }
+}
+
+/// One axis of a grid that covers `length`: at least one cell, and never more
+/// than [`GrassInteractorSpread::MAX_DISCS`], which keeps a degenerate or
+/// enormous AABB from making an enormous list.
+fn cell_count(length: f32, cell: f32) -> usize {
+    if length <= 0.0 || !cell.is_finite() {
+        return 1;
+    }
+    (length / cell.max(1e-4))
+        .ceil()
+        .clamp(1.0, GrassInteractorSpread::MAX_DISCS as f32) as usize
+}
+
 /// Warns, once per entity, about an interactor bigger than the grass can
 /// stamp.
 pub(crate) fn warn_oversized_interactors(
@@ -364,7 +522,8 @@ pub(crate) fn warn_oversized_interactors(
             warn!(
                 "bevy_grass: the GrassInteractor on {entity} has radius {} m, but interactors \
                  push at most {largest} m (GrassSettings::max_interactor_radius); the rest is \
-                 ignored. Use several interactors for something bigger.",
+                 ignored. Use several discs no bigger than that (see GrassInteractorSpread) for \
+                 something bigger.",
                 interactor.radius,
             );
         } else if !too_big {
@@ -372,3 +531,6 @@ pub(crate) fn warn_oversized_interactors(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

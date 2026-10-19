@@ -3,7 +3,7 @@ use std::any::TypeId;
 use bevy::app::App;
 use bevy::asset::{AssetPlugin, Assets, ReflectAsset};
 use bevy::ecs::reflect::{AppTypeRegistry, ReflectComponent, ReflectResource};
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec3};
 use bevy::reflect::serde::{ReflectDeserializer, ReflectSerializer};
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::reflect::{FromReflect, GetPath, PartialReflect, TypeRegistry};
@@ -135,6 +135,9 @@ fn every_public_type_has_the_type_data_tools_look_for() {
     check!(GrassField: ReflectComponent, ReflectDefault);
     check!(GrassFieldOverrides: ReflectComponent, ReflectDefault);
     check!(GrassInteractor: ReflectComponent, ReflectDefault);
+    check!(GrassInteractorSpread: ReflectComponent, ReflectDefault);
+    #[cfg(feature = "rapier")]
+    check!(GrassInteractorFromCollider: ReflectComponent, ReflectDefault);
     check!(NoGrass: ReflectComponent, ReflectDefault);
     check!(GrassCamera: ReflectComponent, ReflectDefault);
     // Resources: inspector resource panels.
@@ -199,6 +202,15 @@ fn the_small_components_and_the_settings_round_trip() {
     assert_eq!(
         GrassInteractor::from_reflect(read.as_ref()),
         Some(interactor)
+    );
+
+    let spread = GrassInteractorSpread {
+        offsets: vec![Vec3::X, Vec3::new(0.0, 1.0, 2.0)],
+    };
+    let read = through_ron(spread.as_partial_reflect(), &registry);
+    assert_eq!(
+        GrassInteractorSpread::from_reflect(read.as_ref()),
+        Some(spread)
     );
 
     let settings = GrassSettings {

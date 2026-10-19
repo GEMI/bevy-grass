@@ -7,6 +7,31 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Optional Rapier interaction bridge (October 19, 2026)
+
+**Added**
+
+- The `rapier` cargo feature and `GrassInteractorFromCollider`: put it next to
+  a `bevy_rapier3d` `Collider` and the radius, strength and height of the
+  grass interactor follow the collider. A capsule gets one disc; a vehicle or
+  wall gets a spread of discs. Disabled colliders/bodies and sensors flatten
+  nothing.
+- `GrassInteractorSpread`, a core component listing local disc centres for a
+  large object. `GrassInteractorSpread::covering_aabb` covers a local AABB
+  with at most 32 discs, and works without a physics engine.
+- `examples/rapier.rs`: a kinematic capsule character and a large vehicle
+  driving through a meadow.
+
+The adapter reads the collider's local AABB, not a physics transform: Rapier
+already writes `Transform`/`GlobalTransform`, and grass already reads
+`GlobalTransform`, so the bridge only decides the footprint. It runs in
+`Update` and is independent of the physics schedule. `bevy_rapier3d` is
+brought in with `default-features = false` and only `dim3`, so enabling the
+feature does not change how Bevy is compiled.
+
+Avian is not included yet: `avian3d` 0.7 and the current `main` branch depend
+on Bevy 0.19, so they cannot be queried from a Bevy 0.20 ECS.
+
 ### Missing-style feedback and a constructor (October 18, 2026)
 
 **Added**

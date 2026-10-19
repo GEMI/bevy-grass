@@ -43,6 +43,12 @@ bytemuck = "1"
 # meta files are RON), at these versions.
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+# Optional Rapier bridge. `default-features = false` is deliberate: Rapier's
+# defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy features, and
+# adding this crate must never change how Bevy is compiled for the game.
+bevy_rapier3d = { version = "0.37", optional = true, default-features = false, features = [
+  "dim3",
+] }
 
 [features]
 # `GrassDebugPlugin`: gizmos for fields, chunks, interactors and trample
@@ -50,6 +56,9 @@ serde = { version = "1", features = ["derive"] }
 # already, so it is off by default: adding this crate must never change how
 # Bevy is compiled.
 debug = ["bevy/bevy_gizmos"]
+# `GrassInteractorFromCollider`: derive a footprint from a `bevy_rapier3d`
+# collider. 3D only; grass is 3D.
+rapier = ["dep:bevy_rapier3d"]
 
 [dev-dependencies]
 # The crate's own tests cover the debug plugin too.
@@ -67,9 +76,14 @@ bevy = { version = "0.20", default-features = false, features = [
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
-# docs.rs documents the optional debug plugin too.
+[[example]]
+name = "rapier"
+path = "examples/rapier.rs"
+required-features = ["rapier"]
+
+# docs.rs documents the optional debug and Rapier integrations too.
 [package.metadata.docs.rs]
-features = ["debug"]
+features = ["debug", "rapier"]
 
 [lints.rust]
 unsafe_code = "forbid"

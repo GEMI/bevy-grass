@@ -36,6 +36,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
+      - run: cargo test --features rapier
       # The bench's budget/percentile tests live in the example, which the
       # plain `cargo test` does not run.
       - run: cargo test --example bench
@@ -66,7 +67,7 @@ jobs:
         with:
           toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
-      - run: cargo +1.97.1 check --all-targets
+      - run: cargo +1.97.1 check --all-targets --all-features
 
   semver:
     if: github.event_name == 'pull_request'
