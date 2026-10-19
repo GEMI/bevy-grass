@@ -60,6 +60,13 @@ const MAX_MEAN_DIFFERENCE: f64 = 0.01;
 /// The largest share of pixels that may differ by more than `LOUD`.
 const MAX_LOUD_SHARE: f64 = 0.0005;
 const LOUD: u8 = 16;
+/// The largest difference per channel that counts as rendering noise rather
+/// than a changed picture. llvmpipe compiles its shaders for the host CPU, so
+/// the same runner image rounds one level differently on an Intel Xeon than on
+/// an AMD EPYC: every blade edge moves by a hair and a few percent of channels
+/// differ by 1. Ignoring that keeps the check identical across runner hosts
+/// while a real change, which moves pixels by more than one level, still fails.
+const NOISE: u8 = 1;
 
 fn main() {
     let bless = std::env::args().any(|arg| arg == "--bless");
@@ -353,7 +360,9 @@ fn check(capture: &str, renderer: &str, data: &[u8], bless: bool) -> Result<(), 
         .zip(difference.pixels_mut())
     {
         let most = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
-        total += (0..3).map(|c| u64::from(a[c].abs_diff(b[c]))).sum::<u64>();
+        total += (0..3)
+            .map(|c| u64::from(a[c].abs_diff(b[c]).saturating_sub(NOISE)))
+            .sum::<u64>();
         loud += u64::from(most > LOUD);
         let shown = most.saturating_mul(8);
         *out = image::Rgba([shown, shown, shown, 255]);
