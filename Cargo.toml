@@ -81,6 +81,11 @@ name = "rapier"
 path = "examples/rapier.rs"
 required-features = ["rapier"]
 
+[[example]]
+name = "rapier_minimal"
+path = "examples/rapier_minimal.rs"
+required-features = ["rapier"]
+
 # docs.rs documents the optional debug and Rapier integrations too.
 [package.metadata.docs.rs]
 features = ["debug", "rapier"]

@@ -19,8 +19,9 @@ The API and settings pass and the polish pass, below, as one version.
 - `GrassInteractorSpread`, a core component listing local disc centres for a
   large object. `GrassInteractorSpread::covering_aabb` covers a local AABB
   with at most 32 discs, and works without a physics engine.
-- `examples/rapier.rs`: a kinematic capsule character and a large vehicle
-  driving through a meadow.
+- `examples/rapier.rs` (a kinematic capsule and a large vehicle driving
+  through a meadow) and `examples/rapier_minimal.rs` (the shortest
+  integration example).
 
 The adapter reads the collider's local AABB, not a physics transform: Rapier
 already writes `Transform`/`GlobalTransform`, and grass already reads

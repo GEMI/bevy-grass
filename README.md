@@ -853,6 +853,7 @@ cargo run --release --example meadow
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `rapier` | A Rapier capsule character and a large kinematic vehicle driving through a meadow, both using `GrassInteractorFromCollider` (`cargo run --example rapier --features rapier`) |
+| `rapier_minimal` | The shortest integration example: a field, a ground collider, one capsule and one large box, both adapted from their Rapier colliders (`cargo run --example rapier_minimal --features rapier`) |
 | `styles` | All 26 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
 | `forest_floor` | The four forest-floor presets side by side (`--only forest_ferns` shows one close up) |
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
