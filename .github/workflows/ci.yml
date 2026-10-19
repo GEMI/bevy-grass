@@ -67,6 +67,11 @@ jobs:
         with:
           toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
+      - name: Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
       - run: cargo +1.97.1 check --all-targets --all-features
 
   semver:
@@ -76,6 +81,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           baseline-rev: origin/${{ github.base_ref }}
