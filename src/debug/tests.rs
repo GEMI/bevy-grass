@@ -55,7 +55,7 @@ fn rects(shapes: &[Shape]) -> Vec<(Vec2, Vec2, f32, Color)> {
                 y,
                 color,
             } => Some((min, size, y, color)),
-            Shape::Circle { .. } => None,
+            Shape::Circle { .. } | Shape::Footprint { .. } => None,
         })
         .collect()
 }
@@ -186,7 +186,7 @@ fn an_interactor_is_drawn_as_the_disc_it_flattens_and_the_cut_off_part_is_red() 
             y,
             color,
         } => (center, radius, y, color),
-        Shape::Rect { .. } => panic!("a rectangle"),
+        Shape::Rect { .. } | Shape::Footprint { .. } => panic!("not a circle"),
     };
     assert_eq!(shapes.len(), 4);
     assert_eq!(

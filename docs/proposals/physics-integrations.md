@@ -1,7 +1,7 @@
 # Proposal: optional Avian and Rapier integrations
 
-Status: Rapier part implemented in 0.2; Avian waits for an avian3d release on
-Bevy 0.20. This document records the investigation behind the suggestion
+Status: implemented in 0.2, for Rapier and Avian. This document records the
+investigation behind the suggestion
 
 > an optional feature (avian / rapier) that syncs collider transforms or
 > spawns interactors [...] Also consider a capsule/box shape or a helper that
@@ -10,11 +10,35 @@ Bevy 0.20. This document records the investigation behind the suggestion
 and proposes a small, ECS-shaped bridge from physics colliders to the
 interaction system that already exists.
 
-Implementation note: the Rapier half is implemented (`GrassInteractorSpread`,
-the `rapier` feature, `GrassInteractorFromCollider`, `examples/rapier.rs`,
-tests and CI). The adapter also keeps its last fitted AABB in a private
-component so a moving body does not rebuild its spread every frame, and it
-sets the interactor's strength to 0 while the collider is absent.
+Implementation note: both engines are implemented (`GrassInteractorSpread`,
+the `rapier` and `avian` features, `GrassInteractorFromCollider`, examples,
+tests and CI). The design moved one step past §7 when Avian arrived: the
+adapter component and the fit are in the core, always compiled, and each
+engine is a backend that only writes an engine-neutral `GrassColliderBounds`
+(the collider's local box, scale applied, and whether it is active) in
+`GrassColliderSystems::Bounds`. Two features defining the same component would
+not have compiled together, and the policy would have been duplicated. The
+core fit reads `GlobalTransform` for rotation and scale: the footprint is the
+box's shadow on the ground, so a body lying on its side is covered along its
+length, and offsets are divided by the scale (the first Rapier version
+applied the scale twice). It keeps its last cover in a private component so a
+moving or turning body does not rebuild its spread, sets the strength to 0
+while the bounds are absent, and warns once if bounds never arrive (a missing
+feature or a mismatched engine version).
+
+`avian3d` 0.8.0 depends on Bevy 0.20; the compatibility findings in §5 below
+are from before that release.
+
+The spread of §7.3 turned out to look wrong for one large solid body: every
+disc pushes grass away from its own centre, so a vehicle drew several radial
+fans with seams between them, as if it were several small objects. The
+adapter now writes a `GrassInteractorFootprint` instead, one box stamp on the
+GPU (a rounded rectangle laid on the ground from the body's transform every
+frame). Under a moving box the grass lies the way it moves and only the
+sides push outward; at rest it pushes out from the nearest edge. The motion
+comes from the stamp's position frame to frame, so the bridge still reads no
+physics velocity. `GrassInteractorSpread` stays for a few separate contacts.
+The rest of §7 is the history of how it got there.
 
 ## 1. Short version
 

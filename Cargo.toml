@@ -43,11 +43,19 @@ bytemuck = "1"
 # meta files are RON), at these versions.
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
-# Optional Rapier bridge. `default-features = false` is deliberate: Rapier's
-# defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy features, and
-# adding this crate must never change how Bevy is compiled for the game.
+# Optional physics bridges. `default-features = false` is deliberate: the
+# engines' defaults turn on `bevy_gizmos`, `bevy_picking` and other Bevy
+# features, and adding this crate must never change how Bevy is compiled for
+# the game. Each must be the version the game uses: with another, Cargo
+# builds two copies and the bridge cannot see the game's colliders, so a
+# bump here is a breaking change for bevy_grass.
 bevy_rapier3d = { version = "0.37", optional = true, default-features = false, features = [
   "dim3",
+] }
+# `parry-f32` is Avian's collider type; `3d` is its 3D build.
+avian3d = { version = "0.8", optional = true, default-features = false, features = [
+  "3d",
+  "parry-f32",
 ] }
 
 [features]
@@ -56,9 +64,11 @@ bevy_rapier3d = { version = "0.37", optional = true, default-features = false, f
 # already, so it is off by default: adding this crate must never change how
 # Bevy is compiled.
 debug = ["bevy/bevy_gizmos"]
-# `GrassInteractorFromCollider`: derive a footprint from a `bevy_rapier3d`
-# collider. 3D only; grass is 3D.
+# `GrassInteractorFromCollider` for `bevy_rapier3d` colliders. 3D only;
+# grass is 3D.
 rapier = ["dep:bevy_rapier3d"]
+# `GrassInteractorFromCollider` for `avian3d` colliders. Both can be on.
+avian = ["dep:avian3d"]
 
 [dev-dependencies]
 # The crate's own tests cover the debug plugin too.
@@ -86,9 +96,19 @@ name = "rapier_minimal"
 path = "examples/rapier_minimal.rs"
 required-features = ["rapier"]
 
-# docs.rs documents the optional debug and Rapier integrations too.
+[[example]]
+name = "avian"
+path = "examples/avian.rs"
+required-features = ["avian"]
+
+[[example]]
+name = "avian_minimal"
+path = "examples/avian_minimal.rs"
+required-features = ["avian"]
+
+# docs.rs documents the optional debug and physics integrations too.
 [package.metadata.docs.rs]
-features = ["debug", "rapier"]
+features = ["debug", "rapier", "avian"]
 
 [lints.rust]
 unsafe_code = "forbid"

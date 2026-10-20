@@ -7,6 +7,72 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Avian support, footprints, and a physics bridge not tied to one engine (October 20, 2026)
+
+`GrassInteractorFromCollider` now works with Avian as well as Rapier, and a
+large body flattens grass as one shape: the grass under a moving vehicle lies
+the way it drives, and only the grass along its sides is pushed out.
+
+**Added**
+
+- `GrassInteractorFootprint`: a box (in the entity's local space, with a
+  rounding for balls and capsules) that an interactor flattens instead of a
+  disc. Under a moving box the grass lies down the way it moves and only its
+  sides push sideways, so the trail behind keeps lying the way it went; a box
+  at rest pushes out from its nearest edge. The box is laid on the ground by
+  its shadow every frame, so turning and tumbling bodies follow, and a log
+  that falls over flattens a strip along its length. It is one stamp on the
+  GPU, however large (clipped to 16 m per side).
+- The `avian` cargo feature: `GrassInteractorFromCollider` for `avian3d` 0.8
+  colliders. It brings `avian3d` in with `default-features = false` (`3d`
+  and `parry-f32` only), so it does not change how Bevy is compiled. `avian`
+  and `rapier` can both be on.
+- `GrassColliderBounds`, the engine-neutral input: a collider's box along
+  the entity's axes, in metres with the scale applied, how rounded it is, and
+  whether it is active. The Avian and Rapier backends write it; a game writes
+  it for a collider type of its own, or with no physics engine at all.
+- `GrassColliderSystems::{Bounds, Fit}`, in `Update`, to order such a system
+  before the fit.
+- A warning, once per entity, when a `GrassInteractorFromCollider` gets no
+  collider size within three frames. It names the likely causes: no physics
+  feature, the adapter on an entity without the `Collider`, or a
+  `bevy_rapier3d`/`avian3d` version other than the one bevy_grass is built
+  against (Cargo then builds two copies and the bridge cannot see the game's
+  colliders; before, the interactor silently did nothing).
+- The debug gizmos draw each footprint's outline as it lies on the ground.
+- `examples/avian.rs` and `examples/avian_minimal.rs`, the Rapier scenes with
+  Avian.
+
+**Changed**
+
+- `GrassInteractorFromCollider` fills in a `GrassInteractorFootprint` instead
+  of a `GrassInteractorSpread`, and requires it. A spread drew one radial fan
+  per disc, which made a large body look like several small ones side by
+  side, with rows of grass bent at odd angles. `radius_scale` is now `scale`:
+  it scales the whole footprint. A character capsule is a disc of its own
+  radius, fully flat to its edge, where it used to be a disc of its bounding
+  square's half diagonal fading from 60 %.
+- `GrassInteractorFromCollider` is always compiled, and is in the prelude
+  without a feature. The engine features only add the backend that reads
+  their `Collider`; the fit is in the core, shared by both.
+- The interactor buffer holds three `vec4`s per stamp (48 bytes) instead of
+  one; a disc is stamped exactly as before.
+- The `rapier` and `avian` examples drive the vehicle lengthwise, add a crate
+  scaled to 2.5 m driving a circle, and throw in a log every six seconds that
+  tumbles and lies down across the grass.
+
+**Fixed**
+
+- A scaled collider was covered at its scale squared: the collider's box
+  already had the scale applied, and extraction applied it again. A 6 m box
+  at scale 2 put discs 3.6 m past its ends. The footprint now matches the
+  simulated collider, for uniform and non-uniform scale.
+- A body lying on its side got one small disc: the cover only looked at the
+  collider's local X and Z. It is now covered where its shadow lies.
+- A child collider whose parent rigid body has `RigidBodyDisabled` kept
+  flattening grass. Rapier's backend checks the nearest body above the
+  collider, Avian's the body in `ColliderOf`.
+
 ### A new walk film for the README (October 20, 2026)
 
 The film at the top of the README now walks through three presets, three
@@ -108,8 +174,8 @@ already writes `Transform`/`GlobalTransform`, and grass already reads
 brought in with `default-features = false` and only `dim3`, so enabling the
 feature does not change how Bevy is compiled.
 
-Avian is not included yet: `avian3d` 0.7 and the current `main` branch depend
-on Bevy 0.19, so they cannot be queried from a Bevy 0.20 ECS.
+Avian was not included at first: `avian3d` 0.7 depended on Bevy 0.19. It
+arrived with `avian3d` 0.8, above.
 
 ### Missing-style feedback and a constructor (October 18, 2026)
 

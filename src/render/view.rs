@@ -92,7 +92,7 @@ pub(crate) struct GrassViewBuffers {
     pub draw_args: Buffer,
     /// The trample window: one packed push per cell (see `trample.rs`).
     trample: Buffer,
-    /// This frame's interactors, `(x, z, radius, strength)`.
+    /// This frame's interactor stamps, three `vec4`s each (`trample::Stamp`).
     interactors: Buffer,
     /// Interactors in `interactors` this frame.
     pub interactor_count: u32,
@@ -186,7 +186,7 @@ impl GrassViewBuffers {
             ),
             interactors: buffer(
                 "grass_interactors",
-                u64::from(settings.max_interactors) * 16,
+                u64::from(settings.max_interactors) * 48,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ),
             interactor_count: 0,
@@ -458,10 +458,11 @@ fn update_trample(
         cell,
         settings.max_interactor_radius,
     );
-    if !stamped.is_empty() {
-        queue.write_buffer(&buffers.interactors, 0, bytemuck::cast_slice(&stamped));
+    let words: Vec<[Vec4; 3]> = stamped.into_iter().map(trample::Stamp::gpu).collect();
+    if !words.is_empty() {
+        queue.write_buffer(&buffers.interactors, 0, bytemuck::cast_slice(&words));
     }
-    buffers.interactor_count = stamped.len() as u32;
+    buffers.interactor_count = words.len() as u32;
 
     let elapsed = (extracted.frame.time - extracted.frame.previous_time).max(0.0);
     data.interactor_count = buffers.interactor_count;

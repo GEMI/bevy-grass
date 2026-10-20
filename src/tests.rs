@@ -136,8 +136,9 @@ fn every_public_type_has_the_type_data_tools_look_for() {
     check!(GrassFieldOverrides: ReflectComponent, ReflectDefault);
     check!(GrassInteractor: ReflectComponent, ReflectDefault);
     check!(GrassInteractorSpread: ReflectComponent, ReflectDefault);
-    #[cfg(feature = "rapier")]
+    check!(GrassInteractorFootprint: ReflectComponent, ReflectDefault);
     check!(GrassInteractorFromCollider: ReflectComponent, ReflectDefault);
+    check!(GrassColliderBounds: ReflectComponent, ReflectDefault);
     check!(NoGrass: ReflectComponent, ReflectDefault);
     check!(GrassCamera: ReflectComponent, ReflectDefault);
     // Resources: inspector resource panels.

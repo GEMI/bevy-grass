@@ -2,17 +2,20 @@
 
 use bevy::ecs::prelude::*;
 use bevy::light::DirectionalLight;
-use bevy::math::{UVec4, Vec2, Vec3, Vec4};
+use bevy::math::{UVec4, Vec2, Vec3};
+use bevy::platform::collections::HashMap;
 use bevy::render::Extract;
 use bevy::transform::components::GlobalTransform;
 
 use super::resources::FrameUniform;
 use crate::GrassSettings;
-use crate::api::{GrassInteractor, GrassInteractorSpread, GrassSun, interactor_offsets};
+use crate::api::{
+    GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, GrassSun, interactor_offsets,
+};
 use crate::clock::GrassClock;
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::sun::{SunCandidate, pick_sun};
-use crate::trample;
+use crate::trample::{self, Stamp, Tracked};
 use crate::wind::GrassWindFrame;
 
 /// What the main world handed over this frame.
@@ -27,11 +30,23 @@ pub(crate) struct ExtractedGrass {
     /// Direction to the light the deferred G-buffer treats as the sun: the
     /// first shadow-casting directional light, or else the first one.
     pub sun: Option<Vec3>,
-    /// Every interactor, as `(x, z, radius, strength)`.
-    pub interactors: Vec<Vec4>,
+    /// Every interactor's stamps: a disc per spread offset, or one box.
+    pub interactors: Vec<Stamp>,
+    /// Where each footprint was last frame and how it moved, for the
+    /// direction its stamp lays the grass.
+    pub tracked: HashMap<Entity, Tracked>,
     /// This frame's settings, in range.
     pub settings: GrassSettings,
 }
+
+/// An interactor, with its spread or footprint if it has one.
+type Interactor = (
+    Entity,
+    &'static GrassInteractor,
+    &'static GlobalTransform,
+    Option<&'static GrassInteractorSpread>,
+    Option<&'static GrassInteractorFootprint>,
+);
 
 /// A directional light, for choosing the one grass follows.
 type SunLight = (
@@ -49,13 +64,7 @@ pub(crate) fn extract_grass(
     wind: Extract<Res<GrassWindFrame>>,
     clock: Extract<Res<GrassClock>>,
     lights: Extract<Query<SunLight>>,
-    interactors: Extract<
-        Query<(
-            &GrassInteractor,
-            &GlobalTransform,
-            Option<&GrassInteractorSpread>,
-        )>,
-    >,
+    interactors: Extract<Query<Interactor>>,
     settings: Extract<Res<GrassSettings>>,
 ) {
     extracted.settings = settings.sanitized();
@@ -98,8 +107,39 @@ pub(crate) fn extract_grass(
     // while the tables are borrowed.
     let mut stamps = std::mem::take(&mut extracted.interactors);
     stamps.clear();
+    let mut tracked = std::mem::take(&mut extracted.tracked);
     let tables = &extracted.tables;
-    for (interactor, transform, spread) in &interactors {
+    let elapsed = (clock.time - clock.previous_time).max(0.0);
+    // Boxes no longer here are forgotten; the rest are found again below.
+    tracked.retain(|entity, _| {
+        interactors
+            .get(*entity)
+            .is_ok_and(|(.., footprint)| footprint.is_some())
+    });
+    for (entity, interactor, transform, spread, footprint) in &interactors {
+        if let Some(footprint) = footprint {
+            let at = transform.transform_point(footprint.center);
+            let ground = interactor
+                .max_height
+                .and_then(|_| tables.highest_ground_at(Vec2::new(at.x, at.z)));
+            let reach = trample::reach(interactor.max_height, at.y, ground);
+            let now = Vec2::new(at.x, at.z);
+            let motion = tracked
+                .entry(entity)
+                .and_modify(|seen| *seen = seen.update(now, elapsed))
+                .or_insert(Tracked {
+                    at: now,
+                    ..Tracked::default()
+                })
+                .motion();
+            stamps.push(trample::box_stamp(
+                transform,
+                footprint,
+                interactor.strength * reach,
+                motion,
+            ));
+            continue;
+        }
         for &offset in interactor_offsets(spread) {
             let at = transform.transform_point(offset);
             // Only an interactor with a height limit needs the ground.
@@ -107,7 +147,7 @@ pub(crate) fn extract_grass(
                 .max_height
                 .and_then(|_| tables.highest_ground_at(Vec2::new(at.x, at.z)));
             let reach = trample::reach(interactor.max_height, at.y, ground);
-            stamps.push(Vec4::new(
+            stamps.push(Stamp::disc(
                 at.x,
                 at.z,
                 interactor.radius,
@@ -116,4 +156,5 @@ pub(crate) fn extract_grass(
         }
     }
     extracted.interactors = stamps;
+    extracted.tracked = tracked;
 }

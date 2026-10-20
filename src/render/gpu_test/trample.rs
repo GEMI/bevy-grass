@@ -278,3 +278,106 @@ fn gpu_trample_cells_of_another_size_make_another_window() {
     let origin = Vec2::new(view.trample_origin.x as f32, view.trample_origin.y as f32);
     assert!((origin + Vec2::splat(128.0) - camera).abs().max_element() <= 1.0);
 }
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_box_lays_grass_its_way_and_pushes_only_its_sides_out() {
+    let mut app = headless_app();
+    app.insert_resource(GrassWind {
+        strength: 0.0,
+        ..GrassWind::CALM
+    });
+    // A 4 × 2 m sledge, long along X, resting in the grass.
+    let start = Vec2::new(0.0, 14.0);
+    let sledge = app
+        .world_mut()
+        .spawn((
+            GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(2.0, 0.5, 1.0)),
+            Transform::from_xyz(start.x, 0.5, start.y),
+        ))
+        .id();
+    // The blades whose roots, relative to `center`, satisfy `pick`.
+    let around = |app: &mut App, center: Vec2, pick: &dyn Fn(Vec2) -> bool| {
+        gpu_bends(app)
+            .into_iter()
+            .filter(|(root, _)| pick(*root - center))
+            .collect::<Vec<_>>()
+    };
+    let mut ready = false;
+    for _ in 0..600 {
+        app.update();
+        if around(&mut app, start, &|d| {
+            d.abs().cmplt(Vec2::new(2.0, 1.0)).all()
+        })
+        .len()
+            > 40
+        {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "no grass appeared under the sledge in 600 frames");
+
+    // At rest: everything under it lies flat, pushed out from the nearest
+    // edge, so the grass by a long side leans out across it.
+    let under = around(&mut app, start, &|d| {
+        d.abs().cmplt(Vec2::new(1.7, 0.7)).all()
+    });
+    assert!(under.iter().all(|(_, bend)| bend.length() > 0.8));
+    let sides = around(&mut app, start, &|d| {
+        d.x.abs() < 1.2 && d.y.abs() > 0.5 && d.y.abs() < 1.2
+    });
+    assert!(!sides.is_empty());
+    for (root, bend) in &sides {
+        let out = Vec2::new(0.0, (root.y - start.y).signum());
+        assert!(
+            bend.dot(out) > 0.6 * bend.length(),
+            "a blade at {root} by the side of the resting sledge leans {bend}"
+        );
+    }
+
+    // It slides along +X at 2 m/s for a second.
+    let mut at = start;
+    for _ in 0..60 {
+        at.x += 2.0 / 60.0;
+        app.world_mut()
+            .get_mut::<Transform>(sledge)
+            .unwrap()
+            .translation = Vec3::new(at.x, 0.5, at.y);
+        app.update();
+    }
+
+    // Under it, the grass lies the way it moves; not in rows.
+    let core = around(&mut app, at, &|d| d.x.abs() < 1.5 && d.y.abs() < 0.5);
+    assert!(core.len() > 10);
+    for (root, bend) in &core {
+        assert!(
+            bend.x > 0.8 * bend.length() && bend.length() > 0.8,
+            "a blade at {root} under the moving sledge leans {bend}, not along +X"
+        );
+    }
+    // Beside it, only sideways: out from the long sides.
+    let beside = around(&mut app, at, &|d| {
+        d.x.abs() < 1.5 && d.y.abs() > 1.0 && d.y.abs() < 1.25
+    });
+    assert!(!beside.is_empty());
+    for (root, bend) in &beside {
+        let out = Vec2::new(0.0, (root.y - at.y).signum());
+        assert!(
+            bend.dot(out) > 0.6 * bend.length() && bend.length() > 0.2,
+            "a blade at {root} beside the moving sledge leans {bend}, not out"
+        );
+    }
+    // Behind it, the trail keeps lying the way it went: the trailing edge
+    // does not push it back.
+    let trail = around(&mut app, at, &|d| {
+        d.x > -3.0 && d.x < -2.2 && d.y.abs() < 0.5
+    });
+    assert!(!trail.is_empty());
+    for (root, bend) in &trail {
+        assert!(
+            bend.x > 0.8 * bend.length() && bend.length() > 0.3,
+            "a blade at {root} in the trail leans {bend}, not along +X"
+        );
+    }
+}

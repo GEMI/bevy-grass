@@ -37,6 +37,7 @@ jobs:
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
       - run: cargo test --features rapier
+      - run: cargo test --features avian
       # The bench's budget/percentile tests live in the example, which the
       # plain `cargo test` does not run.
       - run: cargo test --example bench

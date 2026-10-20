@@ -430,9 +430,9 @@ The limits, which are also in the type's documentation. The numbers are the
 defaults of `GrassSettings`, and each can be changed:
 
 - **Radius, 2 m** (`max_interactor_radius`). A bigger radius is cut to it, with
-  one warning naming the entity. Use a `GrassInteractorSpread` (or several
-  interactors) for something bigger, or raise the setting (to 16 m at most):
-  the cost grows with the square of the radius.
+  one warning naming the entity. Use a `GrassInteractorFootprint` for one large
+  object (see below), or raise the setting (to 16 m at most): the cost grows
+  with the square of the radius.
 - **Count** (`max_interactors`). A camera stamps that many, the ones nearest
   to it first.
 - **Distance, 64 m** (`trample_cell_size`, 256 cells across). Each camera
@@ -447,18 +447,54 @@ defaults of `GrassSettings`, and each can be changed:
   the 16 m chunk of the field below it, so on a steep heightmap a flier is
   judged against the top of the slope.)
 
-### Physics engines
-
-Both Avian and Rapier already write `Transform`/`GlobalTransform`, and grass
-reads `GlobalTransform`, so a hand-written `GrassInteractor` on a physics body
-works without a bridge. The optional `rapier` feature goes one step further
-and derives the footprint from the collider:
-
-```toml
-bevy_grass = { version = "0.2", features = ["rapier"] }
-```
+**Large objects.** A disc pushes grass away from its centre, which suits a
+character's feet. A vehicle, a crate or a fallen log is one solid shape:
+give it a `GrassInteractorFootprint`, a box in the entity's local space, and
+the grass is flattened under the whole box at once.
 
 ```rust
+commands.spawn((
+    Transform::from_xyz(0.0, 1.0, 0.0),
+    // A 6 × 3 m cart; `rounding` makes a ball or a capsule round from above.
+    GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
+));
+```
+
+The grass under a moving box lies down the way it moves, and only the grass
+along its sides is pushed out sideways, the way a roller or a sledge lays it;
+the trail behind keeps lying the way the box went. A box at rest pushes the
+grass out from its nearest edge. The box follows the transform: a crate
+tipped onto its side, or a log that falls over, flattens where it lies.
+`GrassInteractorSpread` is still there for a few separate discs (feet,
+wheels): each of its discs pushes away from its own centre.
+
+### Physics engines
+
+Avian and Rapier both write `Transform`/`GlobalTransform`, and grass reads
+`GlobalTransform`, so a hand-written `GrassInteractor` on a physics body works
+with no bridge at all. `GrassInteractorFromCollider` goes further and sizes
+the footprint from the collider. Turn on the feature for your engine:
+
+| Engine | Feature | Built against |
+| --- | --- | --- |
+| Avian | `avian` | `avian3d` 0.8 |
+| Rapier | `rapier` | `bevy_rapier3d` 0.37 |
+
+```toml
+bevy_grass = { version = "0.2", features = ["avian"] } # or "rapier"
+```
+
+Then put the component next to a collider:
+
+```rust
+// Avian
+commands.spawn((
+    RigidBody::Dynamic,
+    Collider::capsule(0.4, 1.0),
+    GrassInteractorFromCollider::default(),
+));
+
+// Rapier
 commands.spawn((
     RigidBody::Dynamic,
     Collider::capsule_y(0.5, 0.4),
@@ -466,29 +502,62 @@ commands.spawn((
 ));
 ```
 
-The adapter reads Rapier's local AABB, so a capsule gets one disc, while a
-vehicle, a wall or a big creature gets a `GrassInteractorSpread` of several
-discs, each no bigger than `max_interactor_radius`. A disabled collider, a
-disabled rigid body or a sensor flattens nothing. For a flying creature, set
-`max_height: Some(height)`.
+There is no plugin to add and nothing to order: `GrassPlugins` adds the bridge
+for each feature that is on, and it runs in `Update`, independent of the
+physics schedule and of interpolation. The footprint follows the collider:
 
-The `rapier` feature brings in `bevy_rapier3d` with `default-features = false`,
-so it does not turn on `bevy_gizmos`, `bevy_picking` or other Bevy features.
-It is 3D only; grass is 3D.
+- **Shape.** The collider becomes a `GrassInteractorFootprint`: a capsule
+  character a disc, a vehicle, a wall or a big creature one box (see *Large
+  objects* above). Balls and capsules stay round from above.
+- **Scale.** Both engines scale a collider by its transform, and so does the
+  footprint: a 1 m crate scaled to 2.5 m flattens 2.5 m of grass.
+- **How the body lies.** A log standing on end is a small disc; when it falls
+  over, it flattens a capsule-shaped strip along its length. Moving, turning
+  and tumbling cost nothing on the CPU: the footprint is in the body's local
+  space and is laid on the ground every frame; it is refitted only when the
+  collider's shape or the body's scale changes.
+- **Whether it takes part.** A disabled collider, a disabled rigid body (for
+  a child collider, its parent body) or a sensor flattens nothing. Removing
+  the collider stops the interaction.
 
-A large object does not need a physics engine for a spread either:
+For a flying creature, set `max_height: Some(height)`; `scale` widens or
+narrows the trail.
+
+Put the component on the entity that has the `Collider`. For a body built
+from several child colliders, put it on each child that should touch the
+grass. If no collider size arrives within a few frames, bevy_grass warns once,
+naming the entity. That is what a missing feature looks like, and also a
+`bevy_rapier3d` or `avian3d` version other than the one in the table: Cargo
+then builds two copies of the engine, and bevy_grass cannot see the game's
+colliders.
+
+Both features bring their engine in with `default-features = false`, so they
+do not turn on `bevy_gizmos`, `bevy_picking` or other Bevy features, and both
+can be on at once. They are 3D only; grass is 3D.
+
+**Another engine, or none.** The engine backends only write a
+`GrassColliderBounds`: the collider's box along the entity's own axes, in
+metres with the scale applied, how rounded it is, and whether it is active. Everything else is
+engine-neutral, so a collider type of your own needs only a system that writes
+it, in `GrassColliderSystems::Bounds` so it is fitted the same frame:
 
 ```rust
-let (radius, spread) = GrassInteractorSpread::covering_aabb(
-    Vec3::ZERO,
-    Vec3::new(4.0, 0.5, 0.5), // half extents in local space
-    2.0,                     // GrassSettings::max_interactor_radius
-);
-commands.spawn((GrassInteractor { radius, ..default() }, spread));
+app.add_systems(Update, my_collider_bounds.in_set(GrassColliderSystems::Bounds));
+
+fn my_collider_bounds(
+    mut commands: Commands,
+    added: Query<(Entity, &MyCollider), Added<MyCollider>>,
+) {
+    for (entity, collider) in &added {
+        commands
+            .entity(entity)
+            .insert(GrassColliderBounds::new(Vec3::ZERO, collider.half_extents));
+    }
+}
 ```
 
-Avian support is waiting for an `avian3d` release built on Bevy 0.20;
-`avian3d` 0.7 and its current `main` branch depend on Bevy 0.19.
+Without any collider at all, a `GrassInteractorFootprint` does the same
+job by hand.
 
 ### Change the wind, or turn grass shadows off at runtime
 
@@ -576,7 +645,9 @@ app.add_systems(PostUpdate, paint_density_mask.before(AssetEventSystems));
 ```
 
 Systems in `Update` need no ordering. Without any, a change shows the next
-frame.
+frame. The collider bridge runs in `Update` itself: a system that writes
+`GrassColliderBounds` goes in `GrassColliderSystems::Bounds` (see
+[Physics engines](#physics-engines)).
 
 ### Shadows
 
@@ -858,8 +929,10 @@ cargo run --release --example meadow
 | `gallery` | The biome, fantasy and toon presets on 18 m plots of their own ground, with a flying camera and a person trampling each plot. Tab and Shift+Tab fly from plot to plot, G drops to eye level, 1–6 pick the wind and 0 gives each plot its own (a slow current over the kelp), H toggles grass shadows, P stops the walkers. The styles load from their files, so editing one changes its plot live (`--plot KELP_BED` starts there) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
-| `rapier` | A Rapier capsule character and a large kinematic vehicle driving through a meadow, both using `GrassInteractorFromCollider` (`cargo run --example rapier --features rapier`) |
-| `rapier_minimal` | The shortest integration example: a field, a ground collider, one capsule and one large box, both adapted from their Rapier colliders (`cargo run --example rapier_minimal --features rapier`) |
+| `avian` | Avian colliders trampling a meadow through `GrassInteractorFromCollider`: a kinematic capsule character, a large kinematic vehicle driving a circle (the grass under it lies the way it drives, only its sides push sideways), a crate scaled to 2.5 m, and a log thrown in every few seconds that tumbles and lies down across the grass (`cargo run --example avian --features avian`) |
+| `avian_minimal` | The shortest Avian integration: a field, a ground collider, one capsule and one large box, both adapted from their colliders (`cargo run --example avian_minimal --features avian`) |
+| `rapier` | The `avian` scene with Rapier (`cargo run --example rapier --features rapier`) |
+| `rapier_minimal` | The `avian_minimal` scene with Rapier (`cargo run --example rapier_minimal --features rapier`) |
 | `styles` | All 36 presets side by side, each on its own ground, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
 | `forest_floor` | The four forest-floor presets side by side (`--only forest_ferns` shows one close up) |
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
@@ -911,9 +984,12 @@ are the same in every tier. `GrassQuality` has a `const fn` for each column as w
 | `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier). `GrassField::new(size, style, &mut styles)` adds the style for you |
 | `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
 | `GrassFieldOverrides` | Component | On a field: `tint: Option<Color>` (multiplies blade colours), `density_scale`, `height_scale`, for one field without a style of its own |
-| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `GrassSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground). One disc; add a `GrassInteractorSpread` for a larger object |
-| `GrassInteractorSpread` | Component (requires `GrassInteractor`) | Extra disc centres in the interactor's local space, for vehicles, walls and large creatures. `covering_aabb(center, half_extents, max_radius)` covers a local AABB with at most 32 discs |
-| `GrassInteractorFromCollider` | Component (feature `rapier`; requires `GrassInteractor` and `GrassInteractorSpread`) | Derives the footprint from this entity's Rapier `Collider`. `radius_scale` (default 1), `strength` (default 1), `max_height: Option<f32>` (default `None`). Large colliders get a spread; disabled colliders/bodies and sensors flatten nothing |
+| `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `GrassSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground). One disc; add a `GrassInteractorFootprint` for one large object |
+| `GrassInteractorSpread` | Component (requires `GrassInteractor`) | Extra disc centres in the interactor's local space, for a few separate contacts (feet, wheels); each disc pushes away from its own centre. `covering_aabb(center, half_extents, max_radius)` covers a local AABB with at most 32 discs |
+| `GrassInteractorFootprint` | Component (requires `GrassInteractor`) | A box flattened as one shape instead of a disc: `center`, `half_extents` (local space), `rounding` (metres; a ball's or capsule's radius). Under a moving box the grass lies the way it moves and only its sides push sideways; at rest it pushes out from the nearest edge. Follows the transform's rotation and scale; clipped to 16 m from its centre per side. The interactor's `radius` and spread are not used |
+| `GrassInteractorFromCollider` | Component (requires `GrassInteractor` and `GrassInteractorFootprint`) | Derives a `GrassInteractorFootprint` from this entity's physics collider (features `avian`, `rapier`), following its size, roundness and scale. `scale` (default 1), `strength` (default 1), `max_height: Option<f32>` (default `None`). Disabled colliders/bodies and sensors flatten nothing; warns once if no collider size arrives |
+| `GrassColliderBounds` | Component | The collider `GrassInteractorFromCollider` flattens under: `center`, `half_extents` (metres along the entity's axes, scale applied), `rounding`, `active`. The physics features write it; write it yourself for another collider type |
+| `GrassColliderSystems` | System set (`Update`) | `Bounds` (backends write `GrassColliderBounds`), then `Fit` (the adapters are fitted) |
 | `GrassWind` | Resource | `direction: Vec2` (XZ; any length, normalized on use; `.toward(Dir2)` sets it from a `Dir2`), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s), and the multipliers `sway`, `sway_speed`, `flutter`, `gust_contrast` (1 in every preset). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
 | `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped) and `gpu` (blades per level of detail, slices, overflows) |
 | `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |

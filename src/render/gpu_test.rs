@@ -27,7 +27,7 @@ use bevy::winit::WinitPlugin;
 use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
 use crate::GrassWind;
-use crate::api::{GrassField, GrassInteractor, GrassStyle};
+use crate::api::{GrassField, GrassInteractor, GrassInteractorFootprint, GrassStyle};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::mirror;
 use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};

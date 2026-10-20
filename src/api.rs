@@ -299,9 +299,10 @@ pub struct GrassSun;
 ///   ([`max_interactor_radius`](crate::GrassSettings::max_interactor_radius)).
 ///   A bigger `radius` is cut to it, and the plugin warns once about the
 ///   entity. (Each interactor is stamped in a fixed footprint, which is why a
-///   hundred cost what one does.) For something bigger, use a
-///   [`GrassInteractorSpread`] or several interactors around it, or raise the
-///   setting: the cost of an interactor grows with the square of its radius.
+///   hundred cost what one does.) For one large object, use a
+///   [`GrassInteractorFootprint`]; for a few separate contacts, a
+///   [`GrassInteractorSpread`]; or raise the setting: the cost of an
+///   interactor grows with the square of its radius.
 /// - **Count: [`GrassSettings::max_interactors`](crate::GrassSettings::max_interactors).**
 ///   A camera stamps that many a frame, the ones nearest to it first.
 /// - **Distance: a 64 m window**
@@ -371,9 +372,10 @@ impl Default for GrassInteractor {
 /// # }
 /// ```
 ///
-/// With the `rapier` cargo feature, `GrassInteractorFromCollider` fills this
-/// in from a collider automatically. The offsets are local, so a moving,
-/// rotating or scaled physics body carries them along.
+/// The offsets are local, so a moving, rotating or scaled body carries them
+/// along. Each disc pushes grass away from its own centre, which suits a few
+/// feet or wheels; for one large solid object a [`GrassInteractorFootprint`]
+/// flattens it as one shape instead.
 #[derive(Component, Debug, Clone, Default, PartialEq, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 #[require(GrassInteractor)]
@@ -467,6 +469,71 @@ impl GrassInteractorSpread {
     }
 }
 
+/// The box one [`GrassInteractor`] flattens instead of a disc: a vehicle, a
+/// crate, a fallen log, a large creature.
+///
+/// The grass under the box lies flat. Where the box moves, the grass under it
+/// lies down the way it moves, and only the grass along its sides is pushed
+/// out sideways, the way a roller or a sledge lays it; a box at rest pushes
+/// the grass out from its nearest edge. Past the edges the push fades out
+/// over a short margin.
+///
+/// The box is in the entity's local space and follows its `GlobalTransform`:
+/// the grass is flattened under the box's shadow on the ground, so a crate
+/// tipped onto its side or a log that falls over flattens where it lies.
+/// [`GrassInteractorFromCollider`](crate::GrassInteractorFromCollider) fills
+/// this in from a physics collider.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// # fn setup(mut commands: Commands) {
+/// // A 6 × 3 m cart.
+/// commands.spawn((
+///     Transform::from_xyz(0.0, 1.0, 0.0),
+///     GrassInteractorFootprint::new(Vec3::ZERO, Vec3::new(3.0, 1.0, 1.5)),
+/// ));
+/// # }
+/// ```
+///
+/// With a footprint, the interactor's `radius` and any
+/// [`GrassInteractorSpread`] are not used; its `strength` and `max_height`
+/// are. A box is clipped to
+/// [`GrassSettings::MAX_INTERACTOR_RADIUS`](crate::GrassSettings::MAX_INTERACTOR_RADIUS)
+/// (16 m) from its centre along each side.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default, Debug, PartialEq)]
+#[require(GrassInteractor)]
+pub struct GrassInteractorFootprint {
+    /// The centre of the box, in the entity's local space.
+    pub center: Vec3,
+    /// Half the size of the box along each local axis.
+    pub half_extents: Vec3,
+    /// How rounded the box looks from above, in metres: 0 for a box, the
+    /// radius for a ball or a capsule. An upright capsule with a rounding of
+    /// its radius is a disc; lying down, it is a capsule-shaped strip.
+    pub rounding: f32,
+}
+
+impl GrassInteractorFootprint {
+    /// A box of `half_extents` around `center`, with square corners.
+    #[must_use]
+    pub fn new(center: Vec3, half_extents: Vec3) -> Self {
+        Self {
+            center,
+            half_extents,
+            rounding: 0.0,
+        }
+    }
+}
+
+impl Default for GrassInteractorFootprint {
+    /// A 1 m cube on the entity's origin.
+    fn default() -> Self {
+        Self::new(Vec3::ZERO, Vec3::splat(0.5))
+    }
+}
+
 /// The local disc centres of an interactor: its spread, or one at the origin.
 pub(crate) fn interactor_offsets(spread: Option<&GrassInteractorSpread>) -> &[Vec3] {
     spread
@@ -522,8 +589,8 @@ pub(crate) fn warn_oversized_interactors(
             warn!(
                 "bevy_grass: the GrassInteractor on {entity} has radius {} m, but interactors \
                  push at most {largest} m (GrassSettings::max_interactor_radius); the rest is \
-                 ignored. Use several discs no bigger than that (see GrassInteractorSpread) for \
-                 something bigger.",
+                 ignored. Use a GrassInteractorFootprint for one large object, or several \
+                 discs no bigger than that (see GrassInteractorSpread).",
                 interactor.radius,
             );
         } else if !too_big {

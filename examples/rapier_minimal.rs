@@ -4,7 +4,8 @@
 //! `GrassInteractorFromCollider` derives the grass footprint from the Rapier
 //! collider. The physics engine already writes `Transform`/`GlobalTransform`,
 //! so there is no transform to copy: the adapter only decides how big the
-//! footprint is (and gives a large collider several discs).
+//! footprint is (and gives a large collider several discs). `avian_minimal`
+//! is the same scene with Avian; only the physics lines differ.
 //!
 //! ```text
 //! cargo run --release --example rapier_minimal --features rapier

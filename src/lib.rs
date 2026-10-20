@@ -52,7 +52,6 @@ mod fields;
 #[cfg(test)]
 mod mirror;
 mod packed;
-#[cfg(feature = "rapier")]
 mod physics;
 mod presets;
 mod render;
@@ -67,13 +66,13 @@ pub mod wind;
 
 pub use api::{
     GrassBlade, GrassCamera, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
-    GrassInteractorSpread, GrassSpecies, GrassStyle, GrassSun, GrassVariation, GroundTint, NoGrass,
+    GrassInteractorFootprint, GrassInteractorSpread, GrassSpecies, GrassStyle, GrassSun,
+    GrassVariation, GroundTint, NoGrass,
 };
 #[cfg(feature = "debug")]
 pub use debug::{GrassDebug, GrassDebugPlugin, GrassGizmos};
 pub use far::{FarGrass, FarGrassMaterial, FarGrassPlugin, FarGrassUniform};
-#[cfg(feature = "rapier")]
-pub use physics::GrassInteractorFromCollider;
+pub use physics::{GrassColliderBounds, GrassColliderSystems, GrassInteractorFromCollider};
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
 pub use stats::{GpuStats, GrassDiagnostics, GrassStats, TableStats};
 pub use style_file::{GrassStyleFileError, GrassStyleFilePlugin, GrassStyleLoader};
@@ -89,11 +88,10 @@ use bevy::shader::load_shader_library;
 
 /// The things a game needs, in one import.
 pub mod prelude {
-    #[cfg(feature = "rapier")]
-    pub use crate::GrassInteractorFromCollider;
     pub use crate::{
-        FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassCamera, GrassField,
-        GrassFieldOverrides, GrassGround, GrassInteractor, GrassInteractorSpread, GrassPlugin,
+        FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassCamera, GrassColliderBounds,
+        GrassColliderSystems, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
+        GrassInteractorFootprint, GrassInteractorFromCollider, GrassInteractorSpread, GrassPlugin,
         GrassPlugins, GrassQuality, GrassSettings, GrassShadows, GrassSpecies, GrassStats,
         GrassStyle, GrassStyleFilePlugin, GrassSun, GrassSystems, GrassVariation, GrassWind,
         GrassWindFrame, GrassWindPlugin, GrassWindSystems, GroundTint, NoGrass,
@@ -271,7 +269,6 @@ impl Plugin for GrassPlugin {
                 ),
             )
             .add_plugins(render::GrassRenderPlugin { shaders });
-        #[cfg(feature = "rapier")]
         physics::plugin(app);
         if self.wind {
             app.add_plugins(GrassWindPlugin);
@@ -294,6 +291,9 @@ fn register_types(app: &mut App) {
         .register_type::<GrassGround>()
         .register_type::<GrassInteractor>()
         .register_type::<GrassInteractorSpread>()
+        .register_type::<GrassInteractorFootprint>()
+        .register_type::<GrassInteractorFromCollider>()
+        .register_type::<GrassColliderBounds>()
         .register_type::<NoGrass>()
         .register_type::<GrassSun>()
         .register_type::<GrassCamera>()
@@ -302,8 +302,6 @@ fn register_types(app: &mut App) {
         .register_type::<GrassSettings>()
         .register_type::<GrassQuality>()
         .register_type::<GrassShadows>();
-    #[cfg(feature = "rapier")]
-    app.register_type::<GrassInteractorFromCollider>();
 }
 
 /// Says which settings were out of range, once per change. The render world

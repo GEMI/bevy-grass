@@ -11,12 +11,15 @@
 //!   heightmap field also gets its highest level.
 //! - **chunks** (blue, off by default): the 16 m squares the GPU culls.
 //! - **interactors** (yellow): every disc an interactor flattens, at most
-//!   [`GrassSettings::max_interactor_radius`] (2 m by default); red where the
-//!   radius asked for is cut off.
+//!   [`GrassSettings::max_interactor_radius`] (2 m by default), red where the
+//!   radius asked for is cut off; and the outline of every footprint, as it
+//!   lies on the ground.
 //! - **trample windows** (magenta): the square around each camera's focus
 //!   where interactors leave trails, 64 m across by default
 //!   ([`GrassSettings::trample_cell_size`]). Interactors outside it leave
 //!   none.
+
+use std::f32::consts::FRAC_PI_2;
 
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::camera::{Camera3d, Projection};
@@ -33,7 +36,9 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
-use crate::api::{GrassInteractor, GrassInteractorSpread, NoGrass, interactor_offsets};
+use crate::api::{
+    GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass, interactor_offsets,
+};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::trample;
 use crate::{GrassSettings, GrassSystems};
@@ -109,6 +114,16 @@ pub(crate) enum Shape {
     Circle {
         center: Vec2,
         radius: f32,
+        y: f32,
+        color: Color,
+    },
+    /// A footprint on the ground: a rectangle along `along`, `core` its half
+    /// extents before its corners are rounded by `rounding`.
+    Footprint {
+        center: Vec2,
+        along: Vec2,
+        core: Vec2,
+        rounding: f32,
         y: f32,
         color: Color,
     },
@@ -260,8 +275,53 @@ pub(crate) fn draw(buffer: &mut GizmoBuffer<GrassGizmos, ()>, shapes: &[Shape]) 
                     color,
                 );
             }
+            Shape::Footprint {
+                center,
+                along,
+                core,
+                rounding,
+                y,
+                color,
+            } => {
+                // Each corner's quarter circle, anticlockwise from +along.
+                let across = along.perp();
+                let corners = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
+                let points = corners
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(quarter, (x, z))| {
+                        let corner = center + along * core.x * x + across * core.y * z;
+                        (0..=8).map(move |step| {
+                            let angle = (quarter as f32 + step as f32 / 8.0) * FRAC_PI_2;
+                            let at =
+                                corner + (along * angle.cos() + across * angle.sin()) * rounding;
+                            Vec3::new(at.x, y, at.y)
+                        })
+                    });
+                let points: Vec<Vec3> = points.collect();
+                buffer.linestrip(points.iter().copied().chain(points.first().copied()), color);
+            }
         }
     }
+}
+
+/// The outline of every footprint stamp, at height `y`: yellow, or grey if
+/// it flattens nothing.
+pub(crate) fn footprint_shapes(stamps: impl Iterator<Item = (trample::Stamp, f32)>) -> Vec<Shape> {
+    stamps
+        .map(|(stamp, y)| Shape::Footprint {
+            center: stamp.disc.xy(),
+            along: stamp.shape.xy(),
+            core: stamp.shape.zw(),
+            rounding: stamp.motion.z,
+            y,
+            color: if stamp.disc.w > 0.0 {
+                css::YELLOW.into()
+            } else {
+                css::GRAY.into()
+            },
+        })
+        .collect()
 }
 
 /// Everything the debug view shows this frame.
@@ -306,6 +366,16 @@ struct DebugQueries<'w, 's> {
             &'static GrassInteractor,
             Option<&'static GrassInteractorSpread>,
         ),
+        Without<GrassInteractorFootprint>,
+    >,
+    footprints: Query<
+        'w,
+        's,
+        (
+            &'static GlobalTransform,
+            &'static GrassInteractor,
+            &'static GrassInteractorFootprint,
+        ),
     >,
     cameras: Query<
         'w,
@@ -324,7 +394,7 @@ fn draw_debug(
 ) {
     // The renderer clamps the settings; so do the gizmos, to show what it does.
     let settings = settings.sanitized();
-    let shapes = shapes(
+    let mut shapes = shapes(
         &debug,
         &settings,
         &tables,
@@ -345,6 +415,15 @@ fn draw_debug(
             )
         }),
     );
+    if debug.enabled && debug.interactors {
+        shapes.extend(footprint_shapes(queries.footprints.iter().map(
+            |(transform, interactor, footprint)| {
+                let stamp =
+                    trample::box_stamp(transform, footprint, interactor.strength, Vec2::ZERO);
+                (stamp, transform.transform_point(footprint.center).y)
+            },
+        )));
+    }
     draw(&mut gizmos, &shapes);
 }
 

@@ -10,8 +10,11 @@
 //! slots whose world cell has just come into the window, and trails stay in
 //! world space.
 
-use bevy::math::{IVec2, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use bevy::math::{IVec2, Mat3, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use bevy::transform::components::GlobalTransform;
 
+use crate::GrassInteractorFootprint;
+use crate::GrassSettings;
 use crate::fields::{CHUNK_SIZE, FieldTables};
 
 /// Cells along each side of the window. The WESL twin is `TRAMPLE_TEXELS`.
@@ -83,30 +86,174 @@ pub(crate) fn reach(max_height: Option<f32>, feet: f32, ground: Option<f32>) -> 
     1.0 - t * t * (3.0 - 2.0 * t)
 }
 
-/// The interactors a camera stamps: those whose disc reaches its window of
-/// `cell`-metre cells, nearest to `center` first, at most `max`. Each is
-/// `(x, z, radius, strength)` with the radius clamped to `max_radius`
-/// (`GrassSettings::max_interactor_radius`).
+/// One interactor's stamp, as `trample_stamp` reads it: three `vec4`s.
+///
+/// A disc is `disc` alone (x, z, radius, strength), the rest zero. A box (a
+/// [`GrassInteractorFootprint`] on the ground) also has its `shape` (its axis
+/// on the ground, then its core half extents along and across it) and its
+/// `motion` (how it moves on the ground, 0 to 1 m/s-ish, then its rounding
+/// and the margin its push fades over); its `disc` radius is how far from
+/// the centre it pushes at all. A margin above 0 is what makes it a box.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Stamp {
+    pub(crate) disc: Vec4,
+    pub(crate) shape: Vec4,
+    pub(crate) motion: Vec4,
+}
+
+impl Stamp {
+    /// A disc of `radius` at world `(x, z)`.
+    pub(crate) fn disc(x: f32, z: f32, radius: f32, strength: f32) -> Self {
+        Self {
+            disc: Vec4::new(x, z, radius, strength),
+            ..Self::default()
+        }
+    }
+
+    /// Whether this is a box.
+    pub(crate) fn is_box(&self) -> bool {
+        self.motion.w > 0.0
+    }
+
+    /// The stamp as the buffer holds it.
+    pub(crate) fn gpu(self) -> [Vec4; 3] {
+        [self.disc, self.shape, self.motion]
+    }
+}
+
+/// How fast a box must move on the ground, in metres a second, for the grass
+/// under it to lie the way it moves. Slower, the grass is pushed more and
+/// more out from the box's edges, as under a box at rest.
+pub(crate) const MOVING_SPEED: f32 = 0.5;
+
+/// The stamp of a [`GrassInteractorFootprint`] under `transform`, pushing
+/// with `strength`, moving on the ground by `motion` (0 to 1, see
+/// [`MOVING_SPEED`]).
+///
+/// The box is laid on the ground by its shadow: each of its three half axes
+/// is carried into the world and flattened onto XZ, and the stamp is the
+/// rectangle that bounds them, along the longest one. A box turning about the
+/// vertical keeps its size; one lying on its side covers its length.
+pub(crate) fn box_stamp(
+    transform: &GlobalTransform,
+    footprint: &GrassInteractorFootprint,
+    strength: f32,
+    motion: Vec2,
+) -> Stamp {
+    let linear = Mat3::from(transform.affine().matrix3);
+    let half = footprint.half_extents.abs();
+    let ground = [0, 1, 2].map(|axis| {
+        let reach = linear.col(axis) * finite(half[axis]);
+        Vec2::new(reach.x, reach.z)
+    });
+    let longest = [1, 2].into_iter().fold(0, |longest, axis| {
+        if ground[axis].length_squared() > ground[longest].length_squared() {
+            axis
+        } else {
+            longest
+        }
+    });
+    let along = ground[longest].try_normalize().unwrap_or(Vec2::X);
+    let across = along.perp();
+    let extent = ground
+        .iter()
+        .fold(Vec2::ZERO, |extent, axis| {
+            extent + Vec2::new(axis.dot(along).abs(), axis.dot(across).abs())
+        })
+        .min(Vec2::splat(GrassSettings::MAX_INTERACTOR_RADIUS));
+    let rounding = finite(footprint.rounding).clamp(0.0, extent.min_element());
+    let core = extent - rounding;
+    // Grass beside a box is pushed aside a little, more beside a bigger one.
+    let margin = (0.5 * extent.min_element()).clamp(0.15, 0.6);
+    let center = transform.transform_point(footprint.center);
+    Stamp {
+        disc: Vec4::new(
+            center.x,
+            center.z,
+            core.length() + rounding + margin,
+            strength,
+        ),
+        shape: Vec4::new(along.x, along.y, core.x, core.y),
+        motion: Vec4::new(motion.x, motion.y, rounding, margin),
+    }
+}
+
+/// A length that can go into a stamp: finite, or 0.
+fn finite(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+/// Where a box was on the ground and how it was moving, kept from frame to
+/// frame to give its stamp a direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Tracked {
+    pub(crate) at: Vec2,
+    pub(crate) velocity: Vec2,
+}
+
+impl Tracked {
+    /// This frame's position `at`, `elapsed` seconds after the last one. The
+    /// velocity is smoothed over about a tenth of a second, so one uneven
+    /// physics step does not turn the grass; a jump of more than 4 m in a
+    /// frame is a teleport, not a motion.
+    pub(crate) fn update(self, at: Vec2, elapsed: f32) -> Self {
+        if elapsed <= 0.0 {
+            return Self { at, ..self };
+        }
+        let step = at - self.at;
+        if !step.is_finite() || step.length_squared() > 16.0 {
+            return Self {
+                at,
+                velocity: Vec2::ZERO,
+            };
+        }
+        let follow = 1.0 - (-elapsed / 0.1).exp();
+        Self {
+            at,
+            velocity: self.velocity.lerp(step / elapsed, follow),
+        }
+    }
+
+    /// The motion a stamp gets: the direction of travel, 0 at rest and 1 at
+    /// [`MOVING_SPEED`] or faster.
+    pub(crate) fn motion(&self) -> Vec2 {
+        let speed = self.velocity.length();
+        if speed <= 1e-4 {
+            return Vec2::ZERO;
+        }
+        self.velocity / speed * (speed / MOVING_SPEED).min(1.0)
+    }
+}
+
+/// The interactors a camera stamps: those that reach its window of
+/// `cell`-metre cells, nearest to `center` first, at most `max`. A disc's
+/// radius is clamped to `max_radius` (`GrassSettings::max_interactor_radius`);
+/// a box is already clipped, in [`box_stamp`]. Strengths are clamped to 1.
 pub(crate) fn select_interactors(
-    all: &[Vec4],
+    all: &[Stamp],
     center: Vec2,
     max: u32,
     cell: f32,
     max_radius: f32,
-) -> Vec<Vec4> {
+) -> Vec<Stamp> {
     let half = window_side(cell) * 0.5;
-    let mut near: Vec<(f32, Vec4)> = all
+    let mut near: Vec<(f32, Stamp)> = all
         .iter()
-        .filter(|i| i.z > 0.0 && i.w > 0.0)
+        .filter(|i| i.disc.z > 0.0 && i.disc.w > 0.0)
         .map(|&i| {
-            let radius = i.z.min(max_radius);
-            (Vec4::new(i.x, i.y, radius, i.w.min(1.0)), radius)
+            let radius = if i.is_box() {
+                i.disc.z
+            } else {
+                i.disc.z.min(max_radius)
+            };
+            let disc = Vec4::new(i.disc.x, i.disc.y, radius, i.disc.w.min(1.0));
+            Stamp { disc, ..i }
         })
-        .filter(|(i, radius)| {
-            let offset = (Vec2::new(i.x, i.y) - center).abs();
-            offset.x < half + radius && offset.y < half + radius
+        .filter(|i| {
+            let offset = (i.disc.xy() - center).abs();
+            offset.x < half + i.disc.z && offset.y < half + i.disc.z
         })
-        .map(|(i, _)| (Vec2::new(i.x, i.y).distance_squared(center), i))
+        .map(|i| (i.disc.xy().distance_squared(center), i))
         .collect();
     let max = max as usize;
     if near.len() > max {
