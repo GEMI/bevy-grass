@@ -222,21 +222,21 @@ fn the_format_holds_every_setting_of_the_style() {
 fn a_variant_names_only_what_differs() {
     let style = GrassStyle::from_ron(
         r#"(
-            base: "AUTUMN_FADED",
+            base: "AUTUMN_TALL",
             tip_color: (0.70, 0.72, 0.74),
             density: 20.0,
         )"#,
     )
     .unwrap();
     assert_eq!(style.density, 20.0);
-    assert_eq!(style.blade.height, GrassStyle::AUTUMN_FADED.blade.height);
+    assert_eq!(style.blade.height, GrassStyle::AUTUMN_TALL.blade.height);
     assert_eq!(srgb(style.blade.tip_color), (0.70, 0.72, 0.74));
 }
 
 #[test]
 fn mistakes_are_reported() {
     assert!(matches!(
-        GrassStyle::from_ron("(base: \"PAMPAS\")"),
+        GrassStyle::from_ron("(base: \"NOT_A_PRESET\")"),
         Err(GrassStyleFileError::UnknownBase(_))
     ));
     assert!(matches!(

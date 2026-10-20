@@ -21,6 +21,8 @@
     reason = "each example uses a different subset of these shared helpers"
 )]
 
+pub(crate) mod setting;
+
 use std::time::Duration;
 
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};

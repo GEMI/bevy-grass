@@ -10,8 +10,8 @@ fn spacing_and_density_describe_the_same_field() {
 }
 
 #[test]
-fn every_theme_preset_is_tall_and_valid() {
-    for style in GrassStyle::SUMMER.iter().chain(&GrassStyle::AUTUMN) {
+fn every_season_preset_is_tall_and_valid() {
+    for style in &GrassStyle::SEASONS {
         let blade = &style.blade;
         assert!(blade.height.x > 0.0 && blade.height.x < blade.height.y);
         assert!(blade.height.y >= 1.0, "tall grass reaches at least 1 m");
@@ -23,14 +23,125 @@ fn every_theme_preset_is_tall_and_valid() {
 #[test]
 fn summer_is_green_and_autumn_is_brown() {
     let rgb = |style: &GrassStyle| style.blade.tip_color.to_srgba();
-    for style in &GrassStyle::SUMMER[..3] {
-        let tip = rgb(style);
-        assert!(tip.green > tip.red && tip.green > tip.blue, "{tip:?}");
+    let summer = rgb(&GrassStyle::SUMMER_TALL);
+    assert!(
+        summer.green > summer.red && summer.green > summer.blue,
+        "{summer:?}"
+    );
+    let autumn = rgb(&GrassStyle::AUTUMN_TALL);
+    assert!(
+        autumn.red > autumn.green && autumn.green > autumn.blue,
+        "{autumn:?}"
+    );
+    // The two seasons are one field, so they mix and blend: the same blade
+    // sizes and density.
+    let (summer, autumn) = (&GrassStyle::SUMMER_TALL, &GrassStyle::AUTUMN_TALL);
+    assert_eq!(summer.blade.height, autumn.blade.height);
+    assert_eq!(summer.blade.width, autumn.blade.width);
+    assert_eq!(summer.density, autumn.density);
+}
+
+#[test]
+fn every_preset_is_valid_and_looks_like_no_other() {
+    let presets: Vec<_> = GrassStyle::presets().collect();
+    for (name, style) in &presets {
+        let blades = std::iter::once(&style.blade).chain(style.species.iter().map(|s| &s.blade));
+        for blade in blades {
+            assert!(
+                blade.height.x >= 0.0 && blade.height.x <= blade.height.y,
+                "{name}"
+            );
+            assert!(blade.width > 0.0, "{name}");
+            for unit in [
+                blade.lean,
+                blade.stiffness,
+                blade.translucency,
+                blade.specular,
+            ] {
+                assert!((0.0..=1.0).contains(&unit), "{name}");
+            }
+            for unit in [blade.droop, blade.fold, blade.root_occlusion] {
+                assert!((0.0..=1.0).contains(&unit), "{name}");
+            }
+            assert!((0.0..0.9).contains(&blade.head_length), "{name}");
+        }
+        assert!(style.density > 0.0, "{name}");
+        assert!(style.species.len() <= 15, "{name}");
+        let share: f32 = style.species.iter().map(|species| species.share).sum();
+        assert!(
+            share < 1.0,
+            "{name}: the species leave some of the style's own blades"
+        );
     }
-    for style in &GrassStyle::AUTUMN {
-        let tip = rgb(style);
-        assert!(tip.red > tip.green && tip.green > tip.blue, "{tip:?}");
+    // No two presets are the same field.
+    for (index, (name, style)) in presets.iter().enumerate() {
+        for (other, other_style) in &presets[index + 1..] {
+            assert_ne!(style, other_style, "{name} and {other}");
+        }
     }
+}
+
+#[test]
+fn the_new_looks_push_what_the_meadows_leave_alone() {
+    // Each of these is in the set because it uses a setting harder than any
+    // general preset does; keep it that way when tuning them.
+    // A preset, why it is in the set, and the setting that shows it.
+    type Push = (&'static str, &'static str, fn(&GrassStyle) -> bool);
+    let pushes: [Push; 11] = [
+        ("CORKSCREW_ALIEN", "ribbons twist", |s| s.blade.twist >= 1.5),
+        ("CRYSTAL_SPIRES", "crystal barely moves", |s| {
+            s.blade.stiffness >= 0.95
+        }),
+        ("CRYSTAL_SPIRES", "crystal is faceted", |s| {
+            s.blade.fold >= 0.95
+        }),
+        ("KELP_BED", "kelp has no stiffness", |s| {
+            s.blade.stiffness <= 0.05
+        }),
+        ("PAMPAS", "tufts become fountains", |s| {
+            s.variation.tufts >= 1.0 && s.blade.droop >= 0.85
+        }),
+        ("SPINIFEX", "hummocks splay out", |s| {
+            s.blade.lean >= 0.8 && s.variation.tufts >= 1.0
+        }),
+        ("DUNE_MARRAM", "mostly sand", |s| {
+            s.variation.bare_share >= 0.4
+        }),
+        ("ELEPHANT_GRASS", "taller than a person", |s| {
+            s.blade.height.x >= 2.0
+        }),
+        ("REED_MARSH", "over your head", |s| s.blade.height.y >= 1.8),
+        ("CEL_FIELD", "two bands", |s| s.toon_bands == 2),
+        ("COZY_PASTEL", "toon", |s| s.toon_bands > 0),
+    ];
+    for (name, why, holds) in pushes {
+        let style = GrassStyle::preset(name).expect("a preset");
+        assert!(holds(&style), "{name}: {why}");
+    }
+    let value = |color: Color| {
+        let c = color.to_srgba();
+        c.red.max(c.green).max(c.blue)
+    };
+    assert!(
+        value(GrassStyle::BURNT_REGROWTH.blade.tip_color) < 0.15,
+        "charcoal"
+    );
+    let frost = GrassStyle::FROSTED_MEADOW.blade.tip_color.to_srgba();
+    assert!(frost.red > 0.75 && frost.blue > 0.75, "near white");
+    let cornflower = GrassBlade::CORNFLOWER.head_color.to_srgba();
+    assert!(cornflower.blue > cornflower.red && cornflower.blue > cornflower.green);
+    assert!(
+        GrassStyle::COTTON_BOG
+            .species
+            .iter()
+            .any(|species| species.blade == GrassBlade::COTTON_GRASS)
+    );
+    assert!(
+        GrassStyle::REED_MARSH
+            .species
+            .iter()
+            .any(|species| species.blade == GrassBlade::CATTAIL)
+    );
 }
 
 #[test]

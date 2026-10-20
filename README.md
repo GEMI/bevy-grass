@@ -6,16 +6,20 @@ blade lit by Bevy's own PBR.
 
 ![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
 
-All 26 presets, two rows per picture, each a square of about 6 m under a
-top-down ARPG camera and labelled in large type. Run
-`cargo run --release --example showcase` for page 1; `--page 2` to `--page 4`
-draw the rest (`--fixed-time --screenshot PATH` saves one).
+All 36 presets, two rows per picture, each a square of about 6 m of its own
+ground (sand, snow, peat, a pond, the seabed) under a top-down ARPG camera and
+labelled in large type. Run `cargo run --release --example showcase` for
+page 1; `--page 2` to `--page 5` draw the rest (`--fixed-time --screenshot
+PATH` saves one). To fly around the biome, fantasy and toon presets up close,
+run `cargo run --release --example gallery`.
+
+![Eight biome presets in square patches of their own ground, each with its name under it: REED_MARSH in standing water, PAMPAS, ELEPHANT_GRASS, RYE_AND_CORNFLOWERS, COTTON_BOG on dark peat, DUNE_MARRAM on sand, SPINIFEX on red earth and FROSTED_MEADOW on snow](docs/images/showcase_biomes.jpg)
+
+![Eight fantasy and toon presets in square patches, each with its name under it: KELP_BED under water, CORKSCREW_ALIEN, CRYSTAL_SPIRES, BLIGHTED, BURNT_REGROWTH in ash, LAVENDER in rows, CEL_FIELD and COZY_PASTEL](docs/images/showcase_fantasy_toon.jpg)
 
 ![Six general presets of grass in square patches, each with its name under it: MEADOW, TALL_PRAIRIE, WHEAT, DRY_SAVANNA, LAWN and STYLIZED](docs/images/showcase_general.jpg)
 
-![Eight summer and autumn presets of grass in square patches, each with its name under it: SUMMER_TALL, SUMMER_LUSH, SUMMER_MEADOW, SUMMER_SEEDING, AUTUMN_TALL, AUTUMN_RUST, AUTUMN_STRAW and AUTUMN_FADED](docs/images/showcase_summer_autumn.jpg)
-
-![Six wild and flowering presets of grass in square patches, each with its name under it: SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, SEED_HEADS, WHITE_FLOWERS and YELLOW_FLOWERS](docs/images/showcase_wild_plants.jpg)
+![Eight seasonal, wild and flowering presets in square patches, each with its name under it: SUMMER_TALL, AUTUMN_TALL, SUMMER_WILD, AUTUMN_WILD, WILDFLOWER_MEADOW, SEED_HEADS, WHITE_FLOWERS and YELLOW_FLOWERS](docs/images/showcase_seasons_wild.jpg)
 
 ![Six forest-floor and plant presets in square patches, each with its name under it: FOREST_MOSS, FOREST_FERNS, FOREST_FLOOR, FOREST_BRACKEN, CLOVER and BROAD_LEAF](docs/images/showcase_forest.jpg)
 
@@ -36,9 +40,10 @@ draw the rest (`--fixed-time --screenshot PATH` saves one).
 - **Part of Bevy's renderer.** Grass casts and receives shadows and is fogged.
   It draws into the depth, normal and motion-vector prepass (SSAO and TAA see
   it, with exact motion vectors) and into the deferred G-buffer.
-- **26 presets**, from lawn to prairie to wildflower meadow to forest-floor
-  moss, ferns and bracken, also shipped as `.grass.ron` files that reload
-  while the game runs.
+- **36 presets**, from lawn to prairie to wildflower meadow, forest-floor
+  moss and ferns, a Baltic bog, a reed marsh, dunes, pampas, spinifex, frost,
+  kelp, crystal and cel-shaded fields, also shipped as `.grass.ron` files that
+  reload while the game runs.
 
 > **Status:** pre-release (0.2). Everything on this page is built and
 > tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
@@ -849,12 +854,13 @@ cargo run --release --example meadow
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
 | `custom_wind` | The built-in wind turned off: a `Weather` resource writes `GrassWindFrame` in `GrassWindSystems::Sample`, and both the blades and `FarGrassMaterial` follow it |
-| `showcase` | The 26 presets on four pages, two rows at a time under an ARPG camera, each with its name in large type: the pictures at the top of this page (`--page 1` to `--page 4`; `--fixed-time --screenshot PATH` takes one) |
+| `showcase` | The 36 presets on five pages, two rows at a time under an ARPG camera, each on its own ground and with its name in large type: the pictures at the top of this page (`--page 1` to `--page 5`; `--fixed-time --screenshot PATH` takes one) |
+| `gallery` | The biome, fantasy and toon presets on 18 m plots of their own ground, with a flying camera and a person trampling each plot. Tab and Shift+Tab fly from plot to plot, G drops to eye level, 1–6 pick the wind and 0 gives each plot its own (a slow current over the kelp), H toggles grass shadows, P stops the walkers. The styles load from their files, so editing one changes its plot live (`--plot KELP_BED` starts there) |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles, and `FarGrassMaterial` past the grass radius (`--no-far`, `--no-fog` to compare). F3 shows the debug gizmos; F4 steps through `GrassSettings` that were once fixed numbers (sharper levels of detail, a lusher mid-range, low-poly blades, a short hard-edged reach) |
 | `arpg_camera` | A top-down orthographic camera (30° pitch, 45° yaw), a walking hero and monsters trampling the grass |
 | `rapier` | A Rapier capsule character and a large kinematic vehicle driving through a meadow, both using `GrassInteractorFromCollider` (`cargo run --example rapier --features rapier`) |
 | `rapier_minimal` | The shortest integration example: a field, a ground collider, one capsule and one large box, both adapted from their Rapier colliders (`cargo run --example rapier_minimal --features rapier`) |
-| `styles` | All 26 presets side by side, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
+| `styles` | All 36 presets side by side, each on its own ground, loaded from their files (edit one and it changes live). Keys 1–6 pick the wind (calm, breeze, gusty, storm, and a steady and a lively one made with the `GrassWind` multipliers), S toggles grass shadows |
 | `forest_floor` | The four forest-floor presets side by side (`--only forest_ferns` shows one close up) |
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour. Keys 1–3 pick the style; `--arpg` uses the top-down camera; `--walk` sends the person on a walk through the field, as in the video above |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures themselves (`--show depth\|normals\|motion`) |
@@ -969,11 +975,16 @@ off at 0 or empty, and costs nothing while no field uses it.
 | Group | Presets |
 | --- | --- |
 | `GrassStyle::GENERAL` | `MEADOW` (the default), `TALL_PRAIRIE`, `WHEAT`, `DRY_SAVANNA`, `LAWN`, `STYLIZED` |
-| `GrassStyle::SUMMER` | `SUMMER_TALL`, `SUMMER_LUSH`, `SUMMER_MEADOW`, `SUMMER_SEEDING`: tall green grass, 0.7–1.5 m |
-| `GrassStyle::AUTUMN` | `AUTUMN_TALL`, `AUTUMN_RUST`, `AUTUMN_STRAW`, `AUTUMN_FADED`: tall brown grass that mixes with the summer set |
+| `GrassStyle::SEASONS` | `SUMMER_TALL`, `AUTUMN_TALL`: the same tall field, 0.7–1.3 m, green and brown, to mix or blend between. For a lusher or paler variant, tint a field with `GrassFieldOverrides` |
 | `GrassStyle::WILD` | `SUMMER_WILD`, `AUTUMN_WILD`, `WILDFLOWER_MEADOW`: every kind of variation |
 | `GrassStyle::FOREST` | `FOREST_MOSS`, `FOREST_FERNS`, `FOREST_FLOOR`, `FOREST_BRACKEN`: short, wide forest-floor plants in clumps, with fallen leaves and ferns mixed in |
 | `GrassStyle::PLANTS` | `SEED_HEADS`, `WHITE_FLOWERS`, `YELLOW_FLOWERS`, `CLOVER`, `BROAD_LEAF`: to grow alone, or to mix in as species through the `GrassBlade` of the same name (`GrassBlade::CLOVER`) |
+| `GrassStyle::BIOMES` | `COTTON_BOG` (red sphagnum, sedge tussocks, cotton grass, pools), `REED_MARSH` (2 m reeds and cattails), `DUNE_MARRAM` (blue-grey clumps on sand), `RYE_AND_CORNFLOWERS` (rye with cornflowers and poppies), `PAMPAS` (arching fountains under cream plumes), `SPINIFEX` (stiff splayed hummocks), `ELEPHANT_GRASS` (2.4–3.6 m, to hide in), `FROSTED_MEADOW` (stiff, glinting, out of snow), `BURNT_REGROWTH` (charcoal stubble and new shoots), `LAVENDER` (bushes; plant them in rows with a striped density mask) |
+| `GrassStyle::FANTASY` | `CRYSTAL_SPIRES` (rigid, faceted, glassy), `CORKSCREW_ALIEN` (ribbons twisted two turns, toon), `KELP_BED` (soft ribbons for under water; pair with a slow, lively wind), `BLIGHTED` (corrupted violet grass with bone-white heads) |
+| `GrassStyle::TOON` | `CEL_FIELD` (chunky two-band tufts and flowers), `COZY_PASTEL` (soft pastel grass and flowers, four bands) |
+
+`GrassBlade::COTTON_GRASS`, `CATTAIL`, `CORNFLOWER` and `POPPY` are the
+plants the biomes mix in, ready to add to any style as species.
 
 Every preset is declared once, in [`src/presets/`](src/presets), one file per group. Adding one is a single entry in the block for its group: the constant, the group's `PRESETS` list, the group array and the embedded asset are all generated from it, and `BLESS_STYLES=1 cargo test` writes its `.grass.ron` file. No second list to update.
 
@@ -1113,8 +1124,8 @@ records both kinds with numbers.
     colour as the blades thin out, with the same gusts rolling across it.
 16. **Works with post-processing.** Exact motion vectors for TAA, depth and
     normals for SSAO, and a deferred path.
-17. **Toon option.** `STYLIZED` and `toon_bands` give flat bands of light for
-    non-photoreal games.
+17. **Toon option.** `STYLIZED`, `CEL_FIELD`, `COZY_PASTEL` and `toon_bands`
+    give flat bands of light for non-photoreal games.
 
 ## Performance
 

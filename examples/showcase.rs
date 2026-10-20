@@ -1,10 +1,12 @@
-//! The 26 presets, two rows at a time, under an ARPG camera (orthographic,
+//! The 36 presets, two rows at a time, under an ARPG camera (orthographic,
 //! 30° below the horizon, a 45° yaw), each with its name in large type under
-//! it. Four pages show them all without shrinking the pictures until the
+//! it. Five pages show them all without shrinking the pictures until the
 //! names stop being readable.
 //!
 //! The patches sit on a straight grid of the screen, three or four across and
-//! two deep; each is a square of ground, so it shows as a diamond.
+//! two deep; each is a square of its own ground, so it shows as a diamond.
+//! Every preset is shown where it grows (`common::setting`): marram on sand,
+//! reeds in standing water, frost on snow, kelp under the sea.
 //!
 //! ```text
 //! cargo run --release --example showcase
@@ -25,32 +27,43 @@ const YAW_DEGREES: f32 = 45.0;
 /// out to fill it.
 const VIEW_HEIGHT_METRES: f32 = 19.0;
 const CAMERA_DISTANCE: f32 = 46.0;
+/// Behind and between the patches: a neutral slate, so each patch's own
+/// ground stands out.
+const BACKDROP: Color = Color::srgb(0.12, 0.12, 0.13);
 
 /// The pages, row by row from the back (top of the screen) to the front. Six
-/// or eight presets each: three or four across and two deep. Splitting
-/// `PLANTS` between pages 3 and 4 keeps every page readable and leaves the
-/// four forest-floor presets together.
-const PAGES: [&[&[&str]]; 4] = [
+/// or eight presets each: three or four across and two deep. The tallest
+/// presets stand in the back row, where they cover no name.
+const PAGES: [&[&[&str]]; 5] = [
     &[
         &["MEADOW", "TALL_PRAIRIE", "WHEAT"],
         &["DRY_SAVANNA", "LAWN", "STYLIZED"],
     ],
     &[
+        &["SUMMER_TALL", "AUTUMN_TALL", "SUMMER_WILD", "AUTUMN_WILD"],
         &[
-            "SUMMER_TALL",
-            "SUMMER_LUSH",
-            "SUMMER_MEADOW",
-            "SUMMER_SEEDING",
+            "WILDFLOWER_MEADOW",
+            "SEED_HEADS",
+            "WHITE_FLOWERS",
+            "YELLOW_FLOWERS",
         ],
-        &["AUTUMN_TALL", "AUTUMN_RUST", "AUTUMN_STRAW", "AUTUMN_FADED"],
-    ],
-    &[
-        &["SUMMER_WILD", "AUTUMN_WILD", "WILDFLOWER_MEADOW"],
-        &["SEED_HEADS", "WHITE_FLOWERS", "YELLOW_FLOWERS"],
     ],
     &[
         &["FOREST_MOSS", "FOREST_FERNS", "FOREST_FLOOR"],
         &["FOREST_BRACKEN", "CLOVER", "BROAD_LEAF"],
+    ],
+    &[
+        &[
+            "REED_MARSH",
+            "PAMPAS",
+            "ELEPHANT_GRASS",
+            "RYE_AND_CORNFLOWERS",
+        ],
+        &["COTTON_BOG", "DUNE_MARRAM", "SPINIFEX", "FROSTED_MEADOW"],
+    ],
+    &[
+        &["KELP_BED", "CORKSCREW_ALIEN", "CRYSTAL_SPIRES", "BLIGHTED"],
+        &["BURNT_REGROWTH", "LAVENDER", "CEL_FIELD", "COZY_PASTEL"],
     ],
 ];
 
@@ -81,8 +94,8 @@ impl Layout {
                 patch: 5.6,
                 across: 8.2,
                 down: 7.4,
-                label_width: 400.0,
-                label_font: 40.0,
+                label_width: 460.0,
+                label_font: 34.0,
             },
             _ => unreachable!("a showcase page has three or four presets in a row"),
         }
@@ -114,7 +127,7 @@ fn main() {
     );
     app.insert_resource(ShowcasePage(page - 1))
         .add_plugins(GrassPlugins)
-        .insert_resource(ClearColor(Color::srgb(0.16, 0.13, 0.08)))
+        .insert_resource(ClearColor(BACKDROP))
         .add_systems(Startup, setup)
         .add_systems(Update, place_labels)
         .run();
@@ -129,6 +142,7 @@ fn setup(
     page: Res<ShowcasePage>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut styles: ResMut<Assets<GrassStyle>>,
 ) {
     let rows = PAGES[page.0];
@@ -149,10 +163,20 @@ fn setup(
             let across = (column as f32 - (columns as f32 - 1.0) * 0.5) * layout.across;
             let center = right * across + away * (up / pitch);
             let style = GrassStyle::preset(name).expect("a preset constant");
+            let density_map = common::setting::spawn_setting(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &mut images,
+                &common::setting::setting(name),
+                center,
+                Vec2::splat(layout.patch),
+            );
             commands.spawn((
                 GrassField {
                     size: Vec2::splat(layout.patch),
                     style: styles.add(style),
+                    density_map,
                     ..default()
                 },
                 Transform::from_translation(center),
@@ -190,7 +214,7 @@ fn setup(
     }
 }
 
-/// The camera, its light and the ground. Returns the screen's horizontal and
+/// The camera, its light and the backdrop. Returns the screen's horizontal and
 /// the direction "up the screen" runs on the ground.
 fn spawn_camera_and_ground(
     commands: &mut Commands,
@@ -241,13 +265,15 @@ fn spawn_camera_and_ground(
         }
         .build(),
     ));
+    // A little below the patches' own ground, so it never shows through.
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(200.0, 200.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.16, 0.13, 0.08),
+            base_color: BACKDROP,
             perceptual_roughness: 0.95,
             ..default()
         })),
+        Transform::from_xyz(0.0, -0.02, 0.0),
     ));
     (right, away)
 }

@@ -1,6 +1,6 @@
 //! The preset styles and the one list they come from.
 //!
-//! Each group lives in its own file (`general.rs`, `summer.rs`, ...). To add a
+//! Each group lives in its own file (`general.rs`, `seasons.rs`, ...). To add a
 //! preset, add one entry to the block for its group:
 //!
 //! ```text
@@ -54,22 +54,26 @@ macro_rules! preset_group {
     };
 }
 
-mod autumn;
+mod biomes;
 mod blades;
+mod fantasy;
 mod forest;
 mod general;
 mod plants;
-mod summer;
+mod seasons;
+mod toon;
 mod wild;
 
 /// Every group's presets, in the order `all_presets()` returns them.
 static PRESET_GROUPS: &[&[(&str, GrassStyle)]] = &[
     general::PRESETS,
-    summer::PRESETS,
-    autumn::PRESETS,
+    seasons::PRESETS,
     wild::PRESETS,
     plants::PRESETS,
     forest::PRESETS,
+    biomes::PRESETS,
+    fantasy::PRESETS,
+    toon::PRESETS,
 ];
 
 /// Every preset constant and its name, in group order.

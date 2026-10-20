@@ -137,4 +137,56 @@ impl GrassBlade {
         fold: 0.3,
         ..GrassStyle::MEADOW.blade
     };
+
+    /// Slender stems with a white tuft of cotton: bog cotton grass.
+    pub const COTTON_GRASS: Self = Self {
+        height: Vec2::new(0.3, 0.55),
+        width: 0.008,
+        lean: 0.06,
+        stiffness: 0.4,
+        root_color: Color::srgb(0.08, 0.10, 0.04),
+        tip_color: Color::srgb(0.32, 0.36, 0.16),
+        translucency: 0.4,
+        head_length: 0.14,
+        head_width: 0.035,
+        head_color: Color::srgb(0.96, 0.96, 0.93),
+        ..GrassStyle::SUMMER_TALL.blade
+    };
+
+    /// Tall, stiff stems with a long dark-brown head: cattail.
+    pub const CATTAIL: Self = Self {
+        height: Vec2::new(1.6, 2.4),
+        width: 0.012,
+        lean: 0.04,
+        stiffness: 0.85,
+        root_color: Color::srgb(0.10, 0.14, 0.05),
+        tip_color: Color::srgb(0.30, 0.38, 0.14),
+        root_occlusion: 0.7,
+        translucency: 0.35,
+        specular: 0.3,
+        head_length: 0.16,
+        head_width: 0.035,
+        head_color: Color::srgb(0.30, 0.17, 0.08),
+        ..GrassStyle::SUMMER_TALL.blade
+    };
+
+    /// Blue flowers on tall stems, like cornflowers in a rye field.
+    pub const CORNFLOWER: Self = Self {
+        height: Vec2::new(0.7, 1.1),
+        width: 0.01,
+        head_length: 0.1,
+        head_width: 0.05,
+        head_color: Color::srgb(0.22, 0.38, 0.92),
+        ..GrassBlade::WHITE_FLOWERS
+    };
+
+    /// Red flowers on tall stems, like field poppies.
+    pub const POPPY: Self = Self {
+        height: Vec2::new(0.8, 1.25),
+        width: 0.01,
+        head_length: 0.1,
+        head_width: 0.065,
+        head_color: Color::srgb(0.86, 0.10, 0.06),
+        ..GrassBlade::WHITE_FLOWERS
+    };
 }

@@ -7,6 +7,61 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### Sixteen distinct presets, and fewer near-duplicates (October 19, 2026)
+
+Fourteen of the 26 presets were the same blade in another colour or height.
+Six of them are gone, and sixteen new ones each push a setting the others
+leave alone: tufts and droop to their limits, stiffness at 0 or 1, twist of
+two turns, fold into facets, toon shading on mixed fields, heads as the main
+feature, and colours outside green and brown.
+
+**Added**
+
+- `GrassStyle::BIOMES`: `COTTON_BOG`, `REED_MARSH`, `DUNE_MARRAM`,
+  `RYE_AND_CORNFLOWERS`, `PAMPAS`, `SPINIFEX`, `ELEPHANT_GRASS`,
+  `FROSTED_MEADOW`, `BURNT_REGROWTH` and `LAVENDER`.
+- `GrassStyle::FANTASY`: `CRYSTAL_SPIRES`, `CORKSCREW_ALIEN`, `KELP_BED` and
+  `BLIGHTED`.
+- `GrassStyle::TOON`: `CEL_FIELD` and `COZY_PASTEL`.
+- `GrassBlade::{COTTON_GRASS, CATTAIL, CORNFLOWER, POPPY}`, to mix into any
+  style as species.
+- All of them as `.grass.ron` files and embedded assets, like every preset.
+- `examples/gallery.rs`: the sixteen new presets on 18 m plots of their own
+  ground, to fly around, with a walker trampling each plot and a wind per
+  plot (a slow current over the kelp).
+- `showcase` and `styles` show every preset on its own ground (sand, snow,
+  peat, a pond, the seabed, rows for lavender), from
+  `examples/common/setting.rs`; `showcase` has a fifth page.
+
+**Breaking, and what to write instead**
+
+`GrassStyle::SUMMER` and `GrassStyle::AUTUMN` are now one group,
+`GrassStyle::SEASONS` (`SUMMER_TALL`, `AUTUMN_TALL`). The variants that only
+changed a colour or a height are removed; a file that names one as its
+`base` now fails with `UnknownBase`. Each is its main look with a few
+settings, in a file:
+
+| Removed | Now |
+| --- | --- |
+| `SUMMER_LUSH` | `(base: "SUMMER_TALL", height: (0.9, 1.5), lean: 0.15, root_color: (0.03, 0.08, 0.02), tip_color: (0.22, 0.44, 0.10), root_occlusion: 0.7, density: 50.0)` |
+| `SUMMER_MEADOW` | `(base: "SUMMER_TALL", height: (0.5, 1.0), lean: 0.18, stiffness: 0.3, root_color: (0.07, 0.13, 0.03), tip_color: (0.48, 0.62, 0.18))` |
+| `SUMMER_SEEDING` | `(base: "SUMMER_TALL", height: (0.8, 1.4), lean: 0.28, stiffness: 0.18, root_color: (0.06, 0.12, 0.03), tip_color: (0.66, 0.64, 0.38))` |
+| `AUTUMN_RUST` | `(base: "AUTUMN_TALL", root_color: (0.16, 0.07, 0.03), tip_color: (0.54, 0.29, 0.13))` |
+| `AUTUMN_STRAW` | `(base: "AUTUMN_TALL", height: (0.6, 1.1), stiffness: 0.45, root_color: (0.24, 0.19, 0.10), tip_color: (0.72, 0.62, 0.38), translucency: 0.5)` |
+| `AUTUMN_FADED` | `(base: "AUTUMN_TALL", height: (0.5, 1.1), lean: 0.4, stiffness: 0.15, root_color: (0.11, 0.10, 0.07), tip_color: (0.44, 0.39, 0.30), translucency: 0.3)` |
+
+For a colour change on one field only, `GrassFieldOverrides::tint` needs no
+style at all.
+
+**Internal**
+
+- The golden scene gives each camera room for 24,000 blades instead of
+  60,000 (the densest patch has 16,000). With 60,000, WARP crashed once there
+  were 34 cameras. Every golden was re-blessed: removing six presets moved
+  the later patches along the row, onto other wind and noise. Rendered at
+  their old places, all twenty kept presets matched their old goldens
+  exactly, so none of them changed.
+
 ### Optional Rapier interaction bridge (October 19, 2026)
 
 **Added**

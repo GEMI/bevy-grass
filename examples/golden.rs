@@ -90,8 +90,10 @@ fn main() {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO))
     .add_plugins(GrassPlugins.set(GrassPlugin {
         settings: GrassSettings {
-            // Fourteen cameras; each sees one small patch.
-            instance_capacity: 60_000,
+            // One camera per preset, each seeing one 8 m patch: at most
+            // 16,000 blades (LAWN, 250 per m²). With 60,000 per camera, WARP
+            // crashed once there were 34 cameras.
+            instance_capacity: 24_000,
             ..default()
         },
         ..default()

@@ -3,10 +3,11 @@
 //! changes the running example.
 //!
 //! The rows are the preset groups, near to far: `GrassStyle::GENERAL`,
-//! `SUMMER`, `AUTUMN`, `WILD`, `FOREST` and `PLANTS`, each left to right. The
-//! names come from `GrassStyle::presets()`, so a preset added to a group shows
-//! up here without editing the example. A 1.8 m figure stands in front for
-//! scale.
+//! `SEASONS`, `WILD`, `FOREST`, `PLANTS`, `BIOMES`, `FANTASY` and `TOON`,
+//! each left to right. The names come from `GrassStyle::presets()`, so a
+//! preset added to a group shows up here without editing the example. Each
+//! patch sits on its own ground (`common::setting`), and a 1.8 m figure
+//! stands in front for scale.
 //!
 //! WASD and the mouse fly the camera (hold the left button to look). 1–4 pick
 //! the wind (calm, breeze, gusty, storm); S turns grass shadows off and on.
@@ -41,14 +42,16 @@ fn group_names(group: &[GrassStyle]) -> Vec<&'static str> {
 }
 
 /// The rows, near to far: the file names of their presets.
-fn rows() -> [Vec<&'static str>; 6] {
+fn rows() -> [Vec<&'static str>; 8] {
     [
         group_names(&GrassStyle::GENERAL),
-        group_names(&GrassStyle::SUMMER),
-        group_names(&GrassStyle::AUTUMN),
+        group_names(&GrassStyle::SEASONS),
         group_names(&GrassStyle::WILD),
         group_names(&GrassStyle::FOREST),
         group_names(&GrassStyle::PLANTS),
+        group_names(&GrassStyle::BIOMES),
+        group_names(&GrassStyle::FANTASY),
+        group_names(&GrassStyle::TOON),
     ]
 }
 
@@ -128,10 +131,11 @@ fn setup(
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 28.0, 40.0).looking_at(Vec3::new(0.0, 0.0, -17.0), Vec3::Y),
+        Transform::from_xyz(0.0, 36.0, 44.0).looking_at(Vec3::new(0.0, 0.0, -26.0), Vec3::Y),
         FreeCamera::default(),
     ));
     commands.spawn((
@@ -144,18 +148,20 @@ fn setup(
         // into the first cascade only, so every patch shows its shadows.
         CascadeShadowConfigBuilder {
             num_cascades: 1,
-            maximum_distance: 80.0,
+            maximum_distance: 100.0,
             ..default()
         }
         .build(),
     ));
+    // Between the patches, a little below their own ground.
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(200.0, 200.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(240.0, 240.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.20, 0.15, 0.09),
+            base_color: Color::srgb(0.16, 0.15, 0.14),
             perceptual_roughness: 0.95,
             ..default()
         })),
+        Transform::from_xyz(0.0, -0.02, 0.0),
     ));
     let _ = common::spawn_person(
         &mut commands,
@@ -169,6 +175,15 @@ fn setup(
         let width = names.len() as f32 * (PATCH + GAP) - GAP;
         for (column, name) in names.iter().enumerate() {
             let x = -width * 0.5 + PATCH * 0.5 + column as f32 * (PATCH + GAP);
+            let density_map = common::setting::spawn_setting(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &mut images,
+                &common::setting::setting(name),
+                Vec3::new(x, 0.0, z),
+                Vec2::splat(PATCH),
+            );
             commands.spawn((
                 GrassField {
                     size: Vec2::splat(PATCH),
@@ -176,6 +191,7 @@ fn setup(
                         "grass_styles/{}.grass.ron",
                         name.to_ascii_lowercase()
                     )),
+                    density_map,
                     ..default()
                 },
                 Transform::from_xyz(x, 0.0, z),

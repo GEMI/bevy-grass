@@ -7,9 +7,9 @@
 //! differs:
 //!
 //! ```text
-//! // assets/grass/frosted.grass.ron
+//! // assets/grass/grey_autumn.grass.ron
 //! (
-//!     base: "AUTUMN_FADED",
+//!     base: "AUTUMN_TALL",
 //!     tip_color: (0.70, 0.72, 0.74),
 //! )
 //! ```
