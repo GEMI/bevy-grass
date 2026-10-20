@@ -3,9 +3,12 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## 0.2.0 (not released yet)
+## 0.20.1 (October 20, 2026)
 
-The API and settings pass and the polish pass, below, as one version.
+The first tagged release. Built as 0.2.0, it is numbered after the Bevy
+version it targets: bevy_grass 0.20 is for Bevy 0.20. It holds everything
+since 0.1.0, below: Avian and Rapier support, the API and settings pass, and
+the polish pass.
 
 ### Avian support, footprints, and a physics bridge not tied to one engine (October 20, 2026)
 

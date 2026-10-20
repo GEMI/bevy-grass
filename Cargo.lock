@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_grass"
-version = "0.2.0"
+version = "0.20.1"
 dependencies = [
  "avian3d",
  "bevy",

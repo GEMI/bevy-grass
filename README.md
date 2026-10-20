@@ -45,7 +45,7 @@ run `cargo run --release --example gallery`.
   kelp, crystal and cel-shaded fields, also shipped as `.grass.ron` files that
   reload while the game runs.
 
-> **Status:** pre-release (0.2). Everything on this page is built and
+> **Status:** pre-release (0.20.1). Everything on this page is built and
 > tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
 > release are next; see [Roadmap](#roadmap).
 
@@ -69,12 +69,12 @@ Add the crate next to Bevy in your game's `Cargo.toml`:
 ```toml
 [dependencies]
 bevy = "0.20"
-bevy_grass = { git = "https://github.com/GEMI/bevy-grass" }
+bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.1" }
 ```
 
 | Bevy | bevy_grass |
 | --- | --- |
-| 0.20 | 0.2 |
+| 0.20 | 0.20 |
 
 Requirements:
 
@@ -481,7 +481,7 @@ the footprint from the collider. Turn on the feature for your engine:
 | Rapier | `rapier` | `bevy_rapier3d` 0.37 |
 
 ```toml
-bevy_grass = { version = "0.2", features = ["avian"] } # or "rapier"
+bevy_grass = { version = "0.20", features = ["avian"] } # or "rapier"
 ```
 
 Then put the component next to a collider:
@@ -613,7 +613,7 @@ It needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`, so
 adding this crate never changes how Bevy is compiled:
 
 ```toml
-bevy_grass = { version = "0.2", features = ["debug"] }
+bevy_grass = { version = "0.20", features = ["debug"] }
 ```
 
 ### Scenes, inspectors and save files
