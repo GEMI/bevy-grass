@@ -4,7 +4,7 @@ GPU-driven, wind-animated grass for [Bevy](https://bevy.org) 0.20: fields of
 any size, tall walkable grass, flowers and seed heads, trampling, and every
 blade lit by Bevy's own PBR.
 
-![A person walks through a summer field gone wild, parting the tall grass, which springs back behind them](docs/images/walk.webp)
+![A person walks through three presets in turn, WILDFLOWER_MEADOW, RYE_AND_CORNFLOWERS and REED_MARSH, parting the grass, which springs back behind them as the wind rolls through](docs/images/walk.webp)
 
 All 36 presets, two rows per picture, each a square of about 6 m of its own
 ground (sand, snow, peat, a pond, the seabed) under a top-down ARPG camera and

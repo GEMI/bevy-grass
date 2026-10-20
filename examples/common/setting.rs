@@ -29,6 +29,9 @@ pub(crate) struct Water {
     pub(crate) color: Color,
 }
 
+/// How far a water box reaches below the ground, in metres.
+const WATER_BELOW_GROUND: f32 = 0.05;
+
 /// Dry ground of this colour.
 const fn soil(red: f32, green: f32, blue: f32) -> Setting {
     Setting {
@@ -134,8 +137,12 @@ pub(crate) fn spawn_setting(
         Transform::from_translation(center),
     ));
     if let Some(water) = &setting.water {
+        // The box reaches a little below the ground. With its floor on the
+        // ground the two z-fought as the camera moved, and the blade shadows
+        // on the ground blinked as the floor hid them in some frames only.
+        let height = water.depth + WATER_BELOW_GROUND;
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(size.x, water.depth, size.y))),
+            Mesh3d(meshes.add(Cuboid::new(size.x, height, size.y))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: water.color,
                 alpha_mode: AlphaMode::Blend,
@@ -146,7 +153,7 @@ pub(crate) fn spawn_setting(
                 cull_mode: None,
                 ..default()
             })),
-            Transform::from_translation(center + Vec3::Y * (water.depth * 0.5)),
+            Transform::from_translation(center + Vec3::Y * (water.depth - height * 0.5)),
             NotShadowCaster,
         ));
     }

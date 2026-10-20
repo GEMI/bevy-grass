@@ -7,6 +7,29 @@ break the API; each breaking change below says what to write instead.
 
 The API and settings pass and the polish pass, below, as one version.
 
+### A new walk film for the README (October 20, 2026)
+
+The film at the top of the README now walks through three presets, three
+seconds each: `WILDFLOWER_MEADOW`, `RYE_AND_CORNFLOWERS` and `REED_MARSH`,
+at twice their density, with Ultra shadows in a 4096 map. The meadow and
+the rye wave in a stronger wind than the breeze; the reeds stand in almost
+still air, for the contrast.
+
+**Added**
+
+- The `walk` example, which films it: a field per preset, each with its own
+  walker and following camera, and cuts between them. `--styles` and
+  `--shot` pick the presets and how long each is shown.
+- `tools/record_walk.py`, which records `walk` and encodes
+  `docs/images/walk.webp`.
+
+**Fixed**
+
+- Blade shadows under the examples' water (`REED_MARSH`, `KELP_BED`) blinked
+  as the camera moved. The water box's floor lay on the ground, and the two
+  z-fought: in some frames the floor hid the shadows on the ground under a
+  second layer of water. The box now reaches 5 cm below the ground.
+
 ### Sixteen distinct presets, and fewer near-duplicates (October 19, 2026)
 
 Fourteen of the 26 presets were the same blade in another colour or height.
