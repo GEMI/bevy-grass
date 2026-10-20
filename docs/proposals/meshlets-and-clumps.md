@@ -1,6 +1,8 @@
 # Proposal: combined blade sets, meshlet culling, and more caching
 
-Status: proposal, not implemented. This document translates the review
+Status: declined (October 2026), kept as a record of why. Grass time is
+dominated by shading the blades' pixels, which meshlets do not reduce; see
+[Roadmap and scope](../roadmap.md#non-goals). This document translates the review
 comment
 
 > "Look into meshlets + meshlet culling, and you'll want some larger combined

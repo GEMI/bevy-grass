@@ -282,20 +282,18 @@ every idea that was tried, kept or dropped.
 - [How it works](docs/design.md): what makes it fast, and what makes it look
   like grass.
 - [Performance notes](docs/performance.md) and [Testing](docs/testing.md).
+- [Roadmap and scope](docs/roadmap.md): what is next, how bevy_grass keeps up
+  with Bevy, and what it will not do.
 - [CHANGELOG](CHANGELOG.md), with what to write instead for each breaking
   change.
 
 ## Roadmap
 
-- **Runtime editing:** paint, cut and regrow grass through the density mask,
-  and query density and height at any point on the CPU (for stealth or
-  footsteps).
-- **Mesh terrain:** grass on a mesh, baked to a heightmap on the GPU.
-- **Occlusion culling** of chunks hidden behind hills, for perspective views.
-- **A crates.io release**, with docs.rs documentation.
-
-Post-1.0 ideas: impostor cards for very distant grass, bushes, and style
-blending between overlapping fields.
+We try to release for each Bevy minor version within two weeks of its
+release. Next are a crates.io release, runtime editing (paint, cut and regrow
+grass, and query it on the CPU for stealth or footsteps) and a browser demo.
+[Roadmap and scope](docs/roadmap.md) has the order, the version policy and
+what bevy_grass will not do.
 
 ## License
 
