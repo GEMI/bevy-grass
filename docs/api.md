@@ -21,8 +21,8 @@ material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-pa
 
 | Item | Kind | What it does |
 | --- | --- | --- |
-| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier). `GrassField::new(size, style, &mut styles)` adds the style for you |
-| `GrassGround` | Enum | `Flat` (default; at the field's height) or `Heightmap { image, height_scale }` |
+| `GrassField` | Component (requires `Transform` and `Visibility`; honours `RenderLayers`) | One rectangle of grass, turned with the transform's rotation about Y. `size: Vec2` (metres, X and Z, times the transform's scale), `style: Handle<GrassStyle>`, `ground: GrassGround`, `density_map: Option<Handle<Image>>` (mask: red density, green height multiplier). `GrassField::new(size, style, &mut styles)` adds the style for you |
+| `GrassGround` | Enum | `Flat` (default; at the field's height), `Heightmap { image, height_scale }`, or `Mesh { mesh, cell_size }`: the top of a mesh, drawn with the field's transform, baked once into a heightmap. `GrassGround::mesh(handle)` bakes at 0.5 m |
 | `GrassFieldOverrides` | Component | On a field: `tint: Option<Color>` (multiplies blade colours), `density_scale`, `height_scale`, for one field without a style of its own |
 | `GrassInteractor` | Component (requires `Transform`) | Flattens grass around the entity. `radius` (metres, default 0.6, up to `GrassSettings::max_interactor_radius`, 2 by default), `strength` (0–1, default 1), `max_height: Option<f32>` (only while within this height of the ground). One disc; add a `GrassInteractorFootprint` for one large object |
 | `GrassInteractorSpread` | Component (requires `GrassInteractor`) | Extra disc centres in the interactor's local space, for a few separate contacts (feet, wheels); each disc pushes away from its own centre. `covering_aabb(center, half_extents, max_radius)` covers a local AABB with at most 32 discs |

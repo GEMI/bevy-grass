@@ -19,6 +19,7 @@ fn app() -> App {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<GrassStyle>()
         .init_asset::<Image>()
+        .init_asset::<bevy::mesh::Mesh>()
         .init_resource::<GrassSettings>()
         .add_plugins(crate::fields::plugin);
     app
@@ -54,6 +55,7 @@ fn rects(shapes: &[Shape]) -> Vec<(Vec2, Vec2, f32, Color)> {
                 size,
                 y,
                 color,
+                ..
             } => Some((min, size, y, color)),
             Shape::Circle { .. } | Shape::Footprint { .. } => None,
         })
@@ -96,7 +98,7 @@ fn a_field_is_drawn_where_the_tables_have_it_scale_and_visibility_included() {
 }
 
 #[test]
-fn a_heightmap_field_also_shows_the_highest_its_ground_can_be() {
+fn a_heightmap_field_also_shows_its_highest_ground() {
     let mut app = app();
     let handle = style(&mut app);
     let image = app
@@ -129,7 +131,8 @@ fn a_heightmap_field_also_shows_the_highest_its_ground_can_be() {
     );
     let drawn = rects(&field_shapes(&tables(&mut app)));
     let heights: Vec<f32> = drawn.iter().map(|(_, _, y, _)| *y).collect();
-    assert_eq!(heights, vec![1.0, 8.0]);
+    // The heightmap is 128 everywhere: 128/255 of the 7 m scale above 1.
+    assert_eq!(heights, vec![1.0, 1.0 + 128.0 / 255.0 * 7.0]);
 }
 
 #[test]
@@ -371,6 +374,7 @@ fn what_is_drawn_is_lines_in_the_right_place() {
             Shape::Rect {
                 min: Vec2::new(1.0, 2.0),
                 size: Vec2::new(3.0, 4.0),
+                along: Vec2::X,
                 y: 5.0,
                 color: css::LIME.into(),
             },

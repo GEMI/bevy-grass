@@ -49,6 +49,7 @@ mod clock;
 mod debug;
 mod far;
 mod fields;
+mod ground;
 #[cfg(test)]
 mod mirror;
 mod packed;
@@ -141,9 +142,9 @@ pub mod prelude {
 #[non_exhaustive]
 pub enum GrassSystems {
     /// Notices changed fields (their component, position, visibility or
-    /// render layers), styles, masks and heightmaps, removed fields, and
-    /// fields Bevy cannot draw as asked (a rotation, a layer above 31), and
-    /// marks the tables for an update.
+    /// render layers), styles, masks, heightmaps and meshes, removed fields,
+    /// and fields Bevy cannot draw as asked (a tilt, a layer above 31), bakes
+    /// mesh grounds, and marks the tables for an update.
     DetectChanges,
     /// Updates the tables from what changed: a full rebuild for changed
     /// fields, styles and images, or only the entries for a field shown,

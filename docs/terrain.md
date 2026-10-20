@@ -2,8 +2,10 @@
 
 A `GrassField` is a rectangle of grass centred on its `Transform`, lying in
 the XZ plane. Its size is `size` times the transform's X and Z scale, so a
-scaled field is bigger, like a scaled `Plane3d`. Rotation is not supported
-yet: a rotated field is drawn unrotated, with one warning.
+scaled field is bigger, like a scaled `Plane3d`. It turns with the
+transform's rotation about Y, and its mask and heightmap turn with it. Grass
+grows upright, so a tilt is left out, with one warning: for a slope, use a
+heightmap or a mesh.
 
 ## Grow grass on a heightmap, with a density mask
 
@@ -38,6 +40,59 @@ height. In the mask, red is density (0 bare, 1 full) and green multiplies the
 blade height. The images are read on the CPU when the field changes, so keep
 their CPU copy (Bevy's default for loaded images).
 `ImageLoaderSettings` is `bevy::image::ImageLoaderSettings`.
+
+## Grow grass on a mesh
+
+For terrain that is a mesh, put the field on the terrain's own entity and
+give it `GrassGround::mesh`. The field then lies where the mesh is drawn,
+turn and scale included:
+
+```rust
+fn setup(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut styles: ResMut<Assets<GrassStyle>>,
+) {
+    let terrain: Handle<Mesh> =
+        assets.load(GltfAssetLabel::Primitive { mesh: 0, primitive: 0 }.from_asset("terrain.glb"));
+    commands.spawn((
+        Mesh3d(terrain.clone()),
+        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.15, 0.09))),
+        GrassField {
+            size: Vec2::splat(256.0), // the mesh's extent in X and Z
+            style: styles.add(GrassStyle::MEADOW),
+            ground: GrassGround::mesh(terrain),
+            ..default()
+        },
+        Transform::from_rotation(Quat::from_rotation_y(0.5)),
+    ));
+}
+```
+
+The mesh is baked once, on the CPU, into a heightmap of one height per half
+metre (`GrassGround::Mesh { mesh, cell_size }` picks another cell size, at
+most 4096 cells per side), and from then on it is drawn exactly like a
+heightmap: there is no cost per frame. It is baked again when the mesh asset,
+the field's size or the cell size changes, not when the field moves. The
+field waits for the mesh to load, so it never appears at the wrong height.
+
+- **Where blades grow.** On the highest surface over each point, so the
+  underside of an overhang or a bridge gets none. Nowhere the mesh does not
+  reach: a field larger than its mesh stops at the mesh's edge, within half
+  a cell.
+- **Scale.** Like the mesh, the ground follows the transform's scale,
+  including Y. Blade heights do not.
+- **What can be baked.** Triangle lists and strips with `Float32x3`
+  positions, kept on the CPU (`RenderAssetUsages::MAIN_WORLD`, which loaded
+  and built meshes have by default). A mesh that cannot be baked draws no
+  grass and logs one warning.
+- **Several meshes.** One field per mesh; a terrain cut into tiles gets a
+  field on each tile.
+
+[`examples/mesh_terrain.rs`](../examples/mesh_terrain.rs) builds rolling
+hills and grows a meadow on them.
+
 
 ## Keep the grass colour past the last blade
 

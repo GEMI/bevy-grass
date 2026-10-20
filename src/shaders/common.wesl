@@ -118,6 +118,8 @@ struct Field {
     tufts: vec4<f32>,
     /// x: render layers the field is drawn on, one bit each; 0 while hidden.
     access: vec4<u32>,
+    /// x, y: the field's own X axis in world XZ; its Z axis is (-y, x).
+    axis: vec4<f32>,
 }
 
 /// One chunk. Mirrors `ChunkGpu`.

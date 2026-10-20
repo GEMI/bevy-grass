@@ -67,8 +67,9 @@ pub(crate) fn focus(
 fn chunk_height_at(tables: &FieldTables, point: Vec2) -> Option<f32> {
     tables.chunks.iter().find_map(|chunk| {
         let field = tables.fields.get(chunk.ids.x as usize)?;
-        let low = field.min_corner.xz() + Vec2::new(chunk.bounds.x, chunk.bounds.y);
-        let inside = point.cmpge(low).all() && point.cmplt(low + Vec2::splat(CHUNK_SIZE)).all();
+        let low = Vec2::new(chunk.bounds.x, chunk.bounds.y);
+        let local = field.local_of(point);
+        let inside = local.cmpge(low).all() && local.cmplt(low + Vec2::splat(CHUNK_SIZE)).all();
         inside.then(|| f32::midpoint(chunk.bounds.z, chunk.bounds.w))
     })
 }

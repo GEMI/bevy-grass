@@ -27,7 +27,7 @@ use bevy::winit::WinitPlugin;
 use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
 use crate::GrassWind;
-use crate::api::{GrassField, GrassInteractor, GrassInteractorFootprint, GrassStyle};
+use crate::api::{GrassField, GrassGround, GrassInteractor, GrassInteractorFootprint, GrassStyle};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::mirror;
 use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};
@@ -170,14 +170,16 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
     for chunk in tables.chunks.iter() {
         let field = tables.fields[chunk.ids.x as usize];
         let tallest = field.shape.y;
-        let corner = Vec2::new(field.min_corner.x, field.min_corner.z)
-            + Vec2::new(chunk.bounds.x, chunk.bounds.y);
-        let lo = Vec3::new(corner.x - tallest, chunk.bounds.z, corner.y - tallest);
-        let hi = Vec3::new(
-            corner.x + CHUNK_SIZE + tallest,
-            chunk.bounds.w + tallest,
-            corner.y + CHUNK_SIZE + tallest,
+        // The box around the chunk's square, turned with its field.
+        let corner = field.world_of(Vec2::new(chunk.bounds.x, chunk.bounds.y));
+        let (side_x, side_z) = (
+            field.x_axis() * CHUNK_SIZE,
+            field.x_axis().perp() * CHUNK_SIZE,
         );
+        let low = corner + side_x.min(Vec2::ZERO) + side_z.min(Vec2::ZERO);
+        let high = corner + side_x.max(Vec2::ZERO) + side_z.max(Vec2::ZERO);
+        let lo = Vec3::new(low.x - tallest, chunk.bounds.z, low.y - tallest);
+        let hi = Vec3::new(high.x + tallest, chunk.bounds.w + tallest, high.y + tallest);
         if !box_visible(&view.planes, lo, hi) {
             continue;
         }
@@ -206,11 +208,8 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             if local.x >= field.extent.x || local.y >= field.extent.y {
                 continue;
             }
-            let root = Vec3::new(
-                field.min_corner.x + local.x,
-                field.min_corner.y,
-                field.min_corner.z + local.y,
-            );
+            let at = field.world_of(local);
+            let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
             let falloff = lod_table.falloff(distance);
             if candidate.rank
@@ -254,6 +253,11 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
 
 /// A headless app with one camera rendering to an image and one field.
 fn headless_app() -> App {
+    headless_app_with(Transform::from_xyz(3.0, 0.5, -4.0), GrassGround::Flat)
+}
+
+/// [`headless_app`] with the field at `transform`, on `ground`.
+fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -291,9 +295,10 @@ fn headless_app() -> App {
         GrassField {
             size: Vec2::new(70.0, 50.0),
             style,
+            ground,
             ..default()
         },
-        Transform::from_xyz(3.0, 0.5, -4.0),
+        transform,
     ));
     app.finish();
     app.cleanup();
@@ -301,7 +306,10 @@ fn headless_app() -> App {
 }
 
 fn generation_matches_the_cpu_mirror(settings: crate::GrassSettings) {
-    let mut app = headless_app();
+    generation_matches_the_cpu_mirror_in(headless_app(), settings);
+}
+
+fn generation_matches_the_cpu_mirror_in(mut app: App, settings: crate::GrassSettings) {
     app.insert_resource(settings);
 
     // Shaders compile asynchronously; wait until a frame has produced grass.

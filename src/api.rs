@@ -11,6 +11,8 @@ use bevy::ecs::system::{Local, Query, Res};
 use bevy::image::Image;
 use bevy::log::warn;
 use bevy::math::{Vec2, Vec3};
+use bevy::mesh::Mesh;
+
 use bevy::platform::collections::HashSet;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
@@ -30,10 +32,12 @@ pub use crate::style::{GrassBlade, GrassSpecies, GrassStyle, GrassVariation, Gro
 ///
 /// A field follows the conventions of Bevy's other renderables:
 /// - **Scale:** the rectangle is `size` times the transform's X and Z scale,
-///   like a scaled `Plane3d` mesh. Y scale does nothing: heights come from
-///   the style and the heightmap.
-/// - **Rotation:** not supported yet, so a rotated field is drawn unrotated
-///   and logs one warning.
+///   like a scaled `Plane3d` mesh. Y scale scales a
+///   [`GrassGround::Mesh`] as it scales the mesh, and does nothing else:
+///   blade heights come from the style.
+/// - **Rotation:** the field turns with the transform's rotation about Y,
+///   masks and heightmaps with it. Grass grows upright, so a tilt is left out
+///   and logs one warning; use a heightmap or a mesh for slopes.
 /// - **[`Visibility`]:** a field hidden by its own `Visibility::Hidden`, or by
 ///   a hidden parent (a streamed-out level, say), is not drawn. Showing it
 ///   again is cheap: no table is rebuilt.
@@ -58,7 +62,8 @@ pub struct GrassField {
     pub ground: GrassGround,
     /// Optional density mask covering the whole field: red is density
     /// (0 bare, 1 full), green is a height multiplier. `None` means full
-    /// density everywhere. The first row of the image is the field's −Z edge.
+    /// density everywhere. The first row of the image is the field's own −Z
+    /// edge.
     pub density_map: Option<Handle<Image>>,
 }
 
@@ -178,11 +183,47 @@ pub enum GrassGround {
     /// the red channel, 0 to 1, times `height_scale` metres above the field's
     /// height. Sampled bilinearly. Blades grow straight up on slopes.
     Heightmap {
-        /// The heightmap. The first row is the field's −Z edge.
+        /// The heightmap. The first row is the field's own −Z edge.
         image: Handle<Image>,
         /// Metres between red 0 and red 1.
         height_scale: f32,
     },
+    /// The top of a mesh, where it would be drawn with the field's own
+    /// transform: put the field on the terrain's entity, or give it the
+    /// same transform.
+    ///
+    /// The mesh is baked once, on the CPU, into a heightmap of one height
+    /// per `cell_size` (at most 4096 per side), and then drawn like
+    /// [`GrassGround::Heightmap`], at no extra cost per frame. Blades grow
+    /// on the highest surface over each point, so overhangs and the
+    /// undersides of bridges get none, and nowhere the mesh does not reach.
+    /// It is baked again when the mesh asset, the field's size or
+    /// `cell_size` changes, not when the field moves.
+    ///
+    /// The mesh must be triangles and keep its CPU copy
+    /// (`RenderAssetUsages::MAIN_WORLD`, the default for loaded and built
+    /// meshes); otherwise the field draws nothing and logs one warning.
+    /// [`GrassGround::mesh`] picks a 0.5 m cell.
+    Mesh {
+        /// The terrain mesh.
+        mesh: Handle<Mesh>,
+        /// The heightmap's texel size, in the mesh's units (metres before
+        /// the transform's scale). Smaller follows sharper terrain, and
+        /// costs more memory and a longer bake.
+        cell_size: f32,
+    },
+}
+
+impl GrassGround {
+    /// The top of `mesh`, baked at one height per half metre.
+    /// See [`GrassGround::Mesh`].
+    #[must_use]
+    pub fn mesh(mesh: Handle<Mesh>) -> Self {
+        Self::Mesh {
+            mesh,
+            cell_size: 0.5,
+        }
+    }
 }
 
 /// What one camera draws differently from the [`GrassSettings`](crate::GrassSettings) resource.

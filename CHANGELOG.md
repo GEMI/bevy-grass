@@ -3,6 +3,30 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
+## Unreleased
+
+Grass on mesh terrain, and fields that turn.
+
+**Added**
+
+- `GrassGround::Mesh { mesh, cell_size }` and `GrassGround::mesh(handle)`:
+  grass on the top of a mesh, where it is drawn with the field's transform.
+  The mesh is baked once on the CPU into a heightmap (0.5 m cells by
+  default, at most 4096 per side) and drawn like one, with no cost per
+  frame. Blades grow on the highest surface and nowhere the mesh does not
+  reach. It is baked again when the mesh, the field's size or the cell size
+  changes, not when the field moves. A mesh that cannot be baked (not
+  triangles, or no CPU copy) draws nothing and logs one warning.
+- The `mesh_terrain` example: a meadow on rolling hills built as a mesh.
+
+**Changed**
+
+- A field turns with its transform's rotation about Y, mask and heightmap
+  included. It used to be drawn unturned with a warning; now only a tilt,
+  which grass ignores because it grows upright, logs one.
+- The debug gizmos draw fields and chunks turned, and a heightmap field's
+  upper rectangle at its highest ground rather than at `height_scale`.
+
 ## 0.20.1 (October 20, 2026)
 
 The first tagged release. Built as 0.2.0, it is numbered after the Bevy

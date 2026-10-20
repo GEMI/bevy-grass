@@ -7,8 +7,8 @@
 //!
 //! What it draws, in the XZ plane at ground level:
 //! - **fields** (green; grey while hidden): the rectangle the GPU tables hold,
-//!   which is `size` times the scale, wherever the field really is. A
-//!   heightmap field also gets its highest level.
+//!   which is `size` times the scale, wherever the field really is and
+//!   turned with it. A heightmap or mesh field also gets its highest ground.
 //! - **chunks** (blue, off by default): the 16 m squares the GPU culls.
 //! - **interactors** (yellow): every disc an interactor flattens, at most
 //!   [`GrassSettings::max_interactor_radius`] (2 m by default), red where the
@@ -103,10 +103,13 @@ impl Plugin for GrassDebugPlugin {
 /// One thing to draw, in the XZ plane at height `y`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Shape {
-    /// An axis-aligned rectangle: its lowest corner and size.
+    /// A rectangle from its corner `min`, `size.x` along `along` (a unit
+    /// vector) and `size.y` along `along.perp()`. Axis-aligned when `along`
+    /// is X.
     Rect {
         min: Vec2,
         size: Vec2,
+        along: Vec2,
         y: f32,
         color: Color,
     },
@@ -129,9 +132,9 @@ pub(crate) enum Shape {
     },
 }
 
-/// The rectangle of every field in the tables, as the GPU has it. A hidden
-/// field is grey; a field on a heightmap also gets a rectangle at the
-/// highest the ground can be.
+/// The rectangle of every field in the tables, as the GPU has it, turned
+/// with the field. A hidden field is grey; a field on a heightmap or a mesh
+/// also gets a rectangle at its highest ground.
 pub(crate) fn field_shapes(tables: &FieldTables) -> Vec<Shape> {
     let mut shapes = Vec::new();
     for slot in tables.slots.iter() {
@@ -141,18 +144,26 @@ pub(crate) fn field_shapes(tables: &FieldTables) -> Vec<Shape> {
         } else {
             css::LIME.into()
         };
-        let (min, size) = (field.min_corner.xz(), field.extent.xy());
+        let (min, size, along) = (field.min_corner.xz(), field.extent.xy(), field.x_axis());
         shapes.push(Shape::Rect {
             min,
             size,
+            along,
             y: field.min_corner.y,
             color,
         });
-        if field.extent.z != 0.0 {
+        let highest = tables
+            .chunks
+            .iter()
+            .filter(|chunk| chunk.ids.x as usize == slot.first)
+            .map(|chunk| chunk.bounds.w)
+            .fold(field.min_corner.y, f32::max);
+        if highest > field.min_corner.y {
             shapes.push(Shape::Rect {
                 min,
                 size,
-                y: field.min_corner.y + field.extent.z,
+                along,
+                y: highest,
                 color,
             });
         }
@@ -169,8 +180,9 @@ pub(crate) fn chunk_shapes(tables: &FieldTables, max: usize) -> Vec<Shape> {
         .filter_map(|chunk| {
             let field = tables.fields.get(chunk.ids.x as usize)?;
             Some(Shape::Rect {
-                min: field.min_corner.xz() + Vec2::new(chunk.bounds.x, chunk.bounds.y),
+                min: field.world_of(Vec2::new(chunk.bounds.x, chunk.bounds.y)),
                 size: Vec2::splat(CHUNK_SIZE),
+                along: field.x_axis(),
                 y: chunk.bounds.z,
                 color: css::DODGER_BLUE.into(),
             })
@@ -231,6 +243,7 @@ pub(crate) fn trample_shapes(
             Shape::Rect {
                 min: origin.as_vec2() * cell,
                 size: Vec2::splat(trample::window_side(cell)),
+                along: Vec2::X,
                 y: ground,
                 color: css::MAGENTA.into(),
             }
@@ -247,22 +260,26 @@ pub(crate) fn draw(buffer: &mut GizmoBuffer<GrassGizmos, ()>, shapes: &[Shape]) 
             Shape::Rect {
                 min,
                 size,
+                along,
                 y,
                 color,
             } => {
-                let at = |x, z| Vec3::new(x, y, z);
-                let (max_x, max_z) = (min.x + size.x, min.y + size.y);
+                let at = |x: f32, z: f32| {
+                    let point = min + along * x + along.perp() * z;
+                    Vec3::new(point.x, y, point.y)
+                };
                 buffer.linestrip(
                     [
-                        at(min.x, min.y),
-                        at(max_x, min.y),
-                        at(max_x, max_z),
-                        at(min.x, max_z),
-                        at(min.x, min.y),
+                        at(0.0, 0.0),
+                        at(size.x, 0.0),
+                        at(size.x, size.y),
+                        at(0.0, size.y),
+                        at(0.0, 0.0),
                     ],
                     color,
                 );
             }
+
             Shape::Circle {
                 center,
                 radius,

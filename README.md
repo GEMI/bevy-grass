@@ -33,8 +33,8 @@ Eight of the 36 presets. [All of them are in docs/presets.md](docs/presets.md).
   reload while the game runs.
 
 > **Status:** pre-release (0.20.1). Everything on this page is built and
-> tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
-> release are next; see [Roadmap](#roadmap).
+> tested. A crates.io release and runtime editing (paint, cut, regrow) are
+> next; see [Roadmap](#roadmap).
 
 ## Contents
 
@@ -188,10 +188,11 @@ game runs. **[Styles](docs/styles.md)**, **[Presets](docs/presets.md)**
 
 ### Terrain and visibility
 
-Fields grow on flat ground or a heightmap, with a density mask for paths and
-clearings. `FarGrassMaterial` carries the grass colour and its gusts across
-the terrain past the last blade, so there is no seam. Fields and cameras
-follow Bevy's `Visibility` and `RenderLayers`, for split-screen and minimaps.
+Fields grow on flat ground, a heightmap or a terrain mesh, with a density
+mask for paths and clearings, and turn with their transform.
+`FarGrassMaterial` carries the grass colour and its gusts across the terrain
+past the last blade, so there is no seam. Fields and cameras follow Bevy's
+`Visibility` and `RenderLayers`, for split-screen and minimaps.
 **[Fields, terrain and visibility](docs/terrain.md)**
 
 ### Wind
@@ -243,6 +244,7 @@ cargo run --release --example meadow
 | `arpg_camera` | A top-down orthographic camera, a walking hero and monsters trampling the grass |
 | `avian`, `rapier` | Physics bodies trampling a meadow: a capsule character, a vehicle, a crate scaled to 2.5 m and a thrown log (`--features avian` or `--features rapier`) |
 | `avian_minimal`, `rapier_minimal` | The shortest physics integration: one capsule and one large box |
+| `mesh_terrain` | A meadow on rolling hills built as a mesh, turned 30°: `GrassGround::mesh` |
 | `custom_wind` | The built-in wind turned off and a `Weather` resource driving the grass |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |

@@ -2,6 +2,7 @@ use bevy::MinimalPlugins;
 use bevy::app::{App, PostUpdate};
 use bevy::asset::{AssetApp, AssetPlugin, Handle};
 use bevy::camera::visibility::{Visibility, VisibilitySystems};
+use bevy::math::Vec3Swizzles;
 use bevy::transform::components::Transform;
 
 use super::*;
@@ -45,6 +46,7 @@ fn app() -> App {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<GrassStyle>()
         .init_asset::<Image>()
+        .init_asset::<bevy::mesh::Mesh>()
         .add_systems(
             PostUpdate,
             propagate.in_set(VisibilitySystems::VisibilityPropagate),
@@ -372,16 +374,32 @@ fn a_field_is_as_big_as_its_size_times_its_scale() {
 }
 
 #[test]
-fn rotation_is_noticed_and_each_field_is_warned_about_once() {
-    assert!(!is_rotated(&GlobalTransform::IDENTITY));
-    assert!(!is_rotated(&GlobalTransform::from(
-        Transform::from_xyz(3.0, 1.0, 2.0).with_scale(Vec3::new(2.0, 1.0, 3.0))
-    )));
-    assert!(is_rotated(&GlobalTransform::from(
-        Transform::from_rotation(bevy::math::Quat::from_rotation_y(0.3))
-    )));
-    // Scale alone is not rotation, even when it is not uniform.
-    assert!(!is_rotated(&GlobalTransform::from(Transform::from_scale(
+fn a_turn_about_y_is_followed_and_a_tilt_is_noticed() {
+    let turned = |rotation: Quat| GlobalTransform::from(Transform::from_rotation(rotation));
+    // Unturned is exactly X, so unturned fields are placed exactly as before.
+    assert_eq!(field_axis(&GlobalTransform::IDENTITY), Vec2::X);
+    assert_eq!(
+        field_axis(&GlobalTransform::from(
+            Transform::from_xyz(3.0, 1.0, 2.0).with_scale(Vec3::new(2.0, 1.0, 3.0))
+        )),
+        Vec2::X
+    );
+    // The field's X axis goes where the rotation takes X.
+    for yaw in [0.3, -1.2, 2.5, std::f32::consts::PI] {
+        let rotation = Quat::from_rotation_y(yaw);
+        let expected = (rotation * Vec3::X).xz();
+        assert!(field_axis(&turned(rotation)).abs_diff_eq(expected, 1e-6));
+        assert!(!is_tilted(&turned(rotation)));
+    }
+    // A tilt is left out of the axis, and noticed.
+    let tilted = Quat::from_rotation_y(0.4) * Quat::from_rotation_x(0.2);
+    assert!(is_tilted(&turned(tilted)));
+    assert!(
+        field_axis(&turned(tilted)).abs_diff_eq((Quat::from_rotation_y(0.4) * Vec3::X).xz(), 1e-5)
+    );
+    assert!(!is_tilted(&GlobalTransform::IDENTITY));
+    // Scale alone is not a tilt, even when it is not uniform.
+    assert!(!is_tilted(&GlobalTransform::from(Transform::from_scale(
         Vec3::new(1.0, 4.0, 0.1)
     ))));
 
@@ -1172,4 +1190,90 @@ fn building_incrementally_gives_exactly_what_building_from_scratch_gives() {
     app.update();
     let fresh = from_scratch(&mut app);
     same_tables(&tables_now(&app), &fresh, "hidden");
+}
+
+/// More steps of `building_incrementally_gives_exactly_what_building_from_scratch_gives`:
+/// a field turned, and a field on a mesh.
+#[test]
+fn turned_and_mesh_fields_build_incrementally_exactly_as_from_scratch() {
+    let mut app = app();
+    let plain = add_style(&mut app, GrassStyle::MEADOW);
+    let (rich, ..) = rich_field(&mut app, &plain);
+    settle(&mut app);
+    let check = |app: &mut App, step: &str| {
+        app.update();
+        app.update();
+        let fresh = from_scratch(app);
+        same_tables(&tables_now(app), &fresh, step);
+    };
+    check(&mut app, "start");
+    *app.world_mut().get_mut::<GlobalTransform>(rich).unwrap() = GlobalTransform::from(
+        Transform::from_xyz(-30.0, 1.0, 5.0).with_rotation(Quat::from_rotation_y(0.7)),
+    );
+    check(&mut app, "turned");
+    let hill = app
+        .world_mut()
+        .resource_mut::<Assets<bevy::mesh::Mesh>>()
+        .add(crate::ground::tests::slope(Vec2::splat(20.0), 3.0));
+    let on_mesh = spawn_with(
+        &mut app,
+        GrassField {
+            size: Vec2::splat(20.0),
+            style: plain.clone(),
+            ground: GrassGround::mesh(hill.clone()),
+            ..Default::default()
+        },
+    );
+    check(&mut app, "a field on a mesh added");
+    app.world_mut()
+        .resource_mut::<Assets<bevy::mesh::Mesh>>()
+        .insert(&hill, crate::ground::tests::slope(Vec2::splat(20.0), 6.0))
+        .unwrap();
+    check(&mut app, "its mesh changed");
+    app.world_mut()
+        .get_mut::<GrassField>(on_mesh)
+        .unwrap()
+        .ground = GrassGround::Flat;
+    check(&mut app, "the mesh ground taken off");
+}
+
+#[test]
+fn a_turned_field_holds_the_points_of_its_turned_rectangle() {
+    let mut app = app();
+    let style = add_style(&mut app, GrassStyle::MEADOW);
+    // 40 by 4 m, turned a quarter turn: it lies along Z.
+    let field = spawn_with(
+        &mut app,
+        GrassField {
+            size: Vec2::new(40.0, 4.0),
+            style,
+            ..Default::default()
+        },
+    );
+    let turn = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    *app.world_mut().get_mut::<GlobalTransform>(field).unwrap() =
+        GlobalTransform::from(Transform::from_xyz(5.0, 2.0, 0.0).with_rotation(turn));
+    settle(&mut app);
+    let tables = tables_now(&app);
+    let entry = tables.fields[0];
+
+    // The minimum corner is the field's own −X, −Z corner, where it lies now.
+    let corner = Vec3::new(5.0, 2.0, 0.0) + turn * Vec3::new(-20.0, 0.0, -2.0);
+    assert!(entry.min_corner.truncate().abs_diff_eq(corner, 1e-4));
+    assert!(entry.x_axis().abs_diff_eq((turn * Vec3::X).xz(), 1e-6));
+    let centre = entry.world_of(Vec2::new(20.0, 2.0));
+    assert!(centre.abs_diff_eq(Vec2::new(5.0, 0.0), 1e-4));
+    let local = Vec2::new(7.0, 3.0);
+    assert!(
+        entry
+            .local_of(entry.world_of(local))
+            .abs_diff_eq(local, 1e-4)
+    );
+
+    let at = |x: f32, z: f32| tables.highest_ground_at(Vec2::new(x, z));
+    assert_eq!(at(5.0, 19.0), Some(2.0), "along Z, where the turn put it");
+    assert_eq!(at(5.0, -19.0), Some(2.0));
+    assert_eq!(at(6.9, 0.0), Some(2.0));
+    assert_eq!(at(20.0, 0.0), None, "where it would lie unturned");
+    assert_eq!(at(7.1, 0.0), None);
 }

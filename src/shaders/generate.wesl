@@ -21,6 +21,10 @@ import package::shaders::common::{
 };
 import package::shaders::wind::{Wind, wind_bend};
 
+/// The height a ground baked from a mesh has where the mesh does not reach:
+/// no blade grows there. Twin of `ground::HOLE`.
+const HOLE: f32 = -1e30;
+
 // Shared by every view.
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> fields: array<Field>;
@@ -108,8 +112,17 @@ fn box_visible(lo: vec3<f32>, hi: vec3<f32>) -> bool {
     return true;
 }
 
-fn chunk_origin(chunk: Chunk, field: Field) -> vec2<f32> {
-    return field.min_corner.xz + chunk.bounds.xy;
+/// `v`, given along the field's own axes, in world XZ. Unturned it is `v`
+/// exactly. Twin of `fields::turn`.
+fn field_turn(field: Field, v: vec2<f32>) -> vec2<f32> {
+    let x = field.axis.xy;
+    return x * v.x + vec2<f32>(-x.y, x.x) * v.y;
+}
+
+/// A point of the field, in metres along its axes from its minimum corner,
+/// in world XZ. Twin of `FieldGpu::world_of`.
+fn field_to_world(field: Field, local: vec2<f32>) -> vec2<f32> {
+    return field.min_corner.xz + field_turn(field, local);
 }
 
 @compute @workgroup_size(64)
@@ -125,14 +138,20 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let tallest = field.mix.w;
-    let origin = chunk_origin(chunk, field);
+    // The chunk's square in world XZ, turned with its field, and the box
+    // around it. Unturned, the box is the square exactly.
+    let origin = field_to_world(field, chunk.bounds.xy);
+    let side_x = field_turn(field, vec2<f32>(frame.chunk_size, 0.0));
+    let side_z = field_turn(field, vec2<f32>(0.0, frame.chunk_size));
+    let low = origin + min(side_x, vec2<f32>(0.0)) + min(side_z, vec2<f32>(0.0));
+    let high = origin + max(side_x, vec2<f32>(0.0)) + max(side_z, vec2<f32>(0.0));
     // Tufts pull blades up to one and a half tuft spacings from where they
     // were placed.
     let spread = tallest + select(0.0, field.tufts.y * 1.5, field.tufts.x > 0.0);
     // The chunk's ground box, grown by the tallest blade: up for its height,
     // sideways for how far it can lean or bend.
-    var lo = vec3<f32>(origin.x - spread, chunk.bounds.z, origin.y - spread);
-    var hi = vec3<f32>(origin.x + frame.chunk_size + spread, chunk.bounds.w + tallest, origin.y + frame.chunk_size + spread);
+    var lo = vec3<f32>(low.x - spread, chunk.bounds.z, low.y - spread);
+    var hi = vec3<f32>(high.x + spread, chunk.bounds.w + tallest, high.y + spread);
     if view.shadow_offset.w > 0.5 {
         // Blades just outside the view can still shadow ground inside it.
         let reach = view.shadow_offset.xyz * tallest;
@@ -254,7 +273,8 @@ fn mask_texel(field: Field, x: u32, y: u32) -> vec2<f32> {
     return vec2<f32>(f32(half & 0xffu), f32(half >> 8u)) / 255.0;
 }
 
-/// Ground height in world units at a point of the field (bilinear).
+/// Ground height in world units at a point of the field (bilinear), or
+/// `HOLE` where a mesh ground does not reach.
 fn ground_height(field: Field, local: vec2<f32>) -> f32 {
     if field.placement.w == NO_MAP {
         return field.min_corner.y;
@@ -269,6 +289,9 @@ fn ground_height(field: Field, local: vec2<f32>) -> f32 {
     let b = heights[row + base.y * size.x + next.x];
     let c = heights[row + next.y * size.x + base.x];
     let d = heights[row + next.y * size.x + next.x];
+    if min(min(a, b), min(c, d)) < HOLE * 0.5 {
+        return HOLE;
+    }
     return field.min_corner.y + mix(mix(a, b, t.x), mix(c, d, t.x), t.y) * field.extent.z;
 }
 
@@ -309,7 +332,12 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     let seed = hash2(cell_hash, point);
 
     let mask = sample_mask(field, local / field.extent.xy);
-    let root = vec3<f32>(field.min_corner.x + local.x, ground_height(field, local), field.min_corner.z + local.y);
+    let ground = ground_height(field, local);
+    if ground < HOLE * 0.5 {
+        return out;
+    }
+    let at = field_to_world(field, local);
+    let root = vec3<f32>(at.x, ground, at.y);
 
     var falloff = 1.0;
     var distance_to_eye = 0.0;
@@ -365,7 +393,7 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         // Tufted blades lean out from the tuft's centre: the tighter the
         // tufts, the more of them.
         let random = vec2<f32>(sin(blade.facing * TAU), cos(blade.facing * TAU));
-        let away = mix(random, normalize(outward), min(field.tufts.x * 1.5, 1.0));
+        let away = mix(random, normalize(field_turn(field, outward)), min(field.tufts.x * 1.5, 1.0));
         if dot(away, away) > 1e-6 {
             blade.facing = fract(atan2(away.x, away.y) / TAU);
         }

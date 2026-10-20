@@ -16,7 +16,7 @@ use bevy::ecs::message::MessageReader;
 use bevy::ecs::prelude::*;
 use bevy::image::Image;
 use bevy::log::warn;
-use bevy::math::{UVec2, UVec4, Vec2, Vec3, Vec4};
+use bevy::math::{EulerRot, Quat, UVec2, UVec4, Vec2, Vec3, Vec4};
 use bevy::platform::time::Instant;
 use bevy::render::render_resource::ShaderType;
 use bevy::transform::TransformSystems;
@@ -25,6 +25,7 @@ use bevy::transform::components::GlobalTransform;
 use crate::api::{
     GrassBlade, GrassField, GrassFieldOverrides, GrassGround, GrassSpecies, GrassStyle,
 };
+use crate::ground::{HOLE, MeshGrounds, bake_mesh_grounds};
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{self, ChunkLayout};
 use crate::stats::TableStats;
@@ -92,6 +93,39 @@ pub(crate) struct FieldGpu {
     /// x: the render layers the field is drawn on, one bit each; 0 while the
     /// field is hidden. A view draws the field when its own layers share a bit.
     pub access: UVec4,
+    /// x, y: the field's own X axis in world XZ, which turns with the field
+    /// about Y; its Z axis is the perpendicular (`Vec2::perp`). Positions in
+    /// the field are along these axes from `min_corner`.
+    pub axis: Vec4,
+}
+
+impl FieldGpu {
+    /// The field's X axis in world XZ. An entry built by hand, with no axis,
+    /// is unturned.
+    pub(crate) fn x_axis(&self) -> Vec2 {
+        let axis = Vec2::new(self.axis.x, self.axis.y);
+        if axis == Vec2::ZERO { Vec2::X } else { axis }
+    }
+
+    /// A point of the field, in metres along its axes from its minimum
+    /// corner, in world XZ. Twin of `field_to_world` in `generate.wesl`.
+    pub(crate) fn world_of(&self, local: Vec2) -> Vec2 {
+        Vec2::new(self.min_corner.x, self.min_corner.z) + turn(self.x_axis(), local)
+    }
+
+    /// The point of the field at `point` (world XZ), in metres along its axes
+    /// from its minimum corner.
+    pub(crate) fn local_of(&self, point: Vec2) -> Vec2 {
+        let axis = self.x_axis();
+        let offset = point - Vec2::new(self.min_corner.x, self.min_corner.z);
+        Vec2::new(offset.dot(axis), offset.dot(axis.perp()))
+    }
+}
+
+/// `v`, given along the axes of a field whose X axis is `axis`, in world XZ.
+/// Unturned (`axis` = X) it is `v` exactly.
+fn turn(axis: Vec2, v: Vec2) -> Vec2 {
+    axis * v.x + axis.perp() * v.y
 }
 
 /// One chunk. Mirrors `Chunk` in `common.wesl`: 32 bytes.
@@ -140,7 +174,7 @@ impl FieldTables {
             let field = self.fields.get(slot.first)?;
             let size = Vec2::new(field.extent.x, field.extent.y);
             let counts = (size / CHUNK_SIZE).ceil().as_uvec2().max(UVec2::ONE);
-            let local = point - Vec2::new(field.min_corner.x, field.min_corner.z);
+            let local = field.local_of(point);
             if local.cmpge(Vec2::ZERO).all() && local.cmplt(size).all() {
                 let cell = (local / CHUNK_SIZE).as_uvec2().min(counts - UVec2::ONE);
                 let index = first_chunk + (cell.y * counts.x + cell.x) as usize;
@@ -170,6 +204,7 @@ struct EntryKey {
     style: AssetId<GrassStyle>,
     size: Vec2,
     corner: Vec3,
+    axis: Vec2,
     access: u32,
     /// The mask, and its offset in the mask table, in texels.
     mask: Option<(AssetId<Image>, u32)>,
@@ -265,6 +300,7 @@ impl std::ops::BitOr for LookFeatures {
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<FieldTables>()
         .init_resource::<TablesDirty>()
+        .init_resource::<MeshGrounds>()
         .init_resource::<GrassStats>()
         .init_resource::<PackedImages>()
         .configure_sets(
@@ -278,7 +314,11 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             (
-                (warn_unsupported, warn_missing_style, detect_changes)
+                (
+                    warn_unsupported,
+                    warn_missing_style,
+                    (bake_mesh_grounds, detect_changes).chain(),
+                )
                     .in_set(GrassSystems::DetectChanges),
                 rebuild.in_set(GrassSystems::Rebuild),
             ),
@@ -299,6 +339,11 @@ pub(crate) struct TablesDirty {
 }
 
 impl TablesDirty {
+    /// Marks the fields as changed: a field's ground was baked, say.
+    pub(crate) fn mark_fields(&mut self) {
+        self.fields = true;
+    }
+
     /// Whether the tables have to be looked at again, not merely patched.
     fn rebuild(&self) -> bool {
         self.fields || !self.styles.is_empty() || !self.images.is_empty()
@@ -357,12 +402,25 @@ fn scaled_size(field: &GrassField, transform: &GlobalTransform) -> Vec2 {
     field.size * Vec2::new(scale.x, scale.z).abs()
 }
 
-/// Whether a transform turns anything. Fields cannot rotate yet.
-fn is_rotated(transform: &GlobalTransform) -> bool {
-    transform
-        .rotation()
-        .angle_between(bevy::math::Quat::IDENTITY)
-        > 1e-3
+/// A field's X axis in world XZ: its transform's turn about Y. Grass grows
+/// upright, so a tilt is left out.
+fn field_axis(transform: &GlobalTransform) -> Vec2 {
+    let (yaw, _, _) = transform.rotation().to_euler(EulerRot::YXZ);
+    let (sin, cos) = yaw.sin_cos();
+    // An unturned field gets exactly X, so it is placed exactly as before.
+    if sin == 0.0 && cos > 0.0 {
+        Vec2::X
+    } else {
+        Vec2::new(cos, -sin)
+    }
+}
+
+/// Whether a transform tilts the field out of the XZ plane, which a field
+/// does not follow.
+fn is_tilted(transform: &GlobalTransform) -> bool {
+    let rotation = transform.rotation();
+    let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+    rotation.angle_between(Quat::from_rotation_y(yaw)) > 1e-3
 }
 
 /// A field whose transform or layers changed, for `warn_unsupported`.
@@ -387,15 +445,15 @@ fn first_time(seen: &mut HashSet<Entity>, entity: Entity, unsupported: bool) -> 
 /// are not supported.
 pub(crate) fn warn_unsupported(
     fields: Query<(Entity, &GlobalTransform, Option<&RenderLayers>), TransformOrLayersChanged>,
-    mut rotated: Local<HashSet<Entity>>,
+    mut tilted: Local<HashSet<Entity>>,
     mut layered: Local<HashSet<Entity>>,
 ) {
     for (entity, transform, layers) in &fields {
-        if first_time(&mut rotated, entity, is_rotated(transform)) {
+        if first_time(&mut tilted, entity, is_tilted(transform)) {
             warn!(
-                "bevy_grass: the GrassField {entity} is rotated, but fields cannot rotate yet; \
-                 it is drawn unrotated. Leave its rotation at identity and use GrassField::size \
-                 and the transform's scale to shape it."
+                "bevy_grass: the GrassField {entity} is tilted; grass grows upright, so only \
+                 its turn about Y is used. For a slope, use GrassGround::Heightmap or \
+                 GrassGround::Mesh."
             );
         }
         if first_time(&mut layered, entity, has_unsupported_layer(layers)) {
@@ -501,8 +559,11 @@ type FieldInputs<'a> = (
 /// Where a field is and which views draw it.
 struct Placement {
     size: Vec2,
-    /// The minimum corner, at the field's base height.
+    /// The minimum corner (the field's own −X, −Z corner), at the field's
+    /// base height.
     corner: Vec3,
+    /// The field's X axis in world XZ.
+    axis: Vec2,
     access: u32,
 }
 
@@ -515,9 +576,12 @@ impl Placement {
     ) -> Self {
         let size = scaled_size(field, transform);
         let origin = transform.translation();
+        let axis = field_axis(transform);
+        let corner = Vec2::new(origin.x, origin.z) + turn(axis, -size * 0.5);
         Self {
             size,
-            corner: Vec3::new(origin.x - size.x * 0.5, origin.y, origin.z - size.y * 0.5),
+            corner: Vec3::new(corner.x, origin.y, corner.y),
+            axis,
             access: access(visibility.get(), layers),
         }
     }
@@ -574,6 +638,7 @@ impl Plan<'_> {
             style: input.style_id,
             size: input.placement.size,
             corner: input.placement.corner,
+            axis: input.placement.axis,
             access: input.placement.access,
             mask: input.mask.map(|(id, _)| (id, self.mask_offset)),
             height: input
@@ -611,12 +676,13 @@ impl Plan<'_> {
 }
 
 /// Reads each field with its style, mask and heightmap, or `None` while any of
-/// them has not loaded, so a field never appears at the wrong density or
-/// height and then jumps.
+/// them has not loaded (or a mesh ground has not been baked), so a field
+/// never appears at the wrong density or height and then jumps.
 fn gather<'a>(
     sorted: &[FieldInputs<'a>],
     styles: &'a Assets<GrassStyle>,
     images: &'a Assets<Image>,
+    grounds: &MeshGrounds,
 ) -> Option<Vec<Input<'a>>> {
     let mut inputs = Vec::with_capacity(sorted.len());
     for (entity, field, transform, visibility, layers, overrides) in sorted {
@@ -630,6 +696,12 @@ fn gather<'a>(
                 image,
                 height_scale,
             } => Some((image.id(), images.get(image)?, *height_scale)),
+            // A baked ground is in the mesh's units, which the transform's Y
+            // scale turns into metres, as it does for the mesh itself.
+            GrassGround::Mesh { .. } => {
+                let image = grounds.image(*entity)?;
+                Some((image.id(), images.get(image)?, transform.scale().y))
+            }
         };
         inputs.push(Input {
             entity: *entity,
@@ -866,8 +938,11 @@ pub(crate) fn rebuild(
     mut dirty: ResMut<TablesDirty>,
     mut tables: ResMut<FieldTables>,
     fields: Query<FieldInputs>,
-    styles: Res<Assets<GrassStyle>>,
-    images: Res<Assets<Image>>,
+    (styles, images, grounds): (
+        Res<Assets<GrassStyle>>,
+        Res<Assets<Image>>,
+        Res<MeshGrounds>,
+    ),
     mut cache: ResMut<PackedImages>,
     mut stats: ResMut<GrassStats>,
 ) {
@@ -880,7 +955,7 @@ pub(crate) fn rebuild(
     }
     let mut sorted: Vec<_> = fields.iter().collect();
     sorted.sort_by_key(|(entity, ..)| *entity);
-    let Some(inputs) = gather(&sorted, &styles, &images) else {
+    let Some(inputs) = gather(&sorted, &styles, &images, &grounds) else {
         return;
     };
     // This pass reads every field's visibility too, and takes care of
@@ -1000,6 +1075,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
     let Placement {
         size,
         corner,
+        axis,
         access,
     } = *placement;
     let overrides = &plan.input.overrides;
@@ -1047,6 +1123,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
             variation.bare_patch_size.max(0.01),
         ),
         access: UVec4::new(access, 0, 0, 0),
+        axis: axis.extend(0.0).extend(0.0),
         ..FieldGpu::default()
     };
     let tallest = plan
@@ -1133,7 +1210,8 @@ fn species_chances(species: &[GrassSpecies]) -> Vec<f32> {
 }
 
 /// Lowest and highest normalized height over a UV rectangle, one texel wider
-/// on every side so bilinear sampling at the edges is covered.
+/// on every side so bilinear sampling at the edges is covered. Holes in a
+/// mesh ground hold no blades, so they are left out.
 fn height_range(heights: &[f32], size: UVec2, uv_min: Vec2, uv_size: Vec2) -> (f32, f32) {
     let texels = size.as_vec2();
     let lo = ((uv_min * texels).floor().as_ivec2() - 1)
@@ -1147,7 +1225,9 @@ fn height_range(heights: &[f32], size: UVec2, uv_min: Vec2, uv_size: Vec2) -> (f
     for y in lo.y..=hi.y {
         for x in lo.x..=hi.x {
             let h = heights[(y * size.x + x) as usize];
-            range = (range.0.min(h), range.1.max(h));
+            if h > HOLE * 0.5 {
+                range = (range.0.min(h), range.1.max(h));
+            }
         }
     }
     if range.0 > range.1 { (0.0, 0.0) } else { range }
