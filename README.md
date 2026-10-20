@@ -44,6 +44,8 @@ run `cargo run --release --example gallery`.
   moss and ferns, a Baltic bog, a reed marsh, dunes, pampas, spinifex, frost,
   kelp, crystal and cel-shaded fields, also shipped as `.grass.ron` files that
   reload while the game runs.
+- **Works with Rapier and Avian.** Physics bodies flatten the grass in the
+  shape of their colliders; see [Physics engines](#physics-engines-rapier-and-avian).
 
 > **Status:** pre-release (0.20.1). Everything on this page is built and
 > tested. Runtime editing (paint, cut, regrow), mesh terrain and a crates.io
@@ -53,6 +55,7 @@ run `cargo run --release --example gallery`.
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
+- [Physics engines: Rapier and Avian](#physics-engines-rapier-and-avian)
 - [Usage](#usage)
 - [Examples](#examples)
 - [API](#api)
@@ -151,6 +154,30 @@ out what you do not use:
 ```rust
 app.add_plugins(GrassPlugins.build().disable::<FarGrassPlugin>());
 ```
+
+## Physics engines: Rapier and Avian
+
+bevy_grass supports both Bevy physics engines,
+[Rapier](https://rapier.rs) (`bevy_rapier3d`) and
+[Avian](https://github.com/Jondolf/avian) (`avian3d`). Turn on the cargo
+feature for yours and add `GrassInteractorFromCollider` to an entity with a
+`Collider`. The body then flattens grass in the shape of its collider:
+a character as a disc, a vehicle or a crate as one box, a fallen log as a
+strip. It follows the body's scale and rotation, and a disabled collider or
+a sensor flattens nothing.
+
+```toml
+bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.1", features = ["rapier"] } # or "avian"
+```
+
+| Engine | Feature | Built against | Examples |
+| --- | --- | --- | --- |
+| Rapier | `rapier` | `bevy_rapier3d` 0.37 | [`rapier`](examples/rapier.rs), [`rapier_minimal`](examples/rapier_minimal.rs) |
+| Avian | `avian` | `avian3d` 0.8 | [`avian`](examples/avian.rs), [`avian_minimal`](examples/avian_minimal.rs) |
+
+Run one with `cargo run --release --example rapier --features rapier`.
+[Trample with physics colliders](#trample-with-physics-colliders) has the
+details, including how to plug in another engine.
 
 ## Usage
 
@@ -468,7 +495,7 @@ tipped onto its side, or a log that falls over, flattens where it lies.
 `GrassInteractorSpread` is still there for a few separate discs (feet,
 wheels): each of its discs pushes away from its own centre.
 
-### Physics engines
+### Trample with physics colliders
 
 Avian and Rapier both write `Transform`/`GlobalTransform`, and grass reads
 `GlobalTransform`, so a hand-written `GrassInteractor` on a physics body works
@@ -481,7 +508,7 @@ the footprint from the collider. Turn on the feature for your engine:
 | Rapier | `rapier` | `bevy_rapier3d` 0.37 |
 
 ```toml
-bevy_grass = { version = "0.20", features = ["avian"] } # or "rapier"
+bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.1", features = ["avian"] } # or "rapier"
 ```
 
 Then put the component next to a collider:
@@ -647,7 +674,7 @@ app.add_systems(PostUpdate, paint_density_mask.before(AssetEventSystems));
 Systems in `Update` need no ordering. Without any, a change shows the next
 frame. The collider bridge runs in `Update` itself: a system that writes
 `GrassColliderBounds` goes in `GrassColliderSystems::Bounds` (see
-[Physics engines](#physics-engines)).
+[Trample with physics colliders](#trample-with-physics-colliders)).
 
 ### Shadows
 
