@@ -2,7 +2,7 @@
 //! vehicle drive through a meadow with a crate scaled to 2.5 m, and
 //! every few seconds a log is thrown in, tumbles and comes to rest across the
 //! grass. All of them carry `GrassInteractorFromCollider`, so the footprint
-//! comes from the collider: one disc for the capsule, a spread of discs for
+//! comes from the collider: one disc for the capsule, one box for
 //! the vehicle, the crate at its scaled size, and a strip along the log once
 //! it lies down.
 //!
@@ -110,8 +110,8 @@ fn setup(
         },
     ));
 
-    // A 6 × 2 × 3 m vehicle. Its collider is larger than one 2 m disc, so the
-    // adapter gives it a spread automatically.
+    // A 6 × 2 × 3 m vehicle, flattened as one box: the grass under it lies
+    // the way it drives, and only its sides push sideways.
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(6.0, 2.0, 3.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.55, 0.24, 0.12))),

@@ -2,6 +2,22 @@
 
 What has been tried to make grass cheaper, what it gained, and why. Read this before optimizing: several ideas that work in other engines were measured here and did not pay off. Add a section for every new pass.
 
+## Summary
+
+Grass GPU time per frame at the High tier, 1920 × 1080, 4× MSAA, grass shadows on: the difference between a run with grass and a `--no-grass` run, from GPU timestamps.
+
+| Scene | NVIDIA T1200 laptop | RTX 4070 Ti | RTX 4070 Ti, Ultra |
+| --- | --- | --- | --- |
+| Perspective flythrough over a 2 × 2 km heightmap, eye height 1.8 m | 3.4 ms | 0.32 ms | 0.47 ms |
+| Top-down ARPG camera (orthographic, 30° pitch), 36 blades per m² | 2.4 ms | 0.26 ms | 0.30 ms |
+| ... with 512 interactors trampling | | 0.21 ms | 0.26 ms |
+
+The T1200 is roughly a third of an RTX 3060; its figures are from after the chunk slices ([G6](#g6-chunks-split-into-slices-kept)), and the 4070 Ti's from [On an RTX 4070 Ti at stock clocks](#on-an-rtx-4070-ti-at-stock-clocks-october-17-2026). The trampling pass itself is 0.01–0.02 ms with 512 interactors. Variation with everything off costs the same as no variation. Most of the cost is shading pixels, not geometry: GPUs shade thin blades in mostly empty 2 × 2 quads. The CPU cost per frame is a few uniform uploads. The design target, 1 ms at the High tier on RTX 3060 class hardware, has not been measured; the 4070 Ti uses a third of it.
+
+**240 FPS.** `GrassQuality::Competitive` is the 240 Hz tier: 40 m of half-density grass with no grass shadow casting. [The 240 Hz gate](#the-240-hz-gate) (`python tools/bench_240.py --machine rtx3060`) requires frame p95 of at most 4.167 ms on a named reference machine. On the RTX 4070 Ti, with a 2013 quad-core CPU, both High and Competitive pass in both scenes (frame p95 at most 3.00 ms, against 2.76–2.96 ms with no grass). Read that as "grass is not what stops a game reaching 240 FPS here", not "a game runs at 240 FPS here": the frame is limited by that CPU, and an empty Bevy scene alone takes 2.1 ms ([The frame-time floor](#the-frame-time-floor-october-15-2026)). On the T1200, the first run had High failing both scenes, while Competitive passed the perspective scene at 3.61 ms p95 and missed the ARPG scene at 4.33 ms; the [meshlet and clump proposal](proposals/meshlets-and-clumps.md) is meant to close that gap.
+
+**Measure on your machine** with `cargo run --release --example bench` (add `--ortho` for the top-down camera) against a `--no-grass` run. `tools/bench_ab.py` runs paired A/B rounds of two builds; `tools/bench_240.py` is the absolute gate.
+
 ## How to measure
 
 Grass cost is GPU time, and on the development laptop it is mostly fragment shading. Measure it with the `bench` example in two scenes:

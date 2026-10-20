@@ -96,8 +96,8 @@ fn setup(
         },
     ));
 
-    // A large box: the collider is wider than one 2 m disc, so the adapter
-    // gives it a spread of discs automatically.
+    // A large box: the adapter flattens it as one box footprint, however
+    // wide.
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(6.0, 2.0, 3.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.55, 0.24, 0.12))),
