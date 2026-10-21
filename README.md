@@ -57,7 +57,7 @@ Add the crate next to Bevy in your game's `Cargo.toml`:
 ```toml
 [dependencies]
 bevy = "0.20"
-bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.2" }
+bevy_grass = "0.20.2"
 ```
 
 | Bevy | bevy_grass |
@@ -153,7 +153,7 @@ strip. It follows the body's scale and rotation, and a disabled collider or
 a sensor flattens nothing.
 
 ```toml
-bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.2", features = ["rapier"] } # or "avian"
+bevy_grass = { version = "0.20.2", features = ["rapier"] } # or "avian"
 ```
 
 | Engine | Feature | Built against | Examples |
