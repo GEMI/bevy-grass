@@ -1,4 +1,5 @@
-//! GPU-driven, wind-animated tall grass for Bevy.
+//! Grass and foliage for Bevy games: lush fields that sway in the wind and
+//! bend where players walk.
 //!
 //! ```no_run
 //! use bevy::prelude::*;

@@ -1,9 +1,10 @@
 # bevy_grass
 
-GPU-driven, wind-animated grass for [Bevy](https://bevy.org) 0.20: fields of
-any size, tall walkable grass, flowers and seed heads, trampling by
-characters and by [Rapier and Avian](#physics-engines-rapier-and-avian)
-physics bodies, and every blade lit by Bevy's own PBR.
+Grass and foliage for [Bevy](https://bevy.org) 0.20 games: lush fields that
+sway in the wind and bend where players walk. Fields of any size, tall
+walkable grass, flowers and seed heads, trampling by characters and by
+[Rapier and Avian](#physics-engines-rapier-and-avian) physics bodies, and
+every blade lit by Bevy's own PBR.
 
 ![A person walks through three presets in turn, WILDFLOWER_MEADOW, RYE_AND_CORNFLOWERS and REED_MARSH, parting the grass, which springs back behind them as the wind rolls through](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.2/docs/images/walk.webp)
 

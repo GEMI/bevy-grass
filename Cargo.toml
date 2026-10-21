@@ -1,6 +1,6 @@
 [package]
 name = "bevy_grass"
-description = "GPU-driven, wind-animated tall grass for Bevy"
+description = "Grass and foliage for Bevy 3D games: lush fields that sway in the wind and bend where players walk."
 version = "0.20.2"
 edition = "2024"
 rust-version = "1.97.1"
