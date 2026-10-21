@@ -3,6 +3,13 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
+## 0.20.3 (October 21, 2026)
+
+Docs only: no API or behaviour changed. The tagline on crates.io and the
+README's opening now describe the crate as grass and foliage for 3D games,
+instead of "GPU-driven, wind-animated tall grass", which undersold what it
+grows and led with how it is built.
+
 ## 0.20.2 (October 21, 2026)
 
 Runtime editing, grass on mesh terrain, and fields that turn.
