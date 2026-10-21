@@ -5,6 +5,7 @@ __pycache__/
 
 # The maintainer's working notes: the API review the P0/P1/P2 items came from.
 /notes/
+/notes-dont-commit.txt
 
 # Editors, operating systems, and what benchmark and screenshot runs leave
 # behind when they are not pointed at target/.
