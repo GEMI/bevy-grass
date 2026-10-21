@@ -25,15 +25,16 @@ In order:
    installing is one line without a git URL. Listed on Bevy Assets and
    awesome-bevy. Contributor files: CONTRIBUTING, issue templates and
    good-first-issue labels.
-2. **Runtime editing and queries.** Paint, cut and regrow grass at runtime
-   through the density mask (mowing, burning, paths, clearing ground for a
-   building). Query density and blade height at any point on the CPU, for
-   stealth ("is the player in tall grass?"), footstep sounds and AI.
-3. **Browser builds.** A wasm32 build in CI and a browser demo on WebGPU.
+2. **Browser builds.** A wasm32 build in CI and a browser demo on WebGPU.
    WebGL2 stays unsupported: grass needs compute shaders.
-4. **1.0.** Freeze the API, with the performance gate held.
+3. **1.0.** Freeze the API, with the performance gate held.
 
 ## Done
+
+- **Runtime editing and queries** (unreleased): clear, paint, mow and
+  restore grass through the density mask, brushes that edit as they move,
+  regrowth, and density and height at any point on the CPU. See
+  [Editing and reading the grass](editing.md).
 
 - **Rotated fields** (unreleased): a field follows its transform's rotation about
   Y.

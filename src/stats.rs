@@ -18,6 +18,7 @@ use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 
 use crate::GrassSystems;
+use crate::edit::EditStats;
 
 /// Numbers about what grass is doing. Updated by the plugin; read it for a
 /// HUD, a log line or a test.
@@ -44,6 +45,9 @@ pub struct GrassStats {
     pub tables: TableStats,
     /// What the GPU generated, as of its latest reading.
     pub gpu: GpuStats,
+    /// What runtime edits did: [`GrassEdit`](crate::GrassEdit)s, brushes
+    /// and regrowth.
+    pub edits: EditStats,
 }
 
 /// The tables of fields and chunks the GPU draws from.

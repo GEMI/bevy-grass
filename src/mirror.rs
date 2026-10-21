@@ -13,8 +13,8 @@ use crate::GrassSettings;
 
 use crate::shader_model::{
     CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GUST_SIZE, TILE_POINTS,
-    TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_threshold, best_candidate_tile, blue_noise_tile,
-    clump_table, gust_noise, hash, hash2, lod_indices, sample_noise, toroidal_distance_squared,
+    TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_noise, bare_threshold, best_candidate_tile,
+    blue_noise_tile, clump_table, gust_noise, hash, hash2, lod_indices, toroidal_distance_squared,
     tuft_table, unit,
 };
 
@@ -283,16 +283,6 @@ pub(crate) fn tuft_at(q: Vec2) -> (Vec2, f32) {
     let offset = (Vec2::new((word & 0xff) as f32, ((word >> 8) & 0xff) as f32) / 255.0 - 0.5) * 4.0;
     let centre = (entry + 0.5) / TUFT_ENTRIES_PER_TUFT as f32 + offset;
     (centre, ((word >> 16) & 0xff) as f32 / 255.0)
-}
-/// The noise bare patches are cut from, at world point `at`, for patches
-/// about `size` metres across: two samples of the gust noise, the second
-/// turned and scaled, so the pattern does not visibly repeat. The WESL twin
-/// is `bare_noise`.
-#[expect(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
-pub(crate) fn bare_noise(noise: &[u8], at: Vec2, size: f32) -> f32 {
-    let uv = at / (size * 8.0);
-    let turned = Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
-    0.5 * (sample_noise(noise, uv) + sample_noise(noise, turned))
 }
 /// Which of a field's species a blade is: 0 for the style's own, `k` for
 /// the `k`th of `species`, given as (chance, clustering) pairs. A species'

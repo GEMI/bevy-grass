@@ -30,14 +30,29 @@ material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-pa
 | `GrassInteractorFromCollider` | Component (requires `GrassInteractor` and `GrassInteractorFootprint`) | Derives a `GrassInteractorFootprint` from this entity's physics collider (features `avian`, `rapier`), following its size, roundness and scale. `scale` (default 1), `strength` (default 1), `max_height: Option<f32>` (default `None`). Disabled colliders/bodies and sensors flatten nothing; warns once if no collider size arrives |
 | `GrassColliderBounds` | Component | The collider `GrassInteractorFromCollider` flattens under: `center`, `half_extents` (metres along the entity's axes, scale applied), `rounding`, `active`. The physics features write it; write it yourself for another collider type |
 | `GrassColliderSystems` | System set (`Update`) | `Bounds` (backends write `GrassColliderBounds`), then `Fit` (the adapters are fitted) |
-| `GrassSystems` | System set | `DetectChanges`, then `Rebuild`, in `PostUpdate`: order your systems against them |
+| `GrassSystems` | System set | `DetectChanges`, `Edit`, then `Rebuild`, in `PostUpdate`: order your systems against them |
 | `GrassWind` | Resource | `direction: Vec2` (XZ; any length, normalized on use; `.toward(Dir2)` sets it from a `Dir2`), `strength` (0–1), `gust_scale` (metres), `gust_speed` (m/s), and the multipliers `sway`, `sway_speed`, `flutter`, `gust_contrast` (1 in every preset). Presets `CALM`, `BREEZE` (default), `GUSTY`, `STORM` |
-| `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped) and `gpu` (blades per level of detail, slices, overflows) |
+| `GrassStats` | Resource | What grass is doing: `tables` (fields, chunks, rebuilds and their time, what limits dropped), `gpu` (blades per level of detail, slices, overflows) and `edits` (`EditStats`: edits applied, texels changed, bytes uploaded, edits waiting, this frame's time) |
 | `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |
 | `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (feature `debug`) | Gizmos for fields, chunks, interactors, footprints and trample windows |
 | `GrassSun` | Component | On a directional light: the one grass casts shadows for, and a deferred camera treats as the sun. Without it, the first shadow-casting one |
 | `GrassCamera` | Component | On a camera: overrides `radius`, `density_scale`, `min_width_px` and `shadows` of `GrassSettings` for that camera (each an `Option`; `None` follows the resource) |
 | `NoGrass` | Component | On a camera: draw no grass there (a shorthand for a `RenderLayers` that shares none with any field) |
+
+## Editing and queries
+
+See [Editing and reading the grass](editing.md).
+
+| Item | Kind | What it does |
+| --- | --- | --- |
+| `GrassEdit` | Message | A change to the grass: `shape`, `op`, `strength` (1: set, idempotent; below 1: a step that adds up), `softness` (0.3), `field: Option<Entity>` (default: every field under the shape). `clear`, `paint`, `mow`, `restore`, `with_strength`, `with_softness`, `on_field` |
+| `GrassBrushShape` | Enum | `Circle { center, radius }`, `Stroke { from, to, radius }`, `Rect { center, half_size, yaw }`, in world XZ |
+| `GrassEditOp` | Enum | `Density(d)`, `Height(h)`, `Mow(h)` (lowers only), `Restore` (back to the field's own mask) |
+| `GrassBrush` | Component (requires `Transform`) | Edits wherever the entity goes: `op`, `radius`, `softness`, `rate: Option<f32>` (`None`: at once, swept along the path; a rate: per second while it stays) |
+| `GrassBrushFootprint` | Component (requires `GrassBrush`) | The rectangle a brush edits instead of a disc: `center` (local space), `half_size` along the entity's X and Z; turned and scaled with the transform, swept between frames. The brush's `radius` is not used |
+| `GrassRegrowth` | Component | On a field: `density_rate`, `height_rate` per second, back toward the field's own mask; only raises grass |
+| `GrassSampler` | System parameter | `sample(point)`, `samples(point)`: a `GrassSample` per field; `mask_image(field)`: the mask with edits, as an image |
+| `GrassSample` | Struct | `field`, `density` (0–1), `blades_per_m2`, `height_scale`, `height` (metres, a typical blade), `tallest` (metres) |
 
 ## Styles and style files
 

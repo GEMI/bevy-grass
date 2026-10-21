@@ -25,6 +25,7 @@ use bevy::transform::components::GlobalTransform;
 use crate::api::{
     GrassBlade, GrassField, GrassFieldOverrides, GrassGround, GrassSpecies, GrassStyle,
 };
+use crate::edit::{self, EditLayers};
 use crate::ground::{HOLE, MeshGrounds, bake_mesh_grounds};
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{self, ChunkLayout};
@@ -151,8 +152,8 @@ pub(crate) struct FieldTables {
     /// Where each field's entries are in `fields`, and what they were built
     /// from.
     pub slots: Arc<Vec<FieldSlot>>,
-    /// The image of each mask in `masks`, in order.
-    pub mask_ids: Arc<Vec<AssetId<Image>>>,
+    /// What each mask in `masks` is, in order.
+    pub mask_ids: Arc<Vec<MaskKey>>,
     /// The image of each heightmap in `heights`, in order.
     pub height_ids: Arc<Vec<AssetId<Image>>>,
     pub chunks: Arc<Vec<ChunkGpu>>,
@@ -186,6 +187,17 @@ impl FieldTables {
     }
 }
 
+/// What one mask in the tables is. An image keeps its key when it is edited,
+/// so a field's first edit does not move anything in the tables; a field
+/// without an image gets a mask of its own on its first edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum MaskKey {
+    /// The field's density map, edited or not.
+    Image(AssetId<Image>),
+    /// The edit layer of a field that has no density map.
+    Edited(Entity),
+}
+
 /// The entries of one field in [`FieldTables::fields`], and what they were
 /// built from, so a rebuild can tell what has to be built again.
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +219,7 @@ struct EntryKey {
     axis: Vec2,
     access: u32,
     /// The mask, and its offset in the mask table, in texels.
-    mask: Option<(AssetId<Image>, u32)>,
+    mask: Option<(MaskKey, u32)>,
     /// The heightmap, its offset in the height table and its scale.
     height: Option<(AssetId<Image>, u32, f32)>,
     species: usize,
@@ -305,7 +317,11 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<PackedImages>()
         .configure_sets(
             PostUpdate,
-            (GrassSystems::DetectChanges, GrassSystems::Rebuild)
+            (
+                GrassSystems::DetectChanges,
+                GrassSystems::Edit,
+                GrassSystems::Rebuild,
+            )
                 .chain()
                 .after(TransformSystems::Propagate)
                 .after(VisibilitySystems::VisibilityPropagate)
@@ -320,9 +336,12 @@ pub(crate) fn plugin(app: &mut App) {
                     (bake_mesh_grounds, detect_changes).chain(),
                 )
                     .in_set(GrassSystems::DetectChanges),
-                rebuild.in_set(GrassSystems::Rebuild),
+                (rebuild, edit::collect_patches)
+                    .chain()
+                    .in_set(GrassSystems::Rebuild),
             ),
         );
+    edit::plugin(app);
 }
 
 /// What the tables need.
@@ -400,6 +419,44 @@ fn access(visible: bool, layers: Option<&RenderLayers>) -> u32 {
 fn scaled_size(field: &GrassField, transform: &GlobalTransform) -> Vec2 {
     let scale = transform.scale();
     field.size * Vec2::new(scale.x, scale.z).abs()
+}
+
+/// Where a field lies on the ground, worked out from its components exactly
+/// as the tables work it out, for code that cannot wait for a rebuild.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FieldFrame {
+    /// The minimum corner (the field's own −X, −Z corner), in world XZ.
+    pub corner: Vec2,
+    /// The field's X axis in world XZ.
+    pub axis: Vec2,
+    /// Its size on the ground, scale applied.
+    pub size: Vec2,
+}
+
+impl FieldFrame {
+    pub(crate) fn of(field: &GrassField, transform: &GlobalTransform) -> Self {
+        let size = scaled_size(field, transform);
+        let axis = field_axis(transform);
+        let origin = transform.translation();
+        Self {
+            corner: Vec2::new(origin.x, origin.z) + turn(axis, -size * 0.5),
+            axis,
+            size,
+        }
+    }
+
+    /// A point of the field, in metres along its axes from its minimum
+    /// corner, in world XZ.
+    pub(crate) fn world_of(&self, local: Vec2) -> Vec2 {
+        self.corner + turn(self.axis, local)
+    }
+
+    /// The point of the field at `point` (world XZ), in metres along its axes
+    /// from its minimum corner.
+    pub(crate) fn local_of(&self, point: Vec2) -> Vec2 {
+        let offset = point - self.corner;
+        Vec2::new(offset.dot(self.axis), offset.dot(self.axis.perp()))
+    }
 }
 
 /// A field's X axis in world XZ: its transform's turn about Y. Grass grows
@@ -574,14 +631,11 @@ impl Placement {
         visibility: InheritedVisibility,
         layers: Option<&RenderLayers>,
     ) -> Self {
-        let size = scaled_size(field, transform);
-        let origin = transform.translation();
-        let axis = field_axis(transform);
-        let corner = Vec2::new(origin.x, origin.z) + turn(axis, -size * 0.5);
+        let frame = FieldFrame::of(field, transform);
         Self {
-            size,
-            corner: Vec3::new(corner.x, origin.y, corner.y),
-            axis,
+            size: frame.size,
+            corner: Vec3::new(frame.corner.x, transform.translation().y, frame.corner.y),
+            axis: frame.axis,
             access: access(visibility.get(), layers),
         }
     }
@@ -614,8 +668,36 @@ struct Input<'a> {
     overrides: GrassFieldOverrides,
     style_id: AssetId<GrassStyle>,
     style: &'a GrassStyle,
-    mask: Option<(AssetId<Image>, &'a Image)>,
+    mask: Option<MaskInput<'a>>,
     height: Option<(AssetId<Image>, &'a Image, f32)>,
+}
+
+/// A field's mask: its image, its edit layer, or both, in which case the
+/// layer's texels are the ones drawn.
+struct MaskInput<'a> {
+    key: MaskKey,
+    size: UVec2,
+    image: Option<&'a Image>,
+    edited: Option<&'a [u32]>,
+}
+
+impl MaskInput<'_> {
+    /// The image the mask was read from, if any.
+    fn image_id(&self) -> Option<AssetId<Image>> {
+        match self.key {
+            MaskKey::Image(id) => Some(id),
+            MaskKey::Edited(_) => None,
+        }
+    }
+
+    /// The texels, packed (see `PackedImages::mask`).
+    fn words(&self, cache: &mut PackedImages) -> Arc<Vec<u32>> {
+        match (self.edited, self.image, self.key) {
+            (Some(words), ..) => Arc::new(words.to_vec()),
+            (None, Some(image), MaskKey::Image(id)) => cache.mask(id, image),
+            _ => Arc::default(),
+        }
+    }
 }
 
 /// An input placed in the tables: which entries it gets, and where its images
@@ -640,7 +722,7 @@ impl Plan<'_> {
             corner: input.placement.corner,
             axis: input.placement.axis,
             access: input.placement.access,
-            mask: input.mask.map(|(id, _)| (id, self.mask_offset)),
+            mask: input.mask.as_ref().map(|mask| (mask.key, self.mask_offset)),
             height: input
                 .height
                 .map(|(id, _, scale)| (id, self.height_offset, scale)),
@@ -667,7 +749,8 @@ impl Plan<'_> {
 
     /// Whether the field's mask or heightmap is one of `changed`.
     fn uses(&self, changed: &HashSet<AssetId<Image>>) -> bool {
-        self.input.mask.is_some_and(|(id, _)| changed.contains(&id))
+        let mask = self.input.mask.as_ref().and_then(MaskInput::image_id);
+        mask.is_some_and(|id| changed.contains(&id))
             || self
                 .input
                 .height
@@ -677,18 +760,36 @@ impl Plan<'_> {
 
 /// Reads each field with its style, mask and heightmap, or `None` while any of
 /// them has not loaded (or a mesh ground has not been baked), so a field
-/// never appears at the wrong density or height and then jumps.
+/// never appears at the wrong density or height and then jumps. An edited
+/// field's mask is its edit layer.
 fn gather<'a>(
     sorted: &[FieldInputs<'a>],
     styles: &'a Assets<GrassStyle>,
     images: &'a Assets<Image>,
     grounds: &MeshGrounds,
+    edits: &'a EditLayers,
 ) -> Option<Vec<Input<'a>>> {
     let mut inputs = Vec::with_capacity(sorted.len());
     for (entity, field, transform, visibility, layers, overrides) in sorted {
+        let layer = edits.layer_of(*entity, field);
         let mask = match &field.density_map {
-            Some(handle) => Some((handle.id(), images.get(handle)?)),
-            None => None,
+            Some(handle) => {
+                let image = images.get(handle)?;
+                Some(MaskInput {
+                    key: MaskKey::Image(handle.id()),
+                    size: image.size(),
+                    image: Some(image),
+                    edited: layer
+                        .filter(|layer| layer.size == image.size())
+                        .map(|layer| layer.words.as_slice()),
+                })
+            }
+            None => layer.map(|layer| MaskInput {
+                key: MaskKey::Edited(*entity),
+                size: layer.size,
+                image: None,
+                edited: Some(layer.words.as_slice()),
+            }),
         };
         let height = match &field.ground {
             GrassGround::Flat => None,
@@ -756,9 +857,8 @@ fn plan<'a>(inputs: &'a [Input<'a>]) -> (Vec<Plan<'a>>, Dropped) {
             height_offset: height_texels,
         });
         entry_cursor += 1 + species.len();
-        if let Some((_, image)) = input.mask {
-            let size = image.size();
-            mask_words += packed::mask_words(size.x * size.y);
+        if let Some(mask) = &input.mask {
+            mask_words += packed::mask_words(mask.size.x * mask.size.y);
         }
         if let Some((_, image, _)) = input.height {
             let size = image.size();
@@ -770,41 +870,51 @@ fn plan<'a>(inputs: &'a [Input<'a>]) -> (Vec<Plan<'a>>, Dropped) {
 
 /// The masks and heightmaps of the tables, kept while the same images are used
 /// in the same order and none changed, and otherwise joined from the packed
-/// images, each read at most once (see `PackedImages`).
+/// images, each read at most once (see `PackedImages`), and the edit layers.
 struct Images {
     masks: Arc<Vec<u32>>,
     heights: Arc<Vec<f32>>,
-    mask_ids: Arc<Vec<AssetId<Image>>>,
+    mask_ids: Arc<Vec<MaskKey>>,
     height_ids: Arc<Vec<AssetId<Image>>>,
     masks_same: bool,
     heights_same: bool,
 }
 
+/// `edits_ahead` says the edit layers changed since the masks were last
+/// joined. Edits reach the GPU as patches, so stale masks are kept while
+/// nothing else is uploaded; but if the chunks or heightmaps are uploaded
+/// (`chunks_same` false), the masks go with them and are joined afresh.
 fn images_for(
     plans: &[Plan],
     old: &FieldTables,
     changed: &HashSet<AssetId<Image>>,
     cache: &mut PackedImages,
+    (chunks_same, edits_ahead): (bool, bool),
 ) -> Images {
     let mask_ids: Vec<_> = plans
         .iter()
-        .filter_map(|plan| plan.input.mask.map(|(id, _)| id))
+        .filter_map(|plan| plan.input.mask.as_ref().map(|mask| mask.key))
         .collect();
     let height_ids: Vec<_> = plans
         .iter()
         .filter_map(|plan| plan.input.height.map(|(id, ..)| id))
         .collect();
     let untouched = |ids: &[AssetId<Image>]| !ids.iter().any(|id| changed.contains(id));
-    let masks_same = *old.mask_ids == mask_ids && untouched(&mask_ids);
+    let mask_images: Vec<_> = plans
+        .iter()
+        .filter_map(|plan| plan.input.mask.as_ref().and_then(MaskInput::image_id))
+        .collect();
     let heights_same = *old.height_ids == height_ids && untouched(&height_ids);
+    let refresh = edits_ahead && !(chunks_same && heights_same);
+    let masks_same = *old.mask_ids == mask_ids && untouched(&mask_images) && !refresh;
 
     let masks = if masks_same {
         old.masks.clone()
     } else {
         let parts: Vec<_> = plans
             .iter()
-            .filter_map(|plan| plan.input.mask)
-            .map(|(id, image)| cache.mask(id, image))
+            .filter_map(|plan| plan.input.mask.as_ref())
+            .map(|mask| mask.words(cache))
             .collect();
         packed::join(&parts)
     };
@@ -818,7 +928,7 @@ fn images_for(
             .collect();
         packed::join(&parts)
     };
-    cache.retain(&mask_ids, &height_ids);
+    cache.retain(&mask_images, &height_ids);
     Images {
         masks,
         heights,
@@ -943,7 +1053,7 @@ pub(crate) fn rebuild(
         Res<Assets<Image>>,
         Res<MeshGrounds>,
     ),
-    mut cache: ResMut<PackedImages>,
+    (mut cache, mut edits): (ResMut<PackedImages>, ResMut<EditLayers>),
     mut stats: ResMut<GrassStats>,
 ) {
     if !dirty.rebuild() {
@@ -955,7 +1065,8 @@ pub(crate) fn rebuild(
     }
     let mut sorted: Vec<_> = fields.iter().collect();
     sorted.sort_by_key(|(entity, ..)| *entity);
-    let Some(inputs) = gather(&sorted, &styles, &images, &grounds) else {
+    let edits_ahead = edits.ahead;
+    let Some(inputs) = gather(&sorted, &styles, &images, &grounds, &edits) else {
         return;
     };
     // This pass reads every field's visibility too, and takes care of
@@ -969,9 +1080,21 @@ pub(crate) fn rebuild(
     cache.forget(&changed_images);
     let old = (*tables).clone();
     let (plans, dropped) = plan(&inputs);
-    let images = images_for(&plans, &old, &changed_images, &mut cache);
     let (chunks, chunks_same) = chunks_for(&plans, &old, &changed_images, &mut cache);
+    let images = images_for(
+        &plans,
+        &old,
+        &changed_images,
+        &mut cache,
+        (chunks_same, edits_ahead),
+    );
     let built = entries_for(&plans, &old, &changed_styles, &changed_images);
+    drop(plans);
+    drop(inputs);
+    if !images.masks_same {
+        // The masks were joined from the layers as they are now.
+        edits.ahead = false;
+    }
 
     let layout_changed = !(images.masks_same && images.heights_same && chunks_same);
     let mut counted = stats.tables;
@@ -1082,7 +1205,7 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
     let layout =
         ChunkLayout::for_density(CHUNK_SIZE, style.density * overrides.density_scale.max(0.0));
     let (mask_offset, mask_size) = match mask {
-        Some((_, image)) => (plan.mask_offset, image.size()),
+        Some(mask) => (plan.mask_offset, mask.size),
         None => (NO_MAP, UVec2::ZERO),
     };
     let (height_offset, height_size, height_scale) = match height {

@@ -24,6 +24,7 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 
+use super::resources::GrassShared;
 use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
 use crate::GrassWind;
@@ -461,6 +462,7 @@ fn bend_spread(app: &mut App) -> f32 {
     (bends.iter().map(|b| (b - mean).powi(2)).sum::<f32>() / bends.len() as f32).sqrt()
 }
 
+mod edit;
 mod generation;
 mod settings;
 mod stats;

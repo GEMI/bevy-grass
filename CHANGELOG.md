@@ -5,9 +5,32 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
-Grass on mesh terrain, and fields that turn.
+Runtime editing, grass on mesh terrain, and fields that turn.
 
 **Added**
+
+- Runtime editing ([docs/editing.md](docs/editing.md)). `GrassEdit` messages
+  clear, paint, mow, change the height of, and restore grass in a
+  `GrassBrushShape` (circle, stroke or turned rectangle), with a soft edge
+  and a strength: at 1 an edit sets the grass and repeating it changes
+  nothing, below 1 edits add up. Edits change the field's density mask,
+  which a field without one gets on its first edit (0.25 m texels), and
+  only the rows they touch are uploaded; the shaders are unchanged, so a
+  game that edits nothing pays nothing.
+- `GrassBrush`: a component that edits wherever its entity goes, at once and
+  swept along its path (a mower) or at a rate while it stays (worn paths, a
+  fire). `GrassBrushFootprint` makes it a rectangle under the entity, turned
+  and scaled with it and swept between frames: a mower's deck, a vehicle's
+  tracks, a bulldozer's blade.
+- `GrassRegrowth`: a field's edits grow back toward its own mask, at a rate
+  for density and one for height.
+- `GrassSampler`: reads density, blades per square metre and blade height at
+  any point on the CPU, with every edit and the style's bare patches, for
+  stealth, footsteps and AI; `mask_image` returns a field's mask with its
+  edits, to save.
+- `GrassSystems::Edit`, between `DetectChanges` and `Rebuild`, and
+  `GrassStats::edits` (`EditStats`).
+- The `editing` example.
 
 - `GrassGround::Mesh { mesh, cell_size }` and `GrassGround::mesh(handle)`:
   grass on the top of a mesh, where it is drawn with the field's transform.

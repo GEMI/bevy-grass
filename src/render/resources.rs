@@ -24,6 +24,7 @@ use bevy::shader::Shader;
 pub(crate) use super::extract::{ExtractedGrass, extract_grass};
 use super::view::ViewUniformData;
 use crate::GrassSettings;
+use crate::edit::PatchList;
 use crate::fields::{ChunkGpu, FieldGpu, FieldTables};
 use crate::shader_model::{self, GUST_SIZE, gust_noise};
 use crate::wind::GrassWindFrame;
@@ -173,8 +174,18 @@ pub(crate) struct GrassShared {
     pub gust_sampler: Sampler,
     uploaded_version: u64,
     uploaded_structure: u64,
+    /// Words in the mask buffer, which edits may write into.
+    mask_words: usize,
     /// Chunks in the table; zero means no grass anywhere.
     pub chunk_count: u32,
+}
+
+#[cfg(test)]
+impl GrassShared {
+    /// The mask buffer, for a test to read back.
+    pub(crate) fn masks_buffer(&self) -> Option<&Buffer> {
+        self.masks.buffer()
+    }
 }
 
 /// Bind groups shared by every view, rebuilt when their buffers might move.
@@ -264,8 +275,12 @@ pub(crate) fn init_shared(
         gust_sampler,
         uploaded_version: u64::MAX,
         uploaded_structure: u64::MAX,
+        mask_words: 0,
         chunk_count: 0,
     };
+    // A test reads the masks back to check the edits that reach them.
+    #[cfg(test)]
+    shared.masks.add_usages(BufferUsages::COPY_SRC);
     upload_tables(&mut shared, &FieldTables::default(), &device, &queue);
     commands.insert_resource(GrassLayouts::new());
     commands.insert_resource(shared);
@@ -299,10 +314,29 @@ fn upload_tables(
     shared.chunk_count = tables.chunks.len() as u32;
     shared.chunks.set(non_empty(&tables.chunks));
     shared.chunks.write_buffer(device, queue);
+    shared.mask_words = tables.masks.len();
     shared.masks.set(non_empty(&tables.masks));
     shared.masks.write_buffer(device, queue);
     shared.heights.set(non_empty(&tables.heights));
     shared.heights.write_buffer(device, queue);
+}
+
+/// Writes the rows edits changed into the mask buffer, after the tables, so
+/// they win over masks the tables still hold from before the edit.
+fn write_mask_patches(shared: &GrassShared, patches: &PatchList, queue: &RenderQueue) {
+    let Some(buffer) = shared.masks.buffer() else {
+        return;
+    };
+    let mut words = patches.words.as_slice();
+    for &(at, len) in &patches.runs {
+        let (run, rest) = words.split_at(len as usize);
+        words = rest;
+        // The main world sends runs only for masks in these tables, so this
+        // never fails; it keeps a bad run from being a GPU validation error.
+        if (at + len) as usize <= shared.mask_words {
+            queue.write_buffer(buffer, u64::from(at) * 4, bytemuck::cast_slice(run));
+        }
+    }
 }
 
 /// The index buffer of blades with `rows` rows per level of detail, all three
@@ -341,6 +375,7 @@ pub(crate) fn prepare_shared(
     if extracted.tables.version != shared.uploaded_version {
         upload_tables(&mut shared, &extracted.tables, &device, &queue);
     }
+    write_mask_patches(&shared, &extracted.mask_patches, &queue);
     // A game that changes the blades' rows gets new meshes, once.
     if extracted.settings.blade_rows != shared.blade_rows {
         let (indices, table) = blade_indices(&device, extracted.settings.blade_rows);

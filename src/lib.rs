@@ -47,6 +47,7 @@ mod api;
 mod clock;
 #[cfg(feature = "debug")]
 mod debug;
+mod edit;
 mod far;
 mod fields;
 mod ground;
@@ -72,6 +73,10 @@ pub use api::{
 };
 #[cfg(feature = "debug")]
 pub use debug::{GrassDebug, GrassDebugPlugin, GrassGizmos};
+pub use edit::{
+    EditStats, GrassBrush, GrassBrushFootprint, GrassBrushShape, GrassEdit, GrassEditOp,
+    GrassRegrowth, GrassSample, GrassSampler,
+};
 pub use far::{FarGrass, FarGrassMaterial, FarGrassPlugin, FarGrassUniform};
 pub use physics::{GrassColliderBounds, GrassColliderSystems, GrassInteractorFromCollider};
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
@@ -90,12 +95,14 @@ use bevy::shader::load_shader_library;
 /// The things a game needs, in one import.
 pub mod prelude {
     pub use crate::{
-        FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassCamera, GrassColliderBounds,
-        GrassColliderSystems, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
+        FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassBrush, GrassBrushFootprint,
+        GrassBrushShape, GrassCamera, GrassColliderBounds, GrassColliderSystems, GrassEdit,
+        GrassEditOp, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
         GrassInteractorFootprint, GrassInteractorFromCollider, GrassInteractorSpread, GrassPlugin,
-        GrassPlugins, GrassQuality, GrassSettings, GrassShadows, GrassSpecies, GrassStats,
-        GrassStyle, GrassStyleFilePlugin, GrassSun, GrassSystems, GrassVariation, GrassWind,
-        GrassWindFrame, GrassWindPlugin, GrassWindSystems, GroundTint, NoGrass,
+        GrassPlugins, GrassQuality, GrassRegrowth, GrassSample, GrassSampler, GrassSettings,
+        GrassShadows, GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin, GrassSun,
+        GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin, GrassWindSystems,
+        GroundTint, NoGrass,
     };
     #[cfg(feature = "debug")]
     pub use crate::{GrassDebug, GrassDebugPlugin};
@@ -116,6 +123,8 @@ pub mod prelude {
 /// - **Fields** (their component, transform, visibility, layers): a system
 ///   that changes them `.before(GrassSystems::DetectChanges)` is seen this
 ///   frame.
+/// - **Edits** ([`GrassEdit`] messages, [`GrassBrush`]es): applied in
+///   [`Edit`](GrassSystems::Edit), between the two.
 /// - **Assets** (a style, a density mask, a heightmap): they are noticed
 ///   through their `AssetEvent`, which Bevy sends in
 ///   [`AssetEventSystems`](bevy::asset::AssetEventSystems), so a system that
@@ -146,6 +155,12 @@ pub enum GrassSystems {
     /// and fields Bevy cannot draw as asked (a tilt, a layer above 31), bakes
     /// mesh grounds, and marks the tables for an update.
     DetectChanges,
+    /// Applies [`GrassEdit`]s, [`GrassBrush`]es and [`GrassRegrowth`] to the
+    /// fields' density masks. Write a `GrassEdit` from a system that runs
+    /// `.before(GrassSystems::Edit)` (any system in `Update` does) and it is
+    /// drawn this frame; read [`GrassSampler`] `.after(GrassSystems::Edit)`
+    /// to see this frame's edits.
+    Edit,
     /// Updates the tables from what changed: a full rebuild for changed
     /// fields, styles and images, or only the entries for a field shown,
     /// hidden or moved to other render layers. A field whose style or images
@@ -295,6 +310,13 @@ fn register_types(app: &mut App) {
         .register_type::<GrassInteractorFootprint>()
         .register_type::<GrassInteractorFromCollider>()
         .register_type::<GrassColliderBounds>()
+        .register_type::<GrassEdit>()
+        .register_type::<GrassBrushShape>()
+        .register_type::<GrassEditOp>()
+        .register_type::<GrassBrush>()
+        .register_type::<GrassBrushFootprint>()
+        .register_type::<GrassRegrowth>()
+        .register_type::<EditStats>()
         .register_type::<NoGrass>()
         .register_type::<GrassSun>()
         .register_type::<GrassCamera>()

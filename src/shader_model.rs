@@ -258,6 +258,24 @@ pub(crate) fn sample_noise(noise: &[u8], uv: Vec2) -> f32 {
     let bottom = at(0, 1) + (at(1, 1) - at(0, 1)) * t.x;
     top + (bottom - top) * t.y
 }
+/// The gust noise at [`GUST_SIZE`], made once: the texture the GPU samples,
+/// for the CPU to sample the same way.
+pub(crate) fn gust_noise_table() -> &'static [u8] {
+    static NOISE: OnceLock<Vec<u8>> = OnceLock::new();
+    NOISE.get_or_init(|| gust_noise(GUST_SIZE))
+}
+
+/// The noise bare patches are cut from, at world point `at`, for patches
+/// about `size` metres across: two samples of the gust noise, the second
+/// turned and scaled, so the pattern does not visibly repeat. The WESL twin
+/// is `bare_noise`.
+#[expect(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
+pub(crate) fn bare_noise(noise: &[u8], at: Vec2, size: f32) -> f32 {
+    let uv = at / (size * 8.0);
+    let turned = Vec2::new(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.37 + 0.5;
+    0.5 * (sample_noise(noise, uv) + sample_noise(noise, turned))
+}
+
 /// The value of `bare_noise` below which `share` of the ground lies.
 #[expect(clippy::manual_midpoint, reason = "the same arithmetic as the GPU's")]
 pub(crate) fn bare_threshold(share: f32) -> f32 {

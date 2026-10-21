@@ -1,5 +1,7 @@
 //! Extracting the main world's grass state for the render world.
 
+use std::sync::Arc;
+
 use bevy::ecs::prelude::*;
 use bevy::light::DirectionalLight;
 use bevy::math::{UVec4, Vec2, Vec3};
@@ -13,6 +15,7 @@ use crate::api::{
     GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, GrassSun, interactor_offsets,
 };
 use crate::clock::GrassClock;
+use crate::edit::{MaskPatches, PatchList};
 use crate::fields::{CHUNK_SIZE, FieldTables};
 use crate::sun::{SunCandidate, pick_sun};
 use crate::trample::{self, Stamp, Tracked};
@@ -22,6 +25,8 @@ use crate::wind::GrassWindFrame;
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ExtractedGrass {
     pub tables: FieldTables,
+    /// This frame's edits to the masks, written after `tables`.
+    pub mask_patches: Arc<PatchList>,
     pub frame: FrameUniform,
     /// This frame of wind, as the shaders read it.
     pub wind: GrassWindFrame,
@@ -65,13 +70,14 @@ pub(crate) fn extract_grass(
     clock: Extract<Res<GrassClock>>,
     lights: Extract<Query<SunLight>>,
     interactors: Extract<Query<Interactor>>,
-    settings: Extract<Res<GrassSettings>>,
+    (settings, patches): (Extract<Res<GrassSettings>>, Extract<Res<MaskPatches>>),
 ) {
     extracted.settings = settings.sanitized();
     let rows = extracted.settings.blade_rows;
     if tables.version != extracted.tables.version {
         extracted.tables = tables.clone();
     }
+    extracted.mask_patches = patches.0.clone();
     extracted.frame = FrameUniform {
         time: clock.time,
         previous_time: clock.previous_time,

@@ -27,14 +27,16 @@ Eight of the 36 presets. [All of them are in docs/presets.md](docs/presets.md).
   it, with exact motion vectors) and into the deferred G-buffer.
 - **Works with Rapier and Avian.** Physics bodies flatten the grass in the
   shape of their colliders.
+- **Editable while the game runs.** Clear paths and plots, mow, burn, grow
+  and regrow grass, and read it back on the CPU for stealth and footsteps,
+  with no cost per frame while nothing is edited.
 - **36 presets**, from lawn to prairie to wildflower meadow, forest-floor
   moss and ferns, a Baltic bog, a reed marsh, dunes, pampas, spinifex, frost,
   kelp, crystal and cel-shaded fields, also shipped as `.grass.ron` files that
   reload while the game runs.
 
 > **Status:** pre-release (0.20.1). Everything on this page is built and
-> tested. A crates.io release and runtime editing (paint, cut, regrow) are
-> next; see [Roadmap](#roadmap).
+> tested. A crates.io release is next; see [Roadmap](#roadmap).
 
 ## Contents
 
@@ -210,6 +212,16 @@ grass springs back over about 1.5 s, leaving trails. A
 vehicle the grass lies the way it drives, and only its sides push out. The
 cost is the same for 1 or 512 interactors. **[Trampling](docs/trampling.md)**
 
+### Editing and queries
+
+`GrassEdit` messages clear, paint, mow and restore grass in a circle, a
+stroke or a turned rectangle. A `GrassBrush` on an entity edits wherever it
+goes, as a disc or, with a `GrassBrushFootprint`, a turned rectangle: a
+mower's deck, a vehicle's tracks, a fire, a path worn in by feet. `GrassRegrowth` lets a field
+grow back. `GrassSampler` reads density and blade height at any point on the
+CPU. Edits change the density mask and upload only the rows they touch.
+**[Editing and reading the grass](docs/editing.md)**
+
 ### Shadows and rendering paths
 
 Grass receives shadows from every light and casts them for one directional
@@ -245,6 +257,7 @@ cargo run --release --example meadow
 | `avian`, `rapier` | Physics bodies trampling a meadow: a capsule character, a vehicle, a crate scaled to 2.5 m and a thrown log (`--features avian` or `--features rapier`) |
 | `avian_minimal`, `rapier_minimal` | The shortest physics integration: one capsule and one large box |
 | `mesh_terrain` | A meadow on rolling hills built as a mesh, turned 30°: `GrassGround::mesh` |
+| `editing` | Paint with the mouse (clear, mow, grow, restore), a mower and a walker with `GrassBrush`es, a cleared plot, regrowth, and `GrassSampler` reading the grass under the cursor |
 | `custom_wind` | The built-in wind turned off and a `Weather` resource driving the grass |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |
@@ -275,6 +288,7 @@ every idea that was tried, kept or dropped.
 - Guides: [Quality and settings](docs/settings.md), [Styles](docs/styles.md),
   [Presets](docs/presets.md), [Fields, terrain and visibility](docs/terrain.md),
   [Wind](docs/wind.md), [Trampling](docs/trampling.md),
+  [Editing and reading the grass](docs/editing.md),
   [Shadows and rendering paths](docs/rendering.md),
   [Stats, debugging and tooling](docs/tooling.md)
 - [API overview](docs/api.md): every public type on one page. Everything a
@@ -290,8 +304,7 @@ every idea that was tried, kept or dropped.
 ## Roadmap
 
 We try to release for each Bevy minor version within two weeks of its
-release. Next are a crates.io release, runtime editing (paint, cut and regrow
-grass, and query it on the CPU for stealth or footsteps) and a browser demo.
+release. Next are a crates.io release and a browser demo.
 [Roadmap and scope](docs/roadmap.md) has the order, the version policy and
 what bevy_grass will not do.
 

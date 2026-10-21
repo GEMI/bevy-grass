@@ -55,14 +55,19 @@ from a handle, so give it one in code after loading the scene.
 ## Order your systems against the grass
 
 Fields, styles and images are turned into GPU tables only when they change.
-Two public system sets in `PostUpdate`, `GrassSystems::DetectChanges` then
-`GrassSystems::Rebuild`, run after Bevy has propagated transforms and
-visibility and sent asset events. Order your own systems against them when a
-change must show this frame, for procedural terrain or runtime painting:
+Three public system sets in `PostUpdate`, `GrassSystems::DetectChanges`,
+`GrassSystems::Edit` and `GrassSystems::Rebuild`, run after Bevy has
+propagated transforms and visibility and sent asset events. Order your own
+systems against them when a change must show this frame, for procedural
+terrain or runtime painting:
 
 ```rust
 // Moving or showing fields: before DetectChanges.
 app.add_systems(PostUpdate, stream_in_the_level.before(GrassSystems::DetectChanges));
+// Writing `GrassEdit`s: before Edit. Reading `GrassSampler`: after it, to
+// see this frame's edits.
+app.add_systems(PostUpdate, (clear_under_buildings.before(GrassSystems::Edit),
+    footstep_sounds.after(GrassSystems::Edit)));
 // Editing a density mask, a heightmap or a style: before Bevy sends the
 // asset events.
 app.add_systems(PostUpdate, paint_density_mask.before(AssetEventSystems));
