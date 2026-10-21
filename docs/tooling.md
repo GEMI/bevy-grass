@@ -37,7 +37,7 @@ F3). It needs the `debug` cargo feature, which turns on Bevy's `bevy_gizmos`,
 so adding this crate never changes how Bevy is compiled:
 
 ```toml
-bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.1", features = ["debug"] }
+bevy_grass = { git = "https://github.com/GEMI/bevy-grass", tag = "v0.20.2", features = ["debug"] }
 ```
 
 ## Scenes, inspectors and save files

@@ -1,7 +1,7 @@
 [package]
 name = "bevy_grass"
 description = "GPU-driven, wind-animated tall grass for Bevy"
-version = "0.20.1"
+version = "0.20.2"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"

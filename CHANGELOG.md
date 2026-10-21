@@ -3,7 +3,7 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## Unreleased
+## 0.20.2 (October 21, 2026)
 
 Runtime editing, grass on mesh terrain, and fields that turn.
 

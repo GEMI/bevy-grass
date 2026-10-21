@@ -41,7 +41,7 @@ In order:
 - **Mesh terrain** (unreleased): `GrassGround::Mesh` bakes a mesh into a
   heightmap on the CPU, once, so grass grows on terrain that is not a
   heightmap. See [Fields, terrain and visibility](terrain.md#grow-grass-on-a-mesh).
-- **Rapier and Avian** (0.20.1): physics bodies trample the grass in the
+- **Rapier and Avian** (0.20.2): physics bodies trample the grass in the
   shape of their colliders.
 
 ## Non-goals

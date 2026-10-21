@@ -1,6 +1,6 @@
 # Proposal: optional Avian and Rapier integrations
 
-Status: implemented in 0.20.1, for Rapier and Avian. This document records the
+Status: implemented in 0.20.2, for Rapier and Avian. This document records the
 investigation behind the suggestion
 
 > an optional feature (avian / rapier) that syncs collider transforms or
