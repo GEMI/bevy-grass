@@ -464,6 +464,7 @@ fn bend_spread(app: &mut App) -> f32 {
 
 mod edit;
 mod generation;
+mod look;
 mod settings;
 mod stats;
 mod trample;

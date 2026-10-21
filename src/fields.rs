@@ -286,18 +286,23 @@ impl LookFeatures {
         self.0 & other.0 == other.0
     }
 
+    /// Every optional look term with the shader definition that compiles it
+    /// in: the one list `shader_defs` and the tests both read, so a term
+    /// cannot be given a definition in one place and not the other.
+    pub(crate) const TERMS: [(Self, &'static str); 5] = [
+        (Self::GROUND_TINT, "GRASS_GROUND_TINT"),
+        (Self::SHEEN, "GRASS_SHEEN"),
+        (Self::TOON, "GRASS_TOON"),
+        (Self::SHAPE, "GRASS_SHAPE"),
+        (Self::VARIATION, "GRASS_VARIATION"),
+    ];
+
     /// The shader definitions that compile the terms in.
     pub(crate) fn shader_defs(self) -> impl Iterator<Item = &'static str> {
-        [
-            (Self::GROUND_TINT, "GRASS_GROUND_TINT"),
-            (Self::SHEEN, "GRASS_SHEEN"),
-            (Self::TOON, "GRASS_TOON"),
-            (Self::SHAPE, "GRASS_SHAPE"),
-            (Self::VARIATION, "GRASS_VARIATION"),
-        ]
-        .into_iter()
-        .filter(move |(feature, _)| self.contains(*feature))
-        .map(|(_, def)| def)
+        Self::TERMS
+            .into_iter()
+            .filter(move |(feature, _)| self.contains(*feature))
+            .map(|(_, def)| def)
     }
 }
 

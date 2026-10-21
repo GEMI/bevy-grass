@@ -1277,3 +1277,137 @@ fn a_turned_field_holds_the_points_of_its_turned_rectangle() {
     assert_eq!(at(20.0, 0.0), None, "where it would lie unturned");
     assert_eq!(at(7.1, 0.0), None);
 }
+
+/// The style change that turns one optional look term on.
+type TurnOn = fn(&mut GrassStyle);
+
+/// The style setting that turns each optional look term on: one row per
+/// `LookFeatures::TERMS` entry, checked below.
+const TERM_ENABLERS: [(LookFeatures, TurnOn); 5] = [
+    (LookFeatures::GROUND_TINT, |style| {
+        style.ground_tint.amount = 0.5;
+    }),
+    (LookFeatures::SHEEN, |style| style.blade.specular = 0.5),
+    (LookFeatures::TOON, |style| style.toon_bands = 3),
+    (LookFeatures::SHAPE, |style| style.blade.twist = 0.5),
+    (LookFeatures::VARIATION, |style| {
+        style.variation.patch_amount = 0.5;
+    }),
+];
+
+/// A style that uses no optional look term, whatever the presets do.
+fn plain_style() -> GrassStyle {
+    GrassStyle {
+        blade: GrassBlade {
+            specular: 0.0,
+            twist: 0.0,
+            droop: 0.0,
+            fold: 0.0,
+            head_length: 0.0,
+            ..GrassStyle::MEADOW.blade
+        },
+        toon_bands: 0,
+        ground_tint: crate::GroundTint {
+            amount: 0.0,
+            ..GrassStyle::MEADOW.ground_tint
+        },
+        variation: crate::GrassVariation {
+            patch_amount: 0.0,
+            dry_tips: 0.0,
+            dead_share: 0.0,
+            ..GrassStyle::MEADOW.variation
+        },
+        ..GrassStyle::MEADOW
+    }
+}
+
+/// Every `GRASS_...` name in a shader source, comments included.
+fn grass_definitions(source: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find("GRASS_") {
+        let tail = &rest[at..];
+        let end = tail
+            .find(|c: char| !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
+            .unwrap_or(tail.len());
+        names.push(&tail[..end]);
+        rest = &tail[end..];
+    }
+    names
+}
+
+#[test]
+fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
+    // A look term is declared in four places: its bit, the shader definition
+    // that compiles it in, the shaders that read that definition, and the
+    // style setting that turns it on. Three of those are silent if they are
+    // missed (the shader draws a field that quietly looks plain, or a setting
+    // does nothing), so they are checked here against the one list,
+    // `LookFeatures::TERMS`.
+    let definition = |term: LookFeatures| {
+        LookFeatures::TERMS
+            .iter()
+            .find(|(known, _)| *known == term)
+            .map_or("(a definition no shader has)", |(_, def)| *def)
+    };
+    let terms: Vec<&str> = LookFeatures::TERMS
+        .iter()
+        .map(|(term, _)| definition(*term))
+        .collect();
+    let enabled: Vec<&str> = TERM_ENABLERS
+        .iter()
+        .map(|(term, _)| definition(*term))
+        .collect();
+    assert_eq!(
+        terms, enabled,
+        "every term needs a row in TERM_ENABLERS that turns it on, and no row may be left over"
+    );
+
+    // A style that uses no term asks for none, and every style that uses one
+    // asks for it: `LookFeatures::of` covers each term.
+    let plain = plain_style();
+    assert_eq!(
+        LookFeatures::of(&plain, &plain.blade),
+        LookFeatures::default(),
+        "a style that uses no optional term must not compile any of them in"
+    );
+    for (term, enable) in TERM_ENABLERS {
+        let mut style = plain_style();
+        enable(&mut style);
+        let features = LookFeatures::of(&style, &style.blade);
+        assert!(
+            features.contains(term),
+            "{} is used by the style but not asked for, so it would draw as a no-op",
+            definition(term)
+        );
+    }
+
+    // Every definition is named by a shader, and every name a shader uses is
+    // one of the terms: a definition no shader reads compiles nothing in, and
+    // a name no term emits is a branch that can never be turned on.
+    let sources = [
+        include_str!("../shaders/blade.wesl"),
+        include_str!("../shaders/common.wesl"),
+        include_str!("../shaders/grass.wesl"),
+        include_str!("../shaders/grass_prepass.wesl"),
+        include_str!("../shaders/look.wesl"),
+    ];
+    let mut definitions: Vec<&str> = LookFeatures::TERMS.iter().map(|(_, def)| *def).collect();
+    for definition in &definitions {
+        assert!(
+            sources.iter().any(|source| source.contains(definition)),
+            "{definition} is compiled in by no shader"
+        );
+    }
+    let mut named: Vec<&str> = sources
+        .iter()
+        .flat_map(|source| grass_definitions(source))
+        .collect();
+    named.sort_unstable();
+    named.dedup();
+    definitions.sort_unstable();
+    assert_eq!(
+        named, definitions,
+        "a shader names a GRASS_ definition that no look term emits, or a term has no shader"
+    );
+}
