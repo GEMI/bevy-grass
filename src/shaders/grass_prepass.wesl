@@ -13,7 +13,7 @@ import package::shaders::blade::{blade_ref, blade_vertex, current_eye, previous_
 import bevy_pbr::prepass::bindings::previous_view_uniforms;
 
 @if(DEFERRED_PREPASS)
-import package::shaders::look::{blade_color, blade_occlusion, blade_style, blade_sheen, blade_pbr_input, transmitted};
+import package::shaders::look::{blade_look, look_terms, unpack_look, blade_pbr_input, transmitted};
 @if(DEFERRED_PREPASS)
 import bevy_pbr::deferred::functions::deferred_gbuffer_from_pbr_input;
 
@@ -24,12 +24,11 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @if(MOTION_VECTOR_PREPASS)
     @location(2) previous_world_position: vec4<f32>,
-    /// rgb: base colour; a: translucency.
+    /// The blade's `Look`, packed by `look.wesl`.
     @if(DEFERRED_PREPASS)
-    @location(3) color: vec4<f32>,
-    /// x: fake ambient occlusion; y: how much sheen shows (`blade_sheen`).
+    @location(3) look_color: vec4<f32>,
     @if(DEFERRED_PREPASS)
-    @location(4) shading: vec2<f32>,
+    @location(4) look_terms: vec4<f32>,
 }
 
 @if(PREPASS_FRAGMENT)
@@ -75,11 +74,9 @@ fn vertex(
 }
 
 @if(DEFERRED_PREPASS) {
-    let field = fields[blade_at.instance.field];
-    out.color = blade_color(blade_at.instance, field, blade.t);
-    out.shading = vec2<f32>(blade_occlusion(field, blade.t), 0.0);
-@if(GRASS_SHEEN)
-    out.shading.y = blade_sheen(blade_style(field).x, blade.t);
+    let look = blade_look(blade_at.instance, fields[blade_at.instance.field], blade.t);
+    out.look_color = look.color;
+    out.look_terms = look_terms(look);
 }
     return out;
 }
@@ -103,11 +100,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let sun = grass_view.sun;
     let backlit = sun.w > 0.5 && dot(normal, sun.xyz) < 0.0;
     let lit_side = select(normal, -normal, backlit);
-    let color = in.color.rgb * select(vec3<f32>(1.0), transmitted(in.color), backlit);
+    var look = unpack_look(in.look_color, in.look_terms);
+    look.color = vec4<f32>(look.color.rgb * select(vec3<f32>(1.0), transmitted(look.color), backlit), look.color.a);
     let pbr_input = blade_pbr_input(
-        color,
-        in.shading.x,
-        in.shading.y,
+        look,
         lit_side,
         in.position,
         in.world_position,

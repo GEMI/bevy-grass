@@ -8,22 +8,19 @@ import bevy_pbr::render::{
 };
 import package::shaders::blade::{blade_ref, blade_vertex, current_eye, fields};
 import package::shaders::look::{
-    blade_color, blade_occlusion, blade_style, blade_sheen, blade_pbr_input, transmitted, toon,
+    blade_look, blade_style, look_terms, unpack_look, blade_pbr_input, transmitted, toon,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @location(1) world_normal: vec3<f32>,
-    /// rgb: base colour; a: the style's translucency.
-    @location(2) color: vec4<f32>,
-    @location(3) occlusion: f32,
-    /// How much sheen shows here (`blade_sheen`).
-    @if(GRASS_SHEEN)
-    @location(4) sheen: f32,
+    /// The blade's `Look`, packed by `look.wesl`.
+    @location(2) look_color: vec4<f32>,
+    @location(3) look_terms: vec4<f32>,
     /// Toon bands.
     @if(GRASS_TOON)
-    @location(5) @interpolate(flat) bands: f32,
+    @location(4) @interpolate(flat) bands: f32,
 }
 
 fn is_orthographic() -> bool {
@@ -46,10 +43,9 @@ fn vertex(
     out.world_position = vec4<f32>(blade.world_position, 1.0);
     out.position = view.clip_from_world * out.world_position;
     out.world_normal = blade.normal;
-    out.color = blade_color(blade_at.instance, field, blade.t);
-    out.occlusion = blade_occlusion(field, blade.t);
-@if(GRASS_SHEEN)
-    out.sheen = blade_sheen(blade_style(field).x, blade.t);
+    let look = blade_look(blade_at.instance, field, blade.t);
+    out.look_color = look.color;
+    out.look_terms = look_terms(look);
 @if(GRASS_TOON)
     out.bands = blade_style(field).y;
     return out;
@@ -70,25 +66,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @locatio
     let backlit = lights.n_directional_lights > 0u
         && dot(normal, lights.directional_lights[0].direction_to_light) < 0.0;
     let lit_side = select(normal, -normal, backlit);
-    var sheen = 0.0;
-@if(GRASS_SHEEN)
-    sheen = in.sheen;
-    let pbr_input = blade_pbr_input(
-        in.color.rgb,
-        in.occlusion,
-        sheen,
-        lit_side,
-        in.position,
-        in.world_position,
-        is_orthographic(),
-    );
+    let look = unpack_look(in.look_color, in.look_terms);
+    let pbr_input = blade_pbr_input(look, lit_side, in.position, in.world_position, is_orthographic());
 
     let lit = apply_pbr_lighting(pbr_input);
-    let ambient = view.exposure * lights.ambient_color.rgb * in.color.rgb * in.occlusion;
-    let through = select(vec3<f32>(1.0), transmitted(in.color), backlit);
+    let ambient = view.exposure * lights.ambient_color.rgb * look.color.rgb * look.occlusion;
+    let through = select(vec3<f32>(1.0), transmitted(look.color), backlit);
     var color = min(ambient, lit.rgb) + max(lit.rgb - ambient, vec3<f32>(0.0)) * through;
 @if(GRASS_TOON)
     // Toon styles round the light to flat bands.
-    color = select(color, toon(color, in.color.rgb, in.bands), in.bands > 0.5);
+    color = select(color, toon(color, look.color.rgb, in.bands), in.bands > 0.5);
     return main_pass_post_lighting_processing(pbr_input, vec4<f32>(color, lit.a));
 }

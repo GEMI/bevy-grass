@@ -514,6 +514,20 @@ The GPU differences are steady to within 0.01 ms across the five rounds (main pa
 
 Raw rows were kept in the scratchpad only; rerun with `tools/bench_ab.py` or the commands above.
 
+## The look's varyings packed in one place (October 21, 2026)
+
+A refactor, measured to check it costs nothing. The per-vertex look terms (colour, occlusion, sheen) were declared, filled and unpacked separately in the forward and the prepass/deferred entry points; they now travel as a `Look` from `look.wesl`, packed into two `vec4` varyings both passes declare (`look_color`, `look_terms`). In the forward pass this turns the scalar occlusion and sheen varyings into one `vec4` with two spare components, and sends the sheen slot (as 0) even without `GRASS_SHEEN`. The fragment side still uses a constant 0 for sheen when it is off, so the compiler folds it as before.
+
+**Method.** `tools/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `4098655` (before) against the refactor, with the bench's default style and with `--sheen` and `--toon`. Six interleaved rounds, and eight more of the sheen pair, whose first p95 result was the only one above noise. Grass cost (reference minus `--no-grass`, p50): 2.89 ms in perspective, 2.37 ms at DEMO ARPG GAME's camera.
+
+| Paired against the same style before | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
+| --- | --- | --- |
+| Default style (6 rounds) | +0.3% / −0.2% | +0.4% / +0.5% |
+| `--sheen` (14 rounds) | +0.4% / +0.3% | +0.2% / +1.8% |
+| `--toon` (6 rounds) | −0.0% / +0.5% | −0.1% / +0.3% |
+
+All inside the ±2% noise. The sheen pair's p95 at the ARPG camera was +2.7% after six rounds and +1.8% after fourteen, with paired differences from −0.21 to +0.22 ms and the main-pass GPU span straddling zero, so it is noise, not a cost. **Kept: no measurable cost.** Images are unchanged: every golden matches at mean 0.000, and `passes` screenshots, forward and `--deferred`, are byte-identical to the build before. The bench cannot draw deferred, so the deferred path was checked for pixels only.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

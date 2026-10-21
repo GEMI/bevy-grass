@@ -1,6 +1,12 @@
 //! bevy_grass::shaders::look — a blade's colour and material, shared by the
 //! forward pass and the deferred G-buffer, so the two look the same.
 //!
+//! The per-vertex terms travel to the fragment as a `Look`, packed into two
+//! `vec4` varyings that both passes declare once and never change: a new term
+//! is computed in `blade_look`, packed here and read here, so it touches this
+//! file (and `blade.wesl` if it comes from the geometry), not the entry
+//! points.
+//!
 //! The optional terms are compiled in only when some field uses them, so a
 //! game that uses none pays nothing for them:
 //!
@@ -77,28 +83,60 @@ fn blade_sheen(specular: f32, t: f32) -> f32 {
     return specular * smoothstep(0.4, 0.8, t);
 }
 
-/// The blade's surface for Bevy's lighting. `normal` is the side being lit;
-/// `sheen` comes from `blade_sheen` (0 without `GRASS_SHEEN`).
-fn blade_pbr_input(
-    color: vec3<f32>,
+/// What a blade looks like at one point: the per-vertex terms, interpolated
+/// to the fragment through `color` and `look_terms`.
+struct Look {
+    /// rgb: base colour; a: the style's translucency.
+    color: vec4<f32>,
+    /// Fake ambient occlusion (`blade_occlusion`).
     occlusion: f32,
+    /// How much sheen shows (`blade_sheen`); 0 without `GRASS_SHEEN`.
     sheen: f32,
+}
+
+/// Every per-vertex term of the blade at height `t`.
+fn blade_look(instance: Instance, field: Field, t: f32) -> Look {
+    var look = Look(blade_color(instance, field, t), blade_occlusion(field, t), 0.0);
+@if(GRASS_SHEEN)
+    look.sheen = blade_sheen(blade_style(field).x, t);
+    return look;
+}
+
+/// The terms besides the colour, as one varying: x occlusion, y sheen, z and
+/// w free for the next terms.
+fn look_terms(look: Look) -> vec4<f32> {
+    return vec4<f32>(look.occlusion, look.sheen, 0.0, 0.0);
+}
+
+/// The `Look` back from its two varyings. A term whose feature is off is a
+/// constant here, not the interpolated zero, so the compiler folds it away as
+/// it did before the terms were packed.
+fn unpack_look(color: vec4<f32>, terms: vec4<f32>) -> Look {
+    var look = Look(color, terms.x, 0.0);
+@if(GRASS_SHEEN)
+    look.sheen = terms.y;
+    return look;
+}
+
+/// The blade's surface for Bevy's lighting. `normal` is the side being lit.
+fn blade_pbr_input(
+    look: Look,
     normal: vec3<f32>,
     frag_coord: vec4<f32>,
     world_position: vec4<f32>,
     is_orthographic: bool,
 ) -> PbrInput {
     var pbr_input = pbr_input_new();
-    pbr_input.material.base_color = vec4<f32>(color, 1.0);
+    pbr_input.material.base_color = vec4<f32>(look.color.rgb, 1.0);
     // With sheen, the upper blade is glossier and reflects more, so wind
     // waves show as a moving sheen. Without, the whole blade is a matte leaf.
-    pbr_input.material.perceptual_roughness = 0.7 - 0.25 * sheen;
+    pbr_input.material.perceptual_roughness = 0.7 - 0.25 * look.sheen;
     pbr_input.material.metallic = 0.0;
-    pbr_input.material.reflectance = vec3<f32>(0.25 + 0.45 * sheen);
+    pbr_input.material.reflectance = vec3<f32>(0.25 + 0.45 * look.sheen);
     // Bevy fogs only materials that ask for it; without this grass stood out,
     // unfogged, in front of everything the mist had faded.
     pbr_input.material.flags |= STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
-    pbr_input.diffuse_occlusion = vec3<f32>(occlusion);
+    pbr_input.diffuse_occlusion = vec3<f32>(look.occlusion);
     pbr_input.world_normal = normal;
     pbr_input.N = normal;
     pbr_input.frag_coord = frag_coord;
