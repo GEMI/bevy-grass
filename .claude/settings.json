@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if git status --porcelain -- '*.rs' Cargo.toml | grep -q .; then python tools/lint.py >&2 || exit 2; fi",
+            "timeout": 180,
+            "statusMessage": "Checking for compiler warnings (tools/lint.py)"
+          }
+        ]
+      }
+    ]
+  }
+}

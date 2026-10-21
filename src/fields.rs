@@ -110,6 +110,8 @@ impl FieldGpu {
 
     /// A point of the field, in metres along its axes from its minimum
     /// corner, in world XZ. Twin of `field_to_world` in `generate.wesl`.
+    /// Only the debug gizmos and the tests draw from the GPU table.
+    #[cfg(any(test, feature = "debug"))]
     pub(crate) fn world_of(&self, local: Vec2) -> Vec2 {
         Vec2::new(self.min_corner.x, self.min_corner.z) + turn(self.x_axis(), local)
     }
