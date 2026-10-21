@@ -64,9 +64,14 @@ impl GrassStyle {
     /// Returns [`GrassStyleFileError`] if the text is not valid RON, names an
     /// unknown base preset, or contains an out-of-range value.
     pub fn from_ron(text: &str) -> Result<Self, GrassStyleFileError> {
-        let file: GrassStyleFile = options()
-            .from_str(text)
-            .map_err(GrassStyleFileError::Parse)?;
+        let file: GrassStyleFile =
+            options()
+                .from_str(text)
+                .map_err(|error| GrassStyleFileError::Parse {
+                    line: error.span.start.line,
+                    column: error.span.start.col,
+                    message: error.code.to_string(),
+                })?;
         if file.mentions_min_width() {
             warn!(
                 "bevy_grass: `min_width_px` in a .grass.ron file is ignored; a blade's minimum \
@@ -454,8 +459,18 @@ impl GrassSpeciesFile {
 pub enum GrassStyleFileError {
     /// The file could not be read.
     Io(std::io::Error),
-    /// The text is not a valid style.
-    Parse(ron::error::SpannedError),
+    /// The text is not a valid style: where the parser stopped, and why.
+    /// Plain values rather than `ron`'s error type, so upgrading or
+    /// replacing `ron` does not change this crate's API.
+    #[non_exhaustive]
+    Parse {
+        /// The line, counted from 1.
+        line: usize,
+        /// The column, counted from 1.
+        column: usize,
+        /// What is wrong, such as an unknown field and the valid names.
+        message: String,
+    },
     /// `base` names no preset.
     UnknownBase(String),
     /// A value is out of range.
@@ -469,7 +484,11 @@ impl fmt::Display for GrassStyleFileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "could not read the grass style: {error}"),
-            Self::Parse(error) => write!(f, "not a grass style: {error}"),
+            Self::Parse {
+                line,
+                column,
+                message,
+            } => write!(f, "not a grass style: {line}:{column}: {message}"),
             Self::UnknownBase(name) => write!(
                 f,
                 "no preset called {name:?}; the presets are {}",

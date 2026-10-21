@@ -64,4 +64,4 @@ See [Editing and reading the grass](editing.md).
 | `GrassSpecies` | Struct | Another plant among the blades: a `GrassBlade`, a `share` and `clustering` |
 | `GrassStyleFilePlugin` | Plugin | Registers the loader and the presets as `embedded://bevy_grass/styles/<name>.grass.ron` assets. Part of `GrassPlugins` |
 | `GrassStyleLoader` | Asset loader | Loads `.grass.ron` |
-| `GrassStyleFileError` | Enum | `Io`, `Parse`, `UnknownBase`, `Invalid`, `SpeciesFieldSettings`: why a file could not be read |
+| `GrassStyleFileError` | Enum | `Io`, `Parse { line, column, message }`, `UnknownBase`, `Invalid`, `SpeciesFieldSettings`: why a file could not be read |

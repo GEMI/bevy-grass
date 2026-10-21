@@ -3,6 +3,17 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
+## Unreleased
+
+**Breaking, and what to write instead**
+
+`GrassStyleFileError::Parse` no longer holds `ron`'s `SpannedError`, so a
+`ron` upgrade is no longer a breaking change of this crate. It is now
+`Parse { line, column, message }`: where the parser stopped, counted from 1,
+and why. Match `Parse { message, .. }` instead of `Parse(error)`, and read
+`message` or the error's `Display` (unchanged apart from showing only the
+start of the span) instead of the `ron` error.
+
 ## 0.20.3 (October 21, 2026)
 
 Docs only: no API or behaviour changed. The tagline on crates.io and the

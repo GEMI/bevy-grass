@@ -147,11 +147,12 @@ fn colours_can_be_hex_as_artists_copy_them() {
     );
     assert!(near(srgb(style.species[0].blade.head_color).0, 0xff));
 
-    let Err(GrassStyleFileError::Parse(error)) = GrassStyle::from_ron(r##"(tip_color: "#5c8f2")"##)
+    let Err(GrassStyleFileError::Parse { message, .. }) =
+        GrassStyle::from_ron(r##"(tip_color: "#5c8f2")"##)
     else {
         panic!("a bad hex colour must be an error");
     };
-    assert!(error.to_string().contains("hex colour"), "{error}");
+    assert!(message.contains("hex colour"), "{message}");
 }
 
 #[test]
@@ -241,12 +242,27 @@ fn mistakes_are_reported() {
     ));
     assert!(matches!(
         GrassStyle::from_ron("(hieght: (0.1, 0.2))"),
-        Err(GrassStyleFileError::Parse(_))
+        Err(GrassStyleFileError::Parse { .. })
     ));
     assert!(matches!(
         GrassStyle::from_ron("(height: (0.5, 0.2))"),
         Err(GrassStyleFileError::Invalid(_))
     ));
+}
+
+#[test]
+fn a_parse_error_says_where_and_why() {
+    let error = GrassStyle::from_ron("(\n    width: 0.02,\n    hieght: (0.1, 0.2),\n)")
+        .expect_err("a misspelt setting must be an error");
+    let GrassStyleFileError::Parse { line, message, .. } = &error else {
+        panic!("a misspelt setting is a parse error, not {error:?}");
+    };
+    assert_eq!(*line, 3, "{error}");
+    assert!(message.contains("hieght"), "{message}");
+    assert!(
+        error.to_string().starts_with("not a grass style: 3:"),
+        "{error}"
+    );
 }
 
 #[test]
