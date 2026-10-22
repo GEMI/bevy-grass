@@ -124,7 +124,12 @@ pub(crate) struct GrassViewBuffers {
 /// A view's bind groups.
 #[derive(Component, Default)]
 pub(crate) struct GrassViewBindGroups {
-    pub compute: Option<BindGroup>,
+    /// Group 1 of `cull` and `generate`.
+    pub generate: Option<BindGroup>,
+    /// Group 1 of `size_dispatch` and `write_draw_args`.
+    pub args: Option<BindGroup>,
+    /// Group 1 of the trample passes.
+    pub trample: Option<BindGroup>,
     pub dispatch: Option<BindGroup>,
     pub draw: Option<BindGroup>,
 }
@@ -566,17 +571,33 @@ pub(crate) fn prepare_view_bind_groups(
         let Some(uniform) = buffers.uniform.binding() else {
             continue;
         };
-        groups.compute = Some(device.create_bind_group(
-            "grass_view",
-            &pipeline_cache.get_bind_group_layout(&layouts.view),
-            &BindGroupEntries::sequential((
-                uniform.clone(),
-                buffers.visible.as_entire_binding(),
-                buffers.counters.as_entire_binding(),
-                buffers.instances.as_entire_binding(),
-                buffers.draw_args.as_entire_binding(),
-                buffers.trample.as_entire_binding(),
-                buffers.interactors.as_entire_binding(),
+        groups.generate = Some(device.create_bind_group(
+            "grass_generate_view",
+            &pipeline_cache.get_bind_group_layout(&layouts.generate_view),
+            &BindGroupEntries::with_indices((
+                (0, uniform.clone()),
+                (1, buffers.visible.as_entire_binding()),
+                (2, buffers.counters.as_entire_binding()),
+                (3, buffers.instances.as_entire_binding()),
+                (5, buffers.trample.as_entire_binding()),
+            )),
+        ));
+        groups.args = Some(device.create_bind_group(
+            "grass_args_view",
+            &pipeline_cache.get_bind_group_layout(&layouts.args_view),
+            &BindGroupEntries::with_indices((
+                (0, uniform.clone()),
+                (2, buffers.counters.as_entire_binding()),
+                (4, buffers.draw_args.as_entire_binding()),
+            )),
+        ));
+        groups.trample = Some(device.create_bind_group(
+            "grass_trample_view",
+            &pipeline_cache.get_bind_group_layout(&layouts.trample_view),
+            &BindGroupEntries::with_indices((
+                (0, uniform.clone()),
+                (5, buffers.trample.as_entire_binding()),
+                (6, buffers.interactors.as_entire_binding()),
             )),
         ));
         groups.dispatch = Some(device.create_bind_group(

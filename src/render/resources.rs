@@ -61,8 +61,13 @@ struct LodTable {
 pub(crate) struct GrassLayouts {
     /// Group 0 of the compute passes: everything shared by the views.
     pub shared: BindGroupLayoutDescriptor,
-    /// Group 1 of the compute passes: one view's buffers.
-    pub view: BindGroupLayoutDescriptor,
+    /// Group 1 of `cull` and `generate`: the view's buffers they fill.
+    pub generate_view: BindGroupLayoutDescriptor,
+    /// Group 1 of `size_dispatch` and `write_draw_args`: the counters and the
+    /// draw arguments made from them.
+    pub args_view: BindGroupLayoutDescriptor,
+    /// Group 1 of the trample passes: the trample cells and interactors.
+    pub trample_view: BindGroupLayoutDescriptor,
     /// Group 2 of `size_dispatch`: the view's indirect dispatch arguments.
     pub dispatch: BindGroupLayoutDescriptor,
     /// Group 2 of every grass draw: one view's instances.
@@ -98,20 +103,38 @@ impl GrassLayouts {
                 ),
             ),
         );
-        let view = BindGroupLayoutDescriptor::new(
-            "grass_view",
-            &BindGroupLayoutEntries::sequential(
+        // A view's compute buffers, split by the passes that use them: each
+        // storage buffer in a pipeline's layout counts against the device's
+        // limit per shader stage, used by the entry point or not. The binding
+        // numbers stay those of `generate.wesl` and `trample.wesl`: 0 the
+        // view, 1 visible slices, 2 counters, 3 instances, 4 draw arguments,
+        // 5 trample cells, 6 interactors.
+        let view = || (0, uniform_buffer::<ViewUniformData>(false));
+        let generate_view = BindGroupLayoutDescriptor::new(
+            "grass_generate_view",
+            &BindGroupLayoutEntries::with_indices(
                 ShaderStages::COMPUTE,
                 (
-                    uniform_buffer::<ViewUniformData>(false),
-                    read_write(),
-                    read_write(),
-                    read_write(),
-                    read_write(),
-                    // Trample cells and interactors.
-                    read_write(),
-                    read_write(),
+                    view(),
+                    (1, read_write()),
+                    (2, read_write()),
+                    (3, read_write()),
+                    (5, read_write()),
                 ),
+            ),
+        );
+        let args_view = BindGroupLayoutDescriptor::new(
+            "grass_args_view",
+            &BindGroupLayoutEntries::with_indices(
+                ShaderStages::COMPUTE,
+                (view(), (2, read_write()), (4, read_write())),
+            ),
+        );
+        let trample_view = BindGroupLayoutDescriptor::new(
+            "grass_trample_view",
+            &BindGroupLayoutEntries::with_indices(
+                ShaderStages::COMPUTE,
+                (view(), (5, read_write()), (6, read_write())),
             ),
         );
         let dispatch = BindGroupLayoutDescriptor::new(
@@ -144,7 +167,9 @@ impl GrassLayouts {
         let empty = BindGroupLayoutDescriptor::new("grass_empty", &[]);
         Self {
             shared,
-            view,
+            generate_view,
+            args_view,
+            trample_view,
             dispatch,
             draw,
             shadow_view,
@@ -153,8 +178,14 @@ impl GrassLayouts {
     }
 
     /// The layouts of the compute pipeline with entry point `entry`.
+    /// `run_generate` binds the view group that matches.
     pub(crate) fn compute(&self, entry: &str) -> Vec<BindGroupLayoutDescriptor> {
-        let mut layout = vec![self.shared.clone(), self.view.clone()];
+        let view = match entry {
+            "trample_decay" | "trample_stamp" => &self.trample_view,
+            "size_dispatch" | "write_draw_args" => &self.args_view,
+            _ => &self.generate_view,
+        };
+        let mut layout = vec![self.shared.clone(), view.clone()];
         if entry == "size_dispatch" {
             layout.push(self.dispatch.clone());
         }

@@ -102,9 +102,12 @@ pub(crate) fn run_generate(
     let diagnostics = diagnostics.as_deref();
 
     for (mut buffers, groups) in &mut views {
-        let (Some(view_group), Some(dispatch_group)) =
-            (groups.compute.as_ref(), groups.dispatch.as_ref())
-        else {
+        let (Some(generate_group), Some(args_group), Some(trample_group), Some(dispatch_group)) = (
+            groups.generate.as_ref(),
+            groups.args.as_ref(),
+            groups.trample.as_ref(),
+            groups.dispatch.as_ref(),
+        ) else {
             continue;
         };
         let encoder = ctx.command_encoder();
@@ -117,7 +120,7 @@ pub(crate) fn run_generate(
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);
-            pass.set_bind_group(1, view_group, &[]);
+            pass.set_bind_group(1, trample_group, &[]);
             pass.set_pipeline(trample_decay);
             pass.dispatch_workgroups(TRAMPLE_CELLS.div_ceil(64), 1, 1);
             if buffers.interactor_count > 0 {
@@ -134,12 +137,13 @@ pub(crate) fn run_generate(
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);
-            pass.set_bind_group(1, view_group, &[]);
+            pass.set_bind_group(1, generate_group, &[]);
             if shared.chunk_count > 0 {
                 pass.set_pipeline(cull);
                 pass.dispatch_workgroups(shared.chunk_count.div_ceil(64), 1, 1);
             }
             pass.set_pipeline(size_dispatch);
+            pass.set_bind_group(1, args_group, &[]);
             pass.set_bind_group(2, dispatch_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
@@ -152,10 +156,11 @@ pub(crate) fn run_generate(
                 ..Default::default()
             });
             pass.set_bind_group(0, shared_group, &[]);
-            pass.set_bind_group(1, view_group, &[]);
+            pass.set_bind_group(1, generate_group, &[]);
             pass.set_pipeline(generate);
             pass.dispatch_workgroups_indirect(&buffers.dispatch, 0);
             pass.set_pipeline(write_draw_args);
+            pass.set_bind_group(1, args_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
         span.end(encoder);

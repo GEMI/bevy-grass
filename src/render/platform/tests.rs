@@ -13,28 +13,30 @@ fn webgl2_has_no_compute_shaders() {
 
 #[test]
 fn storage_buffers_are_counted_from_the_layouts() {
-    // Group 0 (7) and group 1 (6) of every compute pass, plus group 2 of
-    // `size_dispatch`.
-    assert_eq!(storage_buffers_needed(&GrassLayouts::new()), 14);
+    // `generate`: group 0 (7) and its group 1 (4).
+    assert_eq!(storage_buffers_needed(&GrassLayouts::new()), 11);
 }
 
 #[test]
 fn too_few_storage_buffers_names_both_numbers() {
+    let layouts = GrassLayouts::new();
+    let needed = storage_buffers_needed(&layouts);
     let limits = WgpuLimits {
-        max_storage_buffers_per_shader_stage: 8,
+        max_storage_buffers_per_shader_stage: needed - 1,
         ..WgpuLimits::defaults()
     };
-    let support = check(DownlevelFlags::all(), &limits, &GrassLayouts::new());
+    let support = check(DownlevelFlags::all(), &limits, &layouts);
     assert_eq!(
         support,
         GrassSupport::TooFewStorageBuffers {
-            needed: 14,
-            limit: 8
+            needed,
+            limit: needed - 1
         }
     );
     let message = support.to_string();
     assert!(
-        message.contains("allows 8") && message.contains("binds 14"),
+        message.contains(&format!("allows {}", needed - 1))
+            && message.contains(&format!("binds {needed}")),
         "{message}"
     );
 }
