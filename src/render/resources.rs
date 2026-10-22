@@ -1,5 +1,5 @@
-//! GPU resources shared by every view: the field and chunk tables, masks,
-//! heightmaps, the blue-noise tile, the gust texture, the shared index
+//! GPU resources shared by every view: the field and chunk tables, the scene
+//! buffer (masks, then heightmaps), the blue-noise tile, the gust texture, the shared index
 //! buffer and the per-frame uniform. Uploaded only when the fields change.
 
 use std::sync::Arc;
@@ -25,7 +25,7 @@ pub(crate) use super::extract::{ExtractedGrass, extract_grass};
 use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::edit::PatchList;
-use crate::fields::{ChunkGpu, FieldGpu, FieldTables};
+use crate::fields::{ChunkGpu, FieldGpu, FieldTables, NO_MAP};
 use crate::shader_model::{self, GUST_SIZE, gust_noise};
 use crate::wind::GrassWindFrame;
 
@@ -90,7 +90,7 @@ impl GrassLayouts {
                     uniform_buffer::<FrameUniform>(false),
                     read(),
                     read(),
-                    read(),
+                    // The scene: masks, then heightmaps.
                     read(),
                     read(),
                     texture_2d(TextureSampleType::Float { filterable: true }),
@@ -200,8 +200,9 @@ pub(crate) struct GrassShared {
     pub wind: UniformBuffer<GrassWindFrame>,
     pub fields: StorageBuffer<Vec<FieldGpu>>,
     chunks: StorageBuffer<Vec<ChunkGpu>>,
-    masks: StorageBuffer<Vec<u32>>,
-    heights: StorageBuffer<Vec<f32>>,
+    /// Every mask, then every heightmap as `f32` bits: one storage binding
+    /// for both, so `generate` stays within 10 storage buffers.
+    scene: StorageBuffer<Vec<u32>>,
     tile: Buffer,
     clumps: Buffer,
     tufts: Buffer,
@@ -222,9 +223,9 @@ pub(crate) struct GrassShared {
 
 #[cfg(test)]
 impl GrassShared {
-    /// The mask buffer, for a test to read back.
+    /// The scene buffer, masks first, for a test to read back.
     pub(crate) fn masks_buffer(&self) -> Option<&Buffer> {
-        self.masks.buffer()
+        self.scene.buffer()
     }
 }
 
@@ -303,8 +304,7 @@ pub(crate) fn init_shared(
         wind: UniformBuffer::default(),
         fields: StorageBuffer::default(),
         chunks: StorageBuffer::default(),
-        masks: StorageBuffer::default(),
-        heights: StorageBuffer::default(),
+        scene: StorageBuffer::default(),
         tile,
         clumps,
         tufts,
@@ -320,7 +320,7 @@ pub(crate) fn init_shared(
     };
     // A test reads the masks back to check the edits that reach them.
     #[cfg(test)]
-    shared.masks.add_usages(BufferUsages::COPY_SRC);
+    shared.scene.add_usages(BufferUsages::COPY_SRC);
     upload_tables(&mut shared, &FieldTables::default(), &device, &queue);
     commands.insert_resource(GrassLayouts::new());
     commands.insert_resource(shared);
@@ -343,7 +343,16 @@ fn upload_tables(
     queue: &RenderQueue,
 ) {
     shared.uploaded_version = tables.version;
-    shared.fields.set(non_empty(&tables.fields));
+    // The heightmaps follow the masks in the scene buffer, so on the GPU a
+    // heightmap's offset counts the mask words before it too.
+    let mask_words = tables.masks.len() as u32;
+    let mut fields = non_empty(&tables.fields);
+    for field in &mut fields {
+        if field.placement.w != NO_MAP {
+            field.placement.w += mask_words;
+        }
+    }
+    shared.fields.set(fields);
     shared.fields.write_buffer(device, queue);
     // Showing or hiding a field changes its entries only; the chunks and the
     // images, most of the bytes, stay where they are.
@@ -355,16 +364,22 @@ fn upload_tables(
     shared.chunks.set(non_empty(&tables.chunks));
     shared.chunks.write_buffer(device, queue);
     shared.mask_words = tables.masks.len();
-    shared.masks.set(non_empty(&tables.masks));
-    shared.masks.write_buffer(device, queue);
-    shared.heights.set(non_empty(&tables.heights));
-    shared.heights.write_buffer(device, queue);
+    let mut scene = Vec::with_capacity(tables.masks.len() + tables.heights.len());
+    scene.extend_from_slice(&tables.masks);
+    scene.extend(tables.heights.iter().map(|height| height.to_bits()));
+    if scene.is_empty() {
+        // Storage bindings may not be empty; nothing indexes this word.
+        scene.push(0);
+    }
+    shared.scene.set(scene);
+    shared.scene.write_buffer(device, queue);
 }
 
-/// Writes the rows edits changed into the mask buffer, after the tables, so
-/// they win over masks the tables still hold from before the edit.
+/// Writes the rows edits changed into the masks at the start of the scene
+/// buffer, after the tables, so they win over masks the tables still hold from
+/// before the edit.
 fn write_mask_patches(shared: &GrassShared, patches: &PatchList, queue: &RenderQueue) {
-    let Some(buffer) = shared.masks.buffer() else {
+    let Some(buffer) = shared.scene.buffer() else {
         return;
     };
     let mut words = patches.words.as_slice();
@@ -444,20 +459,11 @@ pub(crate) fn prepare_shared_bind_groups(
         shared.frame.binding(),
         shared.fields.binding(),
         shared.chunks.binding(),
-        shared.masks.binding(),
-        shared.heights.binding(),
+        shared.scene.binding(),
         shared.lods.binding(),
         shared.wind.binding(),
     );
-    if let (
-        Some(frame),
-        Some(fields),
-        Some(chunks),
-        Some(masks),
-        Some(heights),
-        Some(lods),
-        Some(wind),
-    ) = bindings
+    if let (Some(frame), Some(fields), Some(chunks), Some(scene), Some(lods), Some(wind)) = bindings
     {
         groups.compute = Some(device.create_bind_group(
             "grass_shared",
@@ -466,8 +472,7 @@ pub(crate) fn prepare_shared_bind_groups(
                 frame,
                 fields,
                 chunks,
-                masks,
-                heights,
+                scene,
                 shared.tile.as_entire_binding(),
                 &shared.gust_view,
                 &shared.gust_sampler,

@@ -13,8 +13,8 @@ fn webgl2_has_no_compute_shaders() {
 
 #[test]
 fn storage_buffers_are_counted_from_the_layouts() {
-    // `generate`: group 0 (7) and its group 1 (4).
-    assert_eq!(storage_buffers_needed(&GrassLayouts::new()), 11);
+    // `generate`: group 0 (6) and its group 1 (4).
+    assert_eq!(storage_buffers_needed(&GrassLayouts::new()), 10);
 }
 
 #[test]

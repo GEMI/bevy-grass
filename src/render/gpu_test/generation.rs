@@ -108,3 +108,48 @@ fn gpu_blades_grow_on_a_mesh_ground_and_only_on_it() {
         "every blade stands on the ledge, 2 m above the field's 0.5"
     );
 }
+
+/// The heightmaps follow the masks in one GPU buffer: a field with both
+/// reads its heights past the mask words, not the mask itself.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_field_with_a_mask_and_a_heightmap_reads_its_heights() {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension};
+
+    let mut app = headless_app();
+    let ledge = Mesh::from(Plane3d::default().mesh().size(70.0, 50.0))
+        .translated_by(Vec3::new(0.0, 2.0, 0.0));
+    let ledge = app.world_mut().resource_mut::<Assets<Mesh>>().add(ledge);
+    // Full density and height everywhere: as mask words these texels are
+    // all ones, which read as heights would be NaN.
+    let mask = Image::new_fill(
+        Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[255, 255, 0, 255],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::default(),
+    );
+    let mask = app.world_mut().resource_mut::<Assets<Image>>().add(mask);
+    let mut fields = app.world_mut().query::<&mut GrassField>();
+    let mut field = fields.single_mut(app.world_mut()).unwrap();
+    field.ground = GrassGround::mesh(ledge);
+    field.density_map = Some(mask);
+    wait_for_grass(&mut app);
+    for _ in 0..3 {
+        app.update();
+    }
+
+    let tables = app.world().resource::<FieldTables>();
+    assert!(!tables.masks.is_empty() && !tables.heights.is_empty());
+    let roots = gpu_roots(&mut app);
+    assert!(roots.len() > 1_000, "{} blades", roots.len());
+    assert!(
+        roots.iter().all(|root| (root.y - 2.5).abs() < 0.02),
+        "every blade stands on the ground, 2 m above the field's 0.5"
+    );
+}

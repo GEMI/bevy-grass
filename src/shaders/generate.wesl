@@ -29,19 +29,20 @@ const HOLE: f32 = -1e30;
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> fields: array<Field>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
-@group(0) @binding(3) var<storage, read> masks: array<u32>;
-@group(0) @binding(4) var<storage, read> heights: array<f32>;
-@group(0) @binding(5) var<storage, read> tile: array<vec2<f32>>;
-@group(0) @binding(6) var gust_texture: texture_2d<f32>;
-@group(0) @binding(7) var gust_sampler: sampler;
-@group(0) @binding(8) var<uniform> lods: LodTable;
+/// Every mask, two R8G8 texels per word, then every heightmap as `f32` bits.
+/// A field's `placement.w` already counts the mask words.
+@group(0) @binding(3) var<storage, read> scene: array<u32>;
+@group(0) @binding(4) var<storage, read> tile: array<vec2<f32>>;
+@group(0) @binding(5) var gust_texture: texture_2d<f32>;
+@group(0) @binding(6) var gust_sampler: sampler;
+@group(0) @binding(7) var<uniform> lods: LodTable;
 /// `mirror::clump_table`: a clump per 25 cm square of a 64 m tile, four bytes
 /// to a word.
-@group(0) @binding(9) var<storage, read> clumps: array<u32>;
+@group(0) @binding(8) var<storage, read> clumps: array<u32>;
 /// `mirror::tuft_table`: the nearest tuft centre for every quarter of a
 /// tuft spacing of a 64-tuft tile.
-@group(0) @binding(10) var<storage, read> tuft_table: array<u32>;
-@group(0) @binding(11) var<uniform> wind: Wind;
+@group(0) @binding(9) var<storage, read> tuft_table: array<u32>;
+@group(0) @binding(10) var<uniform> wind: Wind;
 
 /// One slice of a visible chunk's candidates: the chunk, the slice's first
 /// candidate and how many it holds. A dense chunk is several slices, so
@@ -269,7 +270,7 @@ fn sample_mask(field: Field, uv: vec2<f32>) -> vec2<f32> {
 
 fn mask_texel(field: Field, x: u32, y: u32) -> vec2<f32> {
     let texel = field.placement.z + y * field.map_sizes.x + x;
-    let half = (masks[texel / 2u] >> ((texel % 2u) * 16u)) & 0xffffu;
+    let half = (scene[texel / 2u] >> ((texel % 2u) * 16u)) & 0xffffu;
     return vec2<f32>(f32(half & 0xffu), f32(half >> 8u)) / 255.0;
 }
 
@@ -285,10 +286,10 @@ fn ground_height(field: Field, local: vec2<f32>) -> f32 {
     let t = fract(p);
     let next = min(base + 1u, size - 1u);
     let row = field.placement.w;
-    let a = heights[row + base.y * size.x + base.x];
-    let b = heights[row + base.y * size.x + next.x];
-    let c = heights[row + next.y * size.x + base.x];
-    let d = heights[row + next.y * size.x + next.x];
+    let a = bitcast<f32>(scene[row + base.y * size.x + base.x]);
+    let b = bitcast<f32>(scene[row + base.y * size.x + next.x]);
+    let c = bitcast<f32>(scene[row + next.y * size.x + base.x]);
+    let d = bitcast<f32>(scene[row + next.y * size.x + next.x]);
     if min(min(a, b), min(c, d)) < HOLE * 0.5 {
         return HOLE;
     }

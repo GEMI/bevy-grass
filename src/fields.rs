@@ -68,7 +68,9 @@ pub(crate) struct FieldGpu {
     pub root_color: Vec4,
     pub tip_color: Vec4,
     /// x: seed, y: tiles per chunk side, z: mask offset, w: heightmap offset
-    /// (offsets in texels; `NO_MAP` when absent).
+    /// (offsets in texels; `NO_MAP` when absent). On the GPU the heightmaps
+    /// follow the masks in one buffer, so the render world adds the masks'
+    /// length in words to `w` when it uploads the table.
     pub placement: UVec4,
     /// Mask width and height, heightmap width and height, in texels.
     pub map_sizes: UVec4,

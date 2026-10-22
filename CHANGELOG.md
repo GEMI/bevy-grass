@@ -33,7 +33,7 @@ start of the span) instead of the `ron` error.
 - On a device that cannot draw grass, the grass pipelines were still created,
   and the wgpu validation error stopped Bevy's renderer. Now grass logs one
   warning saying why and draws nothing, and the rest of the scene renders.
-  Grass binds 11 storage buffers in its busiest shader stage, so a device
+  Grass binds 10 storage buffers in its busiest shader stage, so a device
   that allows fewer gets the warning.
 
 ## 0.20.3 (October 21, 2026)
