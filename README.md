@@ -6,6 +6,13 @@ walkable grass, flowers and seed heads, trampling by characters and by
 [Rapier and Avian](#physics-engines-rapier-and-avian) physics bodies, and
 every blade lit by Bevy's own PBR.
 
+> **New in 0.20.4: grass in the browser.** bevy_grass runs on **WebGPU** as
+> well as natively, with the same shaders and settings: **[try the live
+> demo](https://gemi.github.io/bevy-grass/)**, or start from the
+> [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.4/examples/webgpu_minimal.rs). Supported: Windows (Vulkan,
+> DX12), Linux (Vulkan) and browsers with WebGPU; WebGL2 is not, since grass
+> needs compute shaders. [Platforms](#platforms) has what is tested.
+
 ![A person walks through three presets in turn, WILDFLOWER_MEADOW, RYE_AND_CORNFLOWERS and REED_MARSH, parting the grass, which springs back behind them as the wind rolls through](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.4/docs/images/walk.webp)
 
 ![Eight biome presets in square patches of their own ground, each with its name under it: REED_MARSH in standing water, PAMPAS, ELEPHANT_GRASS, RYE_AND_CORNFLOWERS, COTTON_BOG on dark peat, DUNE_MARRAM on sand, SPINIFEX on red earth and FROSTED_MEADOW on snow](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.4/docs/images/showcase_biomes.jpg)
@@ -29,7 +36,8 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
 - **Works with Rapier and Avian.** Physics bodies flatten the grass in the
   shape of their colliders.
 - **Runs in the browser** through WebGPU, with the same shaders and settings
-  as on native. [Try the demo](https://gemi.github.io/bevy-grass/).
+  as on native. [Try the demo](https://gemi.github.io/bevy-grass/), or read the
+  [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.4/examples/webgpu_minimal.rs).
 - **Editable while the game runs.** Clear paths and plots, mow, burn, grow
   and regrow grass, and read it back on the CPU for stealth and footsteps,
   with no cost per frame while nothing is edited.
@@ -44,6 +52,7 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
 ## Contents
 
 - [Installation](#installation)
+- [Platforms](#platforms)
 - [Quick start](#quick-start)
 - [Physics engines: Rapier and Avian](#physics-engines-rapier-and-avian)
 - [Features](#features)
@@ -79,17 +88,33 @@ Requirements:
   On a device without them, or with fewer than 10 storage buffers per shader
   stage, grass logs one warning and draws nothing, and the `GrassSupport`
   resource says why.
-  Developed and tested on Windows with Vulkan and DX12, and on Linux (X11) with
-  Vulkan on an NVIDIA GPU. Other native platforms should work wherever Bevy runs
-  compute shaders, but have not been tested yet.
-- **In a browser, WebGPU.** Build with Bevy's `webgpu` feature. Tested in
-  Edge and Brave (Chromium 155) on Windows; grass costs more there than
-  natively, so start a tier lower.
-  [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.4/docs/web.md) has the browsers, the
-  limits and the numbers.
 
 Optional cargo features: `rapier` and `avian` (physics bodies trample the
 grass) and `debug` (gizmos showing fields, chunks and interactors).
+
+## Platforms
+
+| Platform | Graphics API | Status |
+| --- | --- | --- |
+| Windows | Vulkan, DX12 | Supported, tested |
+| Linux (X11) | Vulkan | Supported, tested on an NVIDIA GPU |
+| Browsers | **WebGPU** | Supported since 0.20.4, tested in Edge and Brave (Chromium 155) on Windows |
+| macOS and other native platforms | Metal, Vulkan | Expected to work wherever Bevy runs compute shaders; not tested yet |
+| Browsers | WebGL2 | Not supported: grass needs compute shaders |
+
+For the browser, turn on Bevy's `webgpu` feature for wasm:
+
+```toml
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { version = "0.20", features = ["webgpu"] }
+```
+
+[`examples/webgpu_minimal.rs`](https://github.com/GEMI/bevy-grass/blob/v0.20.4/examples/webgpu_minimal.rs) is the quick start
+below, ready for the browser: a canvas that fills the page, a lower quality
+tier on the web, and a message on screen if the device cannot draw grass.
+Grass costs more in a browser than natively on the same GPU, so start a tier
+lower there. [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.4/docs/web.md) has the
+browsers tested, what a device needs, and frame times per tier.
 
 ## Quick start
 
@@ -257,6 +282,7 @@ cargo run --release --example meadow
 | Example | Shows |
 | --- | --- |
 | `minimal` | The quick start: a camera, a light, some ground and a field, in 40 lines |
+| `webgpu_minimal` | The quick start, ready for the browser: `python tools/web_example.py webgpu_minimal` builds it for WebGPU and serves it |
 | `meadow` | A flying camera over a meadow with a density-mask clearing, two styles and `FarGrassMaterial`. F3 shows the debug gizmos; F4 steps through other `GrassSettings` |
 | `walk` | The film at the top of this page: a person walks through three presets (`--styles A,B,C` picks others). `python tools/record_walk.py` records it |
 | `showcase` | The 36 presets on five pages under an ARPG camera, each on its own ground (`--page 1` to `--page 5`) |

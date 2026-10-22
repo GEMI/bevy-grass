@@ -29,6 +29,10 @@ start of the span) instead of the `ron` error.
   published): a meadow with a quality switch, starting at `MEDIUM`, and a
   preset picker. `python tools/web_demo.py` builds it for size, serves it,
   and smoke-tests it in a browser.
+- `examples/webgpu_minimal.rs`: the quick start, ready for the browser
+  (a canvas that fills the page, `LOW` on the web, and a message on screen
+  when `GrassSupport` says the device cannot draw grass). The README has a
+  Platforms section and links it.
 - [docs/web.md](docs/web.md), running in the browser: how to build for
   WebGPU, the browsers tested, what a device needs, the shadow and timing
   caveats, and frame times per tier on the devices measured.

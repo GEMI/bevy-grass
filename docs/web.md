@@ -34,6 +34,12 @@ bevy = { version = "0.20", features = ["webgpu"] }
   64.8 MiB with its function names stripped. [`tools/web_demo.py`](../tools/web_demo.py) does every step and
   is a starting point for a game's own build.
 
+[`examples/webgpu_minimal.rs`](../examples/webgpu_minimal.rs) is the README's
+quick start with these choices made: a canvas that fills the page, `LOW` on
+the web, and a message on screen when the device cannot draw grass.
+`python tools/web_example.py webgpu_minimal` builds it and serves it on
+localhost.
+
 ## Browsers
 
 | Browser | Result |
