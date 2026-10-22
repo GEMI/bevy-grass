@@ -14,16 +14,18 @@ use std::time::Duration;
 use bevy::camera::RenderTarget;
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::*;
-use bevy::render::RenderApp;
 use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
 use bevy::render::render_resource::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, MapMode, TextureFormat,
 };
 use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::render::settings::{WgpuLimits, WgpuSettings};
+use bevy::render::{RenderApp, RenderPlugin};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 
+use super::platform::STORAGE_BUFFER_BUDGET;
 use super::resources::GrassShared;
 use super::view::{GrassViewBuffers, ViewUniformData};
 use crate::GrassPlugin;
@@ -258,6 +260,11 @@ fn headless_app() -> App {
 }
 
 /// [`headless_app`] with the field at `transform`, on `ground`.
+///
+/// The device offers no more storage buffers per shader stage than
+/// `STORAGE_BUFFER_BUDGET`, as most of the devices grass is built for do, so
+/// every GPU test also checks that the pipelines fit it. A limit changes what
+/// wgpu validates, not what the GPU computes.
 fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
     let mut app = App::new();
     app.add_plugins(
@@ -265,6 +272,17 @@ fn headless_app_with(transform: Transform, ground: GrassGround) -> App {
             .set(WindowPlugin {
                 primary_window: None,
                 exit_condition: ExitCondition::DontExit,
+                ..default()
+            })
+            .set(RenderPlugin {
+                render_creation: WgpuSettings {
+                    constrained_limits: Some(WgpuLimits {
+                        max_storage_buffers_per_shader_stage: STORAGE_BUFFER_BUDGET,
+                        ..WgpuLimits::unlimited()
+                    }),
+                    ..default()
+                }
+                .into(),
                 ..default()
             })
             .disable::<WinitPlugin>()

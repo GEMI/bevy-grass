@@ -5,6 +5,7 @@
 //! ```text
 //! cargo run --example golden               # compare; exit code 1 on a mismatch
 //! cargo run --example golden -- --bless    # write the goldens for this renderer
+//! cargo run --example golden -- --max-storage-buffers 10   # as a 10-buffer device
 //! ```
 //!
 //! Goldens are per renderer, because GPUs round differently: CI renders with
@@ -38,6 +39,7 @@ use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{PipelineCache, TextureFormat, TextureUsages};
 use bevy::render::renderer::RenderAdapterInfo;
+use bevy::render::settings::{WgpuLimits, WgpuSettings};
 use bevy::render::{Render, RenderApp, RenderPlugin, RenderSystems};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
@@ -69,7 +71,14 @@ const LOUD: u8 = 16;
 const NOISE: u8 = 1;
 
 fn main() {
-    let bless = std::env::args().any(|arg| arg == "--bless");
+    let args: Vec<String> = std::env::args().collect();
+    let bless = args.iter().any(|arg| arg == "--bless");
+    // The device's storage buffers per shader stage, lowered to what a weaker
+    // device or browser offers: the same images must come out.
+    let max_storage_buffers = args
+        .iter()
+        .position(|arg| arg == "--max-storage-buffers")
+        .and_then(|at| args.get(at + 1)?.parse().ok());
     let ready = PipelinesReady::default();
     let mut app = App::new();
     app.add_plugins(
@@ -80,6 +89,14 @@ fn main() {
                 ..default()
             })
             .set(RenderPlugin {
+                render_creation: WgpuSettings {
+                    constrained_limits: max_storage_buffers.map(|max| WgpuLimits {
+                        max_storage_buffers_per_shader_stage: max,
+                        ..WgpuLimits::unlimited()
+                    }),
+                    ..default()
+                }
+                .into(),
                 // Compile every pipeline the frame it is asked for, so the
                 // capture never catches grass that is not there yet.
                 synchronous_pipeline_compilation: true,

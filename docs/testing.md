@@ -16,6 +16,11 @@
   overflow reporting, trample limits, the way a moving footprint lays the
   grass, and the tunables: the GPU against the CPU mirror at other distances
   and densities, blade rows, wind shaping and orthographic extents.
+- **Storage-buffer budget.** A unit test counts the storage buffers in every
+  grass pipeline's layouts: at most 10 per shader stage, none in the draws'
+  fragment stage. The GPU tests run on a device lowered to 10, and
+  `cargo run --example golden -- --max-storage-buffers 10` renders the
+  goldens on one.
 - **Golden images.** Every preset is rendered headless at a fixed time and
   compared with reference images in `tests/golden/`, on a hardware GPU and on
   two software renderers, WARP (Windows) and llvmpipe (Linux, in CI).

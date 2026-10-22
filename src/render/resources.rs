@@ -143,11 +143,15 @@ impl GrassLayouts {
         );
         let draw = BindGroupLayoutDescriptor::new(
             "grass_draw",
+            // Vertex only, but for the view: the blade's look is worked out
+            // per vertex, and the fragment shaders read only the view. A
+            // fragment-stage storage buffer would add to Bevy's own there.
             &BindGroupLayoutEntries::sequential(
-                ShaderStages::VERTEX_FRAGMENT,
+                ShaderStages::VERTEX,
                 (
                     uniform_buffer::<FrameUniform>(false),
-                    uniform_buffer::<ViewUniformData>(false),
+                    uniform_buffer::<ViewUniformData>(false)
+                        .visibility(ShaderStages::VERTEX_FRAGMENT),
                     read(),
                     read(),
                     // The noise the colour patches come from.

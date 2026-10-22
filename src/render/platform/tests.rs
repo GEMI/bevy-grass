@@ -18,6 +18,19 @@ fn storage_buffers_are_counted_from_the_layouts() {
 }
 
 #[test]
+fn every_pipeline_fits_the_budget_and_draws_read_no_storage_per_fragment() {
+    let layouts = GrassLayouts::new();
+    for entry in compute::ENTRY_POINTS {
+        let count = storage_buffers(&layouts.compute(entry), ShaderStages::COMPUTE);
+        assert!(count <= STORAGE_BUFFER_BUDGET, "{entry} binds {count}");
+    }
+    let draw = core::slice::from_ref(&layouts.draw);
+    assert!(storage_buffers(draw, ShaderStages::VERTEX) <= STORAGE_BUFFER_BUDGET);
+    assert_eq!(storage_buffers(draw, ShaderStages::FRAGMENT), 0);
+    assert!(storage_buffers_needed(&layouts) <= STORAGE_BUFFER_BUDGET);
+}
+
+#[test]
 fn too_few_storage_buffers_names_both_numbers() {
     let layouts = GrassLayouts::new();
     let needed = storage_buffers_needed(&layouts);

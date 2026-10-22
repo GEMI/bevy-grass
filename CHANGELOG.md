@@ -36,6 +36,15 @@ start of the span) instead of the `ron` error.
   Grass binds 10 storage buffers in its busiest shader stage, so a device
   that allows fewer gets the warning.
 
+**Changed**
+
+- Grass fits in 10 storage buffers per shader stage, down from 14, so it
+  draws on devices that offer 10 to 13: most browsers on macOS, Samsung
+  Internet and some of Firefox. No picture changes. Each family of compute
+  passes has its own layout, the masks and heightmaps share one buffer, and
+  the draws bind storage buffers in the vertex stage only (see
+  [docs/rendering.md](docs/rendering.md)).
+
 ## 0.20.3 (October 21, 2026)
 
 Docs only: no API or behaviour changed. The tagline on crates.io and the

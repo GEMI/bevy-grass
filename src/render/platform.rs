@@ -121,6 +121,13 @@ impl fmt::Display for GrassSupport {
     }
 }
 
+/// Storage buffers per shader stage grass is built to fit: what 98% of
+/// WebGPU devices offer, against the spec's floor of 8. The busiest pipeline,
+/// `generate`, binds exactly this many, and a unit test keeps every pipeline
+/// within it. The GPU tests run on a device with no more than this.
+#[cfg(test)]
+pub(crate) const STORAGE_BUFFER_BUDGET: u32 = 10;
+
 /// Decides whether a device with these capabilities and limits can run the
 /// pipelines made from `layouts`.
 pub(crate) fn check(

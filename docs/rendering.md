@@ -50,3 +50,28 @@ Deferred grass matches forward grass closely. It approximates translucency
 less well, and toon bands are forward-only. Thin blades shimmer without
 anti-aliasing; TAA is recommended, and grass supplies exact motion vectors
 for it. The [`passes`](../examples/passes.rs) example shows each path.
+
+## Bind groups and the storage-buffer budget
+
+Every grass pipeline binds at most 10 storage buffers in a shader stage: what
+98% of WebGPU devices offer (the spec promises 8). A device that offers fewer
+draws no grass and logs one warning; `GrassSupport` says why. A unit test keeps
+every pipeline within 10, and the GPU tests run on a device lowered to 10.
+
+| Pipeline | Group 0 | Group 1 | Group 2 | Storage buffers |
+| --- | --- | --- | --- | --- |
+| `cull`, `generate` | fields, chunks, scene, tile, clumps, tufts | view, visible slices, counters, instances, trample cells | none | 10 |
+| `size_dispatch`, `write_draw_args` | the same 6 | view, counters, draw arguments | dispatch arguments (`size_dispatch`) | 9 |
+| `trample_decay`, `trample_stamp` | the same 6 | view, trample cells, interactors | none | 8 |
+| Grass draws | Bevy's view groups | Bevy's | frame, view, instances, fields, noise, wind | 2, in the vertex stage only |
+
+The scene buffer holds every density mask and then every heightmap, so the
+two share one binding. The draws' storage buffers are visible to the vertex
+stage only: the blade's look is worked out per vertex, and the fragment
+shaders read only the grass view uniform, so grass adds nothing to Bevy's own
+fragment-stage storage buffers.
+
+`generate` is exactly at the budget. A feature that needs another buffer
+there has two ways to make room: one buffer for the tile, clump and tuft
+tables (frees 2), or the visible slices at the start of the instance buffer
+(frees 1).

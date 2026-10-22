@@ -179,8 +179,8 @@ PAGE = r"""<!doctype html>
     "maxInterStageShaderVariables"];
   const FEATURES = ["depth-clip-control", "timestamp-query", "indirect-first-instance",
     "float32-filterable"];
-  // What the crate needs today and what the plan targets.
-  const NEEDS_NOW = 14, TARGET = 10;
+  // Storage buffers per shader stage grass needs (STORAGE_BUFFER_BUDGET).
+  const NEEDS = 10;
 
   async function probe() {
     if (!navigator.gpu) { report.adapter = "navigator.gpu missing: no WebGPU here"; return render(); }
@@ -217,10 +217,9 @@ PAGE = r"""<!doctype html>
 
   function render() {
     const storage = report.limits.maxStorageBuffersPerShaderStage;
-    const fit = storage === undefined ? "" : storage >= NEEDS_NOW
-      ? `<span class="ok">fits today's ${NEEDS_NOW}</span>`
-      : storage >= TARGET ? `<span class="bad">below today's ${NEEDS_NOW}, fits the target ${TARGET}</span>`
-      : `<span class="bad">below the target ${TARGET}</span>`;
+    const fit = storage === undefined ? "" : storage >= NEEDS
+      ? `<span class="ok">fits grass's ${NEEDS}</span>`
+      : `<span class="bad">below grass's ${NEEDS}: no grass is drawn</span>`;
     document.getElementById("headline").innerHTML =
       `${report.errors.length} errors, ${report.warnings.length} warnings` +
       (report.frameMs ? `, ${report.frameMs.p50} ms p50` : "");
