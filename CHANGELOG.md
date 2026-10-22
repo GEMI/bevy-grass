@@ -43,7 +43,10 @@ start of the span) instead of the `ron` error.
   Internet and some of Firefox. No picture changes. Each family of compute
   passes has its own layout, the masks and heightmaps share one buffer, and
   the draws bind storage buffers in the vertex stage only (see
-  [docs/rendering.md](docs/rendering.md)).
+  [docs/rendering.md](docs/rendering.md)). Fields whose masks and
+  heightmaps together are larger than one storage binding (128 MiB in
+  WebGPU) log a warning and draw no grass, where before each had a binding
+  of its own.
 
 ## 0.20.3 (October 21, 2026)
 

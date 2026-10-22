@@ -99,7 +99,7 @@ The biggest risk is the browsers' shader compilers. They cannot be tested on des
 | Budget of 10, not 8 | Decided 2026-10-22: 98% of devices report 10 or more | Devices below 10 get one warning and no grass. |
 | `generate` has no spare buffer at 10 | The budget test fails when a feature adds one | One buffer for the three tables (frees 2), or the visible list in the instance buffer (frees 1). |
 | Bevy's own fragment storage with optional features (OIT, clustered decals) | Draw pipelines under `constrained_limits` at 10, with those features on | The draw layout is already vertex-only. Document any Bevy feature that does not fit. |
-| `scene` holds masks and heights in one 128 MiB binding | Bytes in the largest example terrain | Report it through `GrassSettings::problems()`, or split it again if a user hits the limit. |
+| `scene` holds masks and heights in one 128 MiB binding | Bytes in the largest example terrain | Done: the upload checks the sum against the device's limit, and over it logs one warning and draws no grass. Split it again if a user hits the limit. |
 | Long table rebuilds on wasm's single thread | `GrassStats` rebuild time in the browser | Document field-size guidance for the web. |
 | The GPU tests and goldens cannot run in a browser | Constrained native runs stand in for them | A nightly browser smoke test that logs blade counts from `GrassStats`. |
 

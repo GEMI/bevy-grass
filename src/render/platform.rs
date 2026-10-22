@@ -23,7 +23,7 @@ use bevy::render::render_resource::{
 };
 use bevy::render::settings::WgpuLimits;
 
-use super::compute;
+use super::compute::ComputePass;
 use super::resources::GrassLayouts;
 use super::view::MAX_INSTANCE_BYTES;
 
@@ -159,17 +159,28 @@ pub(crate) fn check(
     GrassSupport::Supported
 }
 
+/// The bytes of a scene buffer holding `mask_words` words of masks and
+/// `heights` heights, if that is more than a storage binding of `limit`
+/// bytes holds.
+///
+/// The masks and heightmaps share one binding, so their sum must fit, not
+/// each alone. Unlike the checks above, this depends on the fields, so it is
+/// made each time they are uploaded, not once.
+pub(crate) fn scene_too_large(mask_words: usize, heights: usize, limit: u64) -> Option<u64> {
+    let bytes = (mask_words as u64 + heights as u64) * 4;
+    (bytes > limit).then_some(bytes)
+}
+
 /// The most storage buffers any grass pipeline binds in one shader stage.
 ///
 /// The draws count only the grass group: Bevy's own view groups are the same
 /// for every mesh, and Bevy fits them to the device itself.
 pub(crate) fn storage_buffers_needed(layouts: &GrassLayouts) -> u32 {
-    let compute = compute::ENTRY_POINTS
-        .iter()
-        .map(|entry| storage_buffers(&layouts.compute(entry), ShaderStages::COMPUTE));
+    let compute =
+        ComputePass::ALL.map(|pass| storage_buffers(&layouts.compute(pass), ShaderStages::COMPUTE));
     let draw = [ShaderStages::VERTEX, ShaderStages::FRAGMENT]
         .map(|stage| storage_buffers(core::slice::from_ref(&layouts.draw), stage));
-    compute.chain(draw).max().unwrap_or(0)
+    compute.into_iter().chain(draw).max().unwrap_or(0)
 }
 
 /// Storage buffers that `stage` sees in a pipeline made of `layouts`.

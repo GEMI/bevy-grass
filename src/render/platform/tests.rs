@@ -20,9 +20,9 @@ fn storage_buffers_are_counted_from_the_layouts() {
 #[test]
 fn every_pipeline_fits_the_budget_and_draws_read_no_storage_per_fragment() {
     let layouts = GrassLayouts::new();
-    for entry in compute::ENTRY_POINTS {
-        let count = storage_buffers(&layouts.compute(entry), ShaderStages::COMPUTE);
-        assert!(count <= STORAGE_BUFFER_BUDGET, "{entry} binds {count}");
+    for pass in ComputePass::ALL {
+        let count = storage_buffers(&layouts.compute(pass), ShaderStages::COMPUTE);
+        assert!(count <= STORAGE_BUFFER_BUDGET, "{pass:?} binds {count}");
     }
     let draw = core::slice::from_ref(&layouts.draw);
     assert!(storage_buffers(draw, ShaderStages::VERTEX) <= STORAGE_BUFFER_BUDGET);
@@ -79,4 +79,27 @@ fn small_storage_bindings_are_refused() {
             limit: 64 << 20
         }
     );
+}
+
+#[test]
+fn masks_and_heightmaps_must_fit_one_binding_together() {
+    let limit = 128 << 20;
+    let half = (limit / 4 / 2) as usize;
+    // Each alone fits, as each did in a binding of its own.
+    assert_eq!(scene_too_large(half + 1, 0, limit), None);
+    assert_eq!(scene_too_large(0, half + 1, limit), None);
+    assert_eq!(scene_too_large(half, half, limit), None);
+    assert_eq!(
+        scene_too_large(half + 1, half, limit),
+        Some(limit + 4),
+        "together they are one word over"
+    );
+}
+
+#[test]
+fn every_compute_pass_is_listed_once_in_order() {
+    // `GeneratePipelines` is indexed by `pass as usize`.
+    for (index, pass) in ComputePass::ALL.into_iter().enumerate() {
+        assert_eq!(pass as usize, index, "{pass:?}");
+    }
 }

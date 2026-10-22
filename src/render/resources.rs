@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use bevy::asset::Handle;
 use bevy::ecs::prelude::*;
+use bevy::log::warn;
 use bevy::math::{UVec4, Vec2};
 use bevy::render::render_resource::binding_types::{
     sampler, storage_buffer_read_only_sized, storage_buffer_sized, texture_2d, uniform_buffer,
@@ -21,7 +22,9 @@ use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::view::{ViewUniform, ViewUniforms};
 use bevy::shader::Shader;
 
+use super::compute::ComputePass;
 pub(crate) use super::extract::{ExtractedGrass, extract_grass};
+use super::platform;
 use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::edit::PatchList;
@@ -181,16 +184,16 @@ impl GrassLayouts {
         }
     }
 
-    /// The layouts of the compute pipeline with entry point `entry`.
-    /// `run_generate` binds the view group that matches.
-    pub(crate) fn compute(&self, entry: &str) -> Vec<BindGroupLayoutDescriptor> {
-        let view = match entry {
-            "trample_decay" | "trample_stamp" => &self.trample_view,
-            "size_dispatch" | "write_draw_args" => &self.args_view,
-            _ => &self.generate_view,
+    /// The layouts of the compute pipeline for `pass`. `run_generate` binds
+    /// the view group that matches.
+    pub(crate) fn compute(&self, pass: ComputePass) -> Vec<BindGroupLayoutDescriptor> {
+        let view = match pass {
+            ComputePass::TrampleDecay | ComputePass::TrampleStamp => &self.trample_view,
+            ComputePass::SizeDispatch | ComputePass::WriteDrawArgs => &self.args_view,
+            ComputePass::Cull | ComputePass::Generate => &self.generate_view,
         };
         let mut layout = vec![self.shared.clone(), view.clone()];
-        if entry == "size_dispatch" {
+        if pass == ComputePass::SizeDispatch {
             layout.push(self.dispatch.clone());
         }
         layout
@@ -364,6 +367,22 @@ fn upload_tables(
         return;
     }
     shared.uploaded_structure = tables.structure_version;
+    // A binding larger than the device allows is a validation error that
+    // stops Bevy's renderer, so a scene that does not fit draws no grass.
+    let limit = device.limits().max_storage_buffer_binding_size;
+    if let Some(bytes) = platform::scene_too_large(tables.masks.len(), tables.heights.len(), limit)
+    {
+        warn!(
+            "bevy_grass: the density masks and heightmaps of every GrassField take {bytes} \
+             bytes together, and a storage binding on this GPU holds {limit}; no grass is \
+             drawn. Use fewer or smaller masks and heightmaps."
+        );
+        shared.chunk_count = 0;
+        shared.mask_words = 0;
+        shared.scene.set(vec![0]);
+        shared.scene.write_buffer(device, queue);
+        return;
+    }
     shared.chunk_count = tables.chunks.len() as u32;
     shared.chunks.set(non_empty(&tables.chunks));
     shared.chunks.write_buffer(device, queue);

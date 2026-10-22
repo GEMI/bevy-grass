@@ -66,8 +66,13 @@ every pipeline within 10, and the GPU tests run on a device lowered to 10.
 | Grass draws | Bevy's view groups | Bevy's | frame, view, instances, fields, noise, wind | 2, in the vertex stage only |
 
 The scene buffer holds every density mask and then every heightmap, so the
-two share one binding. The draws' storage buffers are visible to the vertex
-stage only: the blade's look is worked out per vertex, and the fragment
+two share one binding, and together they must fit the device's largest
+storage binding (at least 128 MiB on a WebGPU device). If they do not,
+grass logs one warning and draws nothing until the fields shrink. A 4096 ×
+4096 heightmap is 64 MiB, and a mask of that size 32 MiB.
+
+The draws' storage buffers are visible to the vertex stage only: the
+blade's look is worked out per vertex, and the fragment
 shaders read only the grass view uniform, so grass adds nothing to Bevy's own
 fragment-stage storage buffers.
 

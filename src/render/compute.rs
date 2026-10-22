@@ -16,29 +16,61 @@ use super::resources::{GrassLayouts, GrassShaders, GrassShared, GrassSharedBindG
 use super::view::{GrassViewBindGroups, GrassViewBuffers};
 use crate::trample;
 
-/// Every compute pipeline's entry point, in `generate.wesl` and `trample.wesl`.
-pub(crate) const ENTRY_POINTS: [&str; 6] = [
-    "trample_decay",
-    "trample_stamp",
-    "cull",
-    "size_dispatch",
-    "generate",
-    "write_draw_args",
-];
+/// A compute pipeline: one entry point in `trample.wesl` or `generate.wesl`.
+///
+/// The one list of them: the pipelines, their layouts and the storage-buffer
+/// check are all made from [`ComputePass::ALL`], so none can miss a pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComputePass {
+    TrampleDecay,
+    TrampleStamp,
+    Cull,
+    SizeDispatch,
+    Generate,
+    WriteDrawArgs,
+}
+
+impl ComputePass {
+    /// Every pass, in declaration order, so `pass as usize` indexes it.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::TrampleDecay,
+        Self::TrampleStamp,
+        Self::Cull,
+        Self::SizeDispatch,
+        Self::Generate,
+        Self::WriteDrawArgs,
+    ];
+
+    /// The entry point's name in the shader.
+    pub(crate) fn entry_point(self) -> &'static str {
+        // No wildcard: a new pass stops the build here. Add it to `ALL` too,
+        // or it gets no pipeline and the storage-buffer check misses it.
+        match self {
+            Self::TrampleDecay => "trample_decay",
+            Self::TrampleStamp => "trample_stamp",
+            Self::Cull => "cull",
+            Self::SizeDispatch => "size_dispatch",
+            Self::Generate => "generate",
+            Self::WriteDrawArgs => "write_draw_args",
+        }
+    }
+
+    /// Whether the entry point is in `trample.wesl` rather than
+    /// `generate.wesl`.
+    fn is_trample(self) -> bool {
+        match self {
+            Self::TrampleDecay | Self::TrampleStamp => true,
+            Self::Cull | Self::SizeDispatch | Self::Generate | Self::WriteDrawArgs => false,
+        }
+    }
+}
 
 /// Cells in a trample window.
 const TRAMPLE_CELLS: u32 = (trample::TEXELS * trample::TEXELS) as u32;
 
-/// The compute pipelines, one per entry point.
+/// The compute pipelines, one per pass, in the order of [`ComputePass::ALL`].
 #[derive(Resource, Debug)]
-pub(crate) struct GeneratePipelines {
-    trample_decay: CachedComputePipelineId,
-    trample_stamp: CachedComputePipelineId,
-    cull: CachedComputePipelineId,
-    size_dispatch: CachedComputePipelineId,
-    generate: CachedComputePipelineId,
-    write_draw_args: CachedComputePipelineId,
-}
+pub(crate) struct GeneratePipelines([CachedComputePipelineId; ComputePass::ALL.len()]);
 
 pub(crate) fn init_generate_pipelines(
     mut commands: Commands,
@@ -46,11 +78,12 @@ pub(crate) fn init_generate_pipelines(
     layouts: Res<GrassLayouts>,
     shaders: Res<GrassShaders>,
 ) {
-    let queue = |entry: &'static str| {
+    let queue = |pass: ComputePass| {
+        let entry = pass.entry_point();
         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: Some(format!("grass_{entry}").into()),
-            layout: layouts.compute(entry),
-            shader: if entry.starts_with("trample") {
+            layout: layouts.compute(pass),
+            shader: if pass.is_trample() {
                 shaders.trample.clone()
             } else {
                 shaders.generate.clone()
@@ -59,14 +92,7 @@ pub(crate) fn init_generate_pipelines(
             ..Default::default()
         })
     };
-    commands.insert_resource(GeneratePipelines {
-        trample_decay: queue("trample_decay"),
-        trample_stamp: queue("trample_stamp"),
-        cull: queue("cull"),
-        size_dispatch: queue("size_dispatch"),
-        generate: queue("generate"),
-        write_draw_args: queue("write_draw_args"),
-    });
+    commands.insert_resource(GeneratePipelines(ComputePass::ALL.map(queue)));
 }
 
 /// Records every grass view's compute passes.
@@ -78,6 +104,7 @@ pub(crate) fn run_generate(
     shared_groups: Res<GrassSharedBindGroups>,
     mut views: Query<(&mut GrassViewBuffers, &GrassViewBindGroups)>,
 ) {
+    let get = |pass: ComputePass| pipeline_cache.get_compute_pipeline(pipelines.0[pass as usize]);
     let (
         Some(trample_decay),
         Some(trample_stamp),
@@ -87,12 +114,12 @@ pub(crate) fn run_generate(
         Some(write_draw_args),
         Some(shared_group),
     ) = (
-        pipeline_cache.get_compute_pipeline(pipelines.trample_decay),
-        pipeline_cache.get_compute_pipeline(pipelines.trample_stamp),
-        pipeline_cache.get_compute_pipeline(pipelines.cull),
-        pipeline_cache.get_compute_pipeline(pipelines.size_dispatch),
-        pipeline_cache.get_compute_pipeline(pipelines.generate),
-        pipeline_cache.get_compute_pipeline(pipelines.write_draw_args),
+        get(ComputePass::TrampleDecay),
+        get(ComputePass::TrampleStamp),
+        get(ComputePass::Cull),
+        get(ComputePass::SizeDispatch),
+        get(ComputePass::Generate),
+        get(ComputePass::WriteDrawArgs),
         shared_groups.compute.as_ref(),
     )
     else {
