@@ -20,6 +20,7 @@ exclude = [
   "/shots/",
   "/tests/golden/",
   "/tools/",
+  "/webgpu-plan.md",
 ]
 
 # Any Bevy 0.20.x (patch releases do not break the render internals this crate
