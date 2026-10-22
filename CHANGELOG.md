@@ -3,12 +3,16 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## 0.20.4 (October 22, 2026)
+## 0.20.5 (October 22, 2026)
 
 Grass in the browser: it draws through WebGPU, in 10 storage buffers per
 shader stage, and a device that cannot draw it gets one warning instead of a
 stopped renderer. A [web demo](https://gemi.github.io/bevy-grass/) and
-[docs/web.md](docs/web.md) come with it.
+[docs/web.md](docs/web.md) come with it. Tested in Chrome, Edge and Brave on
+Windows and in Chrome on macOS, and natively on macOS (Metal). Safari 27
+cannot run Bevy 0.20's standard material yet, with or without grass
+([docs/web.md](docs/web.md#safari)). 0.20.4 was not published; its changes
+are in this release.
 
 **Breaking, and what to write instead**
 
@@ -23,8 +27,7 @@ start of the span) instead of the `ron` error.
 
 - The examples build for the browser (`wasm32-unknown-unknown`, WebGPU):
   `python tools/web_example.py` builds and serves them, and CI checks the
-  wasm build. Browser support itself is not finished; see
-  [docs/testing.md](docs/testing.md).
+  wasm build. [docs/web.md](docs/web.md) lists the browsers tested.
 - A web demo for GitHub Pages (`web/`, a package of its own that is not
   published): a meadow with a quality switch, starting at `MEDIUM`, and a
   preset picker. `python tools/web_demo.py` builds it for size, serves it,
@@ -41,6 +44,8 @@ start of the span) instead of the `ron` error.
   buffers in the vertex shader; too few storage buffers per shader stage; too
   small a storage binding). Decided once when the renderer starts.
 - The examples' `--no-grass` flag: the same scene without grass.
+- The web demo's and examples' pages log each shader a browser rejects, with
+  the compiler's reason and line.
 - The examples' `--max-storage-buffers N` flag: ask the GPU for at most N
   storage buffers per shader stage, as a weaker device or browser offers.
 

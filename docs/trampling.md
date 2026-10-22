@@ -80,7 +80,7 @@ the footprint from the collider. Turn on the feature for your engine:
 | Rapier | `rapier` | `bevy_rapier3d` 0.37 |
 
 ```toml
-bevy_grass = { version = "0.20.4", features = ["avian"] } # or "rapier"
+bevy_grass = { version = "0.20.5", features = ["avian"] } # or "rapier"
 ```
 
 Then put the component next to a collider:

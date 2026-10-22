@@ -21,26 +21,26 @@ of its release**. The port comes first, whatever else is in progress.
 
 In order:
 
-1. **Distribution.** A crates.io release with docs.rs documentation, so
-   installing is one line without a git URL. Listed on Bevy Assets and
-   awesome-bevy. Contributor files: CONTRIBUTING, issue templates and
-   good-first-issue labels.
+1. **Distribution.** bevy_grass is on crates.io. Next: listings on Bevy
+   Assets and awesome-bevy, and contributor files: CONTRIBUTING, issue
+   templates and good-first-issue labels.
 2. **1.0.** Freeze the API, with the performance gate held.
 
 ## Done
 
-- **Browser builds** (0.20.4): grass runs in browsers through WebGPU, in 10
+- **Browser builds** (0.20.5): grass runs in browsers through WebGPU, in 10
   storage buffers per shader stage, with a hosted demo and a wasm build in
-  CI. WebGL2 stays unsupported: grass needs compute shaders. See
+  CI. WebGL2 stays unsupported: grass needs compute shaders. Safari waits on
+  Bevy: it rejects a shader in Bevy 0.20's standard material. See
   [Running in the browser](web.md).
-- **Runtime editing and queries** (unreleased): clear, paint, mow and
+- **Runtime editing and queries** (0.20.2): clear, paint, mow and
   restore grass through the density mask, brushes that edit as they move,
   regrowth, and density and height at any point on the CPU. See
   [Editing and reading the grass](editing.md).
 
-- **Rotated fields** (unreleased): a field follows its transform's rotation about
+- **Rotated fields** (0.20.2): a field follows its transform's rotation about
   Y.
-- **Mesh terrain** (unreleased): `GrassGround::Mesh` bakes a mesh into a
+- **Mesh terrain** (0.20.2): `GrassGround::Mesh` bakes a mesh into a
   heightmap on the CPU, once, so grass grows on terrain that is not a
   heightmap. See [Fields, terrain and visibility](terrain.md#grow-grass-on-a-mesh).
 - **Rapier and Avian** (0.20.2): physics bodies trample the grass in the

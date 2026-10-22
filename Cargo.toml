@@ -1,7 +1,7 @@
 [package]
 name = "bevy_grass"
 description = "Grass and foliage for Bevy 3D games: lush fields that sway in the wind and bend where players walk."
-version = "0.20.4"
+version = "0.20.5"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
@@ -21,7 +21,6 @@ exclude = [
   "/tests/golden/",
   "/tools/",
   "/web/",
-  "/webgpu-plan.md",
 ]
 
 # The hosted web demo (`web/`) is the only other package. A plain `cargo`

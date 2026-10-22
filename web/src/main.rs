@@ -3,7 +3,7 @@
 //!
 //! It starts at `GrassSettings::MEDIUM`, not the native default `HIGH`:
 //! grass has measured many times dearer in a browser than natively on the
-//! same GPU, for reasons not yet known (see `webgpu-plan.md`). The page switches the tier and the preset; natively, 1
+//! same GPU, for reasons not yet known (see `docs/web.md`). The page switches the tier and the preset; natively, 1
 //! to 4 pick the tier and `[` and `]` step through the presets. WASD and the
 //! mouse fly the camera (hold the right button, or press M, to look).
 //!

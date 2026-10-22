@@ -47,13 +47,35 @@ localhost.
 | Edge 155, Windows (Intel UHD Graphics, Xe) | Draws: wind, shadows, trampling, far grass. No errors. |
 | Brave 1.97 (Chromium 155), Windows (NVIDIA T1200) | Draws, at every quality tier. No errors. |
 | Chrome 147, Windows | Fails: the browser rejects every indirect dispatch ("ImmediateAddressSpace feature is not enabled"). A browser bug, gone in Chromium 155. |
-| Chrome and Safari on macOS, Firefox, Chrome on Android | Not tested yet. |
+| Chrome 151, macOS 26.6 (Apple M2 Pro) | Draws, at every quality tier, in the 10 storage buffers per stage it offers. No errors. |
+| Safari 27, macOS 26.6 (Apple M2 Pro) | Fails before grass draws: Safari rejects a shader in Bevy 0.20's standard material. See [Safari](#safari). |
+| Firefox, Chrome on Android | Not tested yet. |
 
 To test a browser, run `python tools/web_demo.py serve` and open
 `http://localhost:8080/?smoke`: the page steps through every quality tier and
 posts a report of the adapter, its limits, blade counts, frame times and any
-error back to the terminal. [Testing](testing.md) has the details, and how to
-reach a phone over USB.
+error back to the terminal. When a browser rejects a shader, the page logs
+the compiler's reason with the line, and keeps the shader's source in
+`rejectedShaders` to copy from the console. [Testing](testing.md) has the
+details, and how to reach a phone over USB.
+
+### Safari
+
+Safari 27 cannot run Bevy 0.20's standard material, so a Bevy 0.20 scene
+that uses it stops rendering there, with grass or without. Bevy's PBR
+shader (`pbr_fragment.wesl`) puts material textures in `let` declarations
+(`let texture = pbr_bindings::base_color_texture;`). That needs the WGSL
+language feature `texture_and_sampler_let`, which Chrome has and Safari 27
+does not, so Safari rejects the shader ("'texture_2d<f32>' cannot be used as
+the type of a 'let'") and Bevy stops on the validation error. Every
+`StandardMaterial` mesh with UVs is affected, and so is `FarGrassMaterial`,
+which builds on it.
+
+bevy_grass cannot fix this from outside Bevy: Bevy's shader has to change,
+or Safari has to add the feature. Grass's own shaders do not use it, but
+they have not been seen in Safari yet. iPhones and iPads run the same
+WebKit engine, so they are expected to fail the same way; they are not
+tested.
 
 ## What a device needs
 

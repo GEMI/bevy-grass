@@ -1,5 +1,9 @@
 # bevy_grass WebGPU/WASM migration plan
 
+Status: implemented in 0.20.5. Kept as the record of how and why: each
+phase's measurements and the browsers tried. What a game needs today is in
+[Running in the browser](../web.md).
+
 Oct 22, 2026 · @Gediminas
 
 ## Verdict
@@ -51,7 +55,7 @@ The refactor itself needs no public API break. Every change is in how data is pa
 
 Five phases, about 1.5 to 2 weeks for one developer. The budget is 10 storage buffers per stage, and devices below 10 get a warning and no grass. Phases 0 and 1 can ship on their own as a patch release.
 
-1. **Phase 0: spike on today's code (1 to 2 days).** ✅ **Done** (`954a22a`; [results](#phase-0-results-2026-10-22-branch-webgpu-phase0)). Open: recordings on macOS, Firefox and Android, and the ~22 ms browser grass cost on the Intel GPU.
+1. **Phase 0: spike on today's code (1 to 2 days).** ✅ **Done** (`954a22a`; [results](#phase-0-results-2026-10-22-branch-webgpu-phase0)). Open: recordings on Firefox and Android, and the ~22 ms browser grass cost on the Intel GPU.
    - Turn on `file_watcher` only for native targets (`[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`), and `bevy/webgpu` only for wasm. Then the existing examples build for the browser.
    - Add the CI job `cargo check --target wasm32-unknown-unknown --lib --examples`.
    - Run `minimal` and `meadow` with `wasm-server-runner` in Chrome and Edge on Windows, Chrome and Safari on macOS, Firefox, and Chrome on Android. For each, record `maxStorageBuffersPerShaderStage`, console errors, shader compiler errors and frame time.
@@ -60,22 +64,22 @@ Five phases, about 1.5 to 2 weeks for one developer. The budget is 10 storage bu
    - Add `src/render/platform.rs`. It works out the storage buffers each pipeline needs from `GrassLayouts`, not from a hardcoded number, and checks for compute support and the binding sizes the tables need.
    - If the device falls short, skip queueing the grass pipelines, warn once (`bevy_grass: ...`) and report it in `GrassStats`. The warning names the limit the device reports and the 10 the crate needs.
    - Exit: a native run with `constrained_limits` at 8, and a WebGL2 build, each log one warning, show no grass and raise no wgpu error.
-3. **Phase 2: fit every pipeline into 10 (2 to 3 days).** ✅ **Done** (`955e9b0`, `a5f046c`, `266c855`; [results](#phase-2-results-2026-10-22-branch-webgpu-phase0)). Open: a check on a real 10-buffer browser. Commit and benchmark each step on its own:
+3. **Phase 2: fit every pipeline into 10 (2 to 3 days).** ✅ **Done** (`955e9b0`, `a5f046c`, `266c855`; [results](#phase-2-results-2026-10-22-branch-webgpu-phase0)). A real 10-buffer browser, Chrome 151 on a Mac, passes ([results](#macos-results-2026-10-22)). Commit and benchmark each step on its own:
    - Give each group of passes its own group-1 layout (table below). This brings every pipeline except `generate` to 10 or fewer, with no change to the data.
    - Merge masks and heights into one `scene` buffer, and add the mask length to `placement.w` when packing. This brings `generate` from 11 to 10.
    - Make the draw layout's storage `VERTEX` only, and its noise texture and sampler too. Keep `grass_view` at `VERTEX_FRAGMENT`.
    - Add a unit test that counts storage entries in each pipeline's combined layout: at most 10 per stage, and none in the fragment stage of the draw layout. One named constant holds the 10, for this test and for the phase 1 guard.
    - No table textures. Tile, clumps and tufts stay as they are.
    - Exit: `cargo test`, `cargo test -- --ignored gpu` and the goldens pass with `constrained_limits` at 10 and with the adapter's own limits. The goldens show no pixel changes. `tools/bench_ab.py` stays within the user's current bar (3% as of 2026-10-15) at p50 and p95, in both scenes.
-4. **Phase 3: web demo and CI (2 to 3 days).** ✅ **Done on Windows** ([results](#phase-3-results-2026-10-22-branch-webgpu-phase0)). Open: the smoke test on macOS (Chrome and Safari), Firefox and Android, and a first deploy to GitHub Pages.
+4. **Phase 3: web demo and CI (2 to 3 days).** ✅ **Done on Windows** ([results](#phase-3-results-2026-10-22-branch-webgpu-phase0)). macOS done ([results](#macos-results-2026-10-22)). Open: the smoke test on Firefox and Android, and a first deploy to GitHub Pages.
    - Add a `web/` package for the hosted demo (built with `wasm-bindgen`, plus `index.html`, deployed to GitHub Pages), and add `/web/` to `exclude`.
    - Start the demo at `GrassSettings::MEDIUM`, with a quality switch.
    - Run the browser smoke test by hand or nightly. Hosted CI keeps only the wasm compile check.
    - Exit: the demo runs without console errors in each browser from phase 0, including on Macs that report 10.
-5. **Phase 4: docs and release (1 to 2 days).** ✅ **Docs done; release prepared as 0.20.4** ([results](#phase-4-results-2026-10-22-branch-webgpu-phase0)). Open: merge, tag and publish.
+5. **Phase 4: docs and release (1 to 2 days).** ✅ **Done: released as 0.20.5** ([results](#phase-4-results-2026-10-22-branch-webgpu-phase0)).
    - Add `docs/web.md`: supported browsers, no WebGL2, the 10-buffer budget and the warning below it, binding sizes, the shadow caveat, the timestamp caveat and a performance tier per device class.
    - Update `rendering.md` (the layout table), `testing.md` (the constrained-limits run), `roadmap.md`, the README and `CHANGELOG.md`.
-   - Release as 0.21.0. The budget limits what future features can add, even though no public item changes. Changed to 0.20.4 (decided 2026-10-22): `docs/roadmap.md` keeps 0.21 for Bevy 0.21, and patch releases have carried breaking changes before (0.20.1).
+   - Release as 0.21.0. The budget limits what future features can add, even though no public item changes. Changed to a patch release (decided 2026-10-22), 0.20.5 in the end; 0.20.4 was prepared but not published. `docs/roadmap.md` keeps 0.21 for Bevy 0.21, and patch releases have carried breaking changes before (0.20.1).
 
 Target layout, counting storage buffers per pipeline:
 
@@ -189,7 +193,7 @@ Exit checks:
 | `meadow --max-storage-buffers 10`, native | Grass, no warning, no error |
 | `tools/bench_ab.py`, 4 rounds, both scenes, p50 and p95 | Within the 3% bar; largest +2.4% (C, p95, ARPG camera) |
 
-Not yet checked: a real 10-buffer browser (Chrome on a Mac). The browser grass cost on the Intel GPU (Phase 0) is still open.
+A real 10-buffer browser, Chrome 151 on a Mac, passes ([results](#macos-results-2026-10-22)). The browser grass cost on the Intel GPU (Phase 0) is still open.
 
 ## Phase 3 results (2026-10-22, branch `webgpu-phase0`)
 
@@ -216,11 +220,32 @@ Found on the way: Bevy logs every level through `console.log` on wasm, so the ph
 
 Still to do:
 
-- [ ] Smoke on Chrome and Safari on macOS (a real 10-buffer device), Firefox, and Chrome on Android: `python tools/web_demo.py serve`, then open `?smoke`.
+- [x] Smoke on Chrome and Safari on macOS ([results](#macos-results-2026-10-22)).
+- [ ] Smoke on Firefox and Chrome on Android: `python tools/web_demo.py serve`, then open `?smoke`.
 - [ ] Set Pages to "GitHub Actions", push, and run the "Web demo" workflow once. Then add the demo's address to the README in phase 4.
 
 ## Phase 4 results (2026-10-22, branch `webgpu-phase0`)
 
 - `docs/web.md` is new: how to build a game for WebGPU, the browsers tested, what a device needs (the 10-buffer budget, the blade binding and the shared mask and heightmap binding, each with the `GrassSupport` value or warning it gives), the shadow caveat (`depth-clip-control`), the timing caveat (Bevy's per-pass GPU timestamps are written in the encoder, which WebGPU does not allow), and frame time per tier on the two GPUs measured. Its tier advice: on an integrated GPU only `LOW` holds 60 Hz in a full window.
 - The README lists the browser and the demo, and links the page. `rendering.md` already had the layout table and `testing.md` the constrained-limits run (phase 2); both now link to `web.md`, as does `GrassSupport`'s row in `api.md`. `roadmap.md` moves browser builds to Done.
-- Release: 0.20.4, not 0.21.0, as above. The demo's address (`https://gemi.github.io/bevy-grass/`) is in the README and `web.md`; it serves once Pages is set to "GitHub Actions" and the `v0.20.4` tag runs `pages.yml`.
+- Release: 0.20.5, not 0.21.0, as above. The demo's address (`https://gemi.github.io/bevy-grass/`) is in the README and `web.md`; it serves once Pages is set to "GitHub Actions" and the `v0.20.5` tag runs `pages.yml`.
+
+## macOS results (2026-10-22)
+
+On an Apple M2 Pro, macOS 26.6:
+
+- Natively on Metal, `cargo test` (211 unit tests, 32 doctests) and the GPU
+  suite (21 tests) pass. The goldens render every preset; against the WARP
+  references the mean PSNR is 40.5 dB, the lowest 29.14 dB
+  (`elephant_grass`).
+- Chrome 151 passes the demo's smoke test at every tier. It offers exactly
+  10 storage buffers per stage: the real 10-buffer device phase 2 was for.
+- Safari 27 offers 44, but stops rendering with "Fragment module is
+  invalid". With `?max-storage-buffers=9` grass is off and the error stays,
+  so it is not a grass pipeline. The pages now log the compiler's own
+  message: "'texture_2d<f32>' cannot be used as the type of a 'let'", on
+  `let texture = pbr_bindings::base_color_texture;` in Bevy 0.20's
+  `pbr_fragment.wesl`. Safari 27 lacks the WGSL feature
+  `texture_and_sampler_let`, so every `StandardMaterial` mesh with UVs fails
+  there, and `FarGrassMaterial` with it. That is Bevy's to fix, or Safari's;
+  [Running in the browser](../web.md#safari) says so.
