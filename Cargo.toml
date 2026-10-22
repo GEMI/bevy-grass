@@ -14,7 +14,9 @@ categories = ["game-development", "rendering"]
 # 10 MB limit with the rest), and the project's own bookkeeping. The preset
 # files in assets/ stay: the crate embeds them.
 exclude = [
+  "/.claude/",
   "/.github/",
+  "/.pi/",
   "/docs/",
   "/notes/",
   "/shots/",
