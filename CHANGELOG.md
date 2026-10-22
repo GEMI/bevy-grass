@@ -14,6 +14,14 @@ and why. Match `Parse { message, .. }` instead of `Parse(error)`, and read
 `message` or the error's `Display` (unchanged apart from showing only the
 start of the span) instead of the `ron` error.
 
+**Added**
+
+- The examples build for the browser (`wasm32-unknown-unknown`, WebGPU):
+  `python tools/web_example.py` builds and serves them, and CI checks the
+  wasm build. Browser support itself is not finished; see
+  [docs/testing.md](docs/testing.md).
+- The examples' `--no-grass` flag: the same scene without grass.
+
 ## 0.20.3 (October 21, 2026)
 
 Docs only: no API or behaviour changed. The tagline on crates.io and the

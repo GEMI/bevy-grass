@@ -25,5 +25,12 @@
   It is manual or nightly on self-hosted GPUs, because hosted CI runners
   cannot enforce frame times; see
   [The 240 Hz gate](performance.md#the-240-hz-gate).
+- **Browser (WebGPU).** CI checks that the library and examples build for
+  `wasm32-unknown-unknown`; it cannot run them, because hosted runners have
+  no WebGPU. `python tools/web_example.py` builds `minimal` and `meadow`
+  (or the examples named) and serves them on localhost. Each page shows a
+  report of the browser's limits, its errors and the frame time, with a
+  button that copies it as JSON. The examples' flags go in the query string:
+  `meadow/?no-grass` is the same scene without grass.
 - **Lints.** `unsafe_code` is forbidden; clippy's pedantic set and rustdoc's
   missing-docs check pass.

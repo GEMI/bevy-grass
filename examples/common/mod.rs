@@ -13,6 +13,11 @@
 //! * `--record DIR` saves every second frame of the last `--record-frames`
 //!   (default 600) before `--frames` as numbered PNGs in `DIR`: with
 //!   `--fixed-time`, 30 frames for each second of game time, for a video.
+//! * `--no-grass` puts `NoGrass` on every camera: the same scene without
+//!   grass, for what grass costs on a machine or in a browser.
+//!
+//! In a browser the flags come from the page's query string instead:
+//! `?perf&no-grass` is `--perf --no-grass`.
 //!
 //! Any other `--flag` is kept for the example itself (`ExampleArgs::has`).
 
@@ -33,6 +38,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::render::{ExtractSchedule, Render, RenderApp};
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::{PresentMode, WindowResolution};
+use bevy_grass::NoGrass;
 
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct ExampleArgs {
@@ -51,7 +57,7 @@ pub(crate) struct ExampleArgs {
 impl ExampleArgs {
     pub(crate) fn parse() -> Self {
         let mut args = Self::default();
-        let mut it = std::env::args().skip(1);
+        let mut it = command_line();
         while let Some(arg) = it.next() {
             match arg.as_str() {
                 "--frames" => args.frames = it.next().and_then(|v| v.parse().ok()),
@@ -98,6 +104,9 @@ impl ExampleArgs {
     /// measuring, plus the requested measurement plugins.
     pub(crate) fn install(self, app: &mut App, title: &str) {
         let measuring = self.frames.is_some();
+        // In a browser the page sizes the canvas and assets are fetched from
+        // `assets/` next to it (`tools/web_example.py` puts them there).
+        let web = cfg!(target_arch = "wasm32");
         app.add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
@@ -105,8 +114,12 @@ impl ExampleArgs {
                         title: title.into(),
                         // Physical 1920x1080 whatever the display scaling, so measurements
                         // compare across machines.
-                        resolution: WindowResolution::new(1920, 1080)
-                            .with_scale_factor_override(1.0),
+                        resolution: if web {
+                            WindowResolution::default()
+                        } else {
+                            WindowResolution::new(1920, 1080).with_scale_factor_override(1.0)
+                        },
+                        fit_canvas_to_parent: web,
                         present_mode: if measuring {
                             PresentMode::AutoNoVsync
                         } else {
@@ -119,7 +132,11 @@ impl ExampleArgs {
                 .set(AssetPlugin {
                     // The repository's `assets` folder, also when the example's exe
                     // is started directly rather than through `cargo run`.
-                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
+                    file_path: if web {
+                        "assets".into()
+                    } else {
+                        concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into()
+                    },
                     ..default()
                 }),
         );
@@ -138,10 +155,45 @@ impl ExampleArgs {
         if self.single_threaded {
             single_threaded_schedules(app);
         }
+        if self.has("--no-grass") {
+            app.add_systems(Update, hide_grass);
+        }
         app.insert_resource(self)
             .init_resource::<FrameTimes>()
             .add_systems(Last, count_frames);
     }
+}
+
+/// Keeps every camera, including ones spawned later, from drawing grass.
+fn hide_grass(mut commands: Commands, cameras: Query<Entity, (With<Camera3d>, Without<NoGrass>)>) {
+    for camera in &cameras {
+        commands.entity(camera).insert(NoGrass);
+    }
+}
+
+/// The flags after the program name.
+#[cfg(not(target_arch = "wasm32"))]
+fn command_line() -> impl Iterator<Item = String> {
+    std::env::args().skip(1)
+}
+
+/// The flags in a browser, from the page's query string: `?perf&frames=600`
+/// is `--perf --frames 600`.
+#[cfg(target_arch = "wasm32")]
+fn command_line() -> impl Iterator<Item = String> {
+    let query = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    let query = query.trim_start_matches('?').to_owned();
+    query
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .flat_map(|pair| match pair.split_once('=') {
+            Some((flag, value)) => vec![format!("--{flag}"), value.to_owned()],
+            None => vec![format!("--{pair}")],
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// Runs the main app's per-frame schedules and the render app's schedules on

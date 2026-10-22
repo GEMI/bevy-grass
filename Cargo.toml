@@ -80,11 +80,22 @@ bevy = { version = "0.20", default-features = false, features = [
   # The showcase example writes each preset's name on the screen.
   "ui",
   "default_font",
-  # The examples reload `.grass.ron` files when they are saved.
-  "file_watcher",
 ] }
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# The examples reload `.grass.ron` files when they are saved. Bevy's file
+# watcher is a `compile_error!` on wasm, so it is native only.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+bevy = { version = "0.20", default-features = false, features = ["file_watcher"] }
+
+# In the browser the examples render through WebGPU; `webgpu` overrides the
+# `webgl2` that `3d` turns on, and the crate does not support WebGL2.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+bevy = { version = "0.20", default-features = false, features = ["webgpu"] }
+# The examples read their flags from the page's query string. Already in
+# Bevy's tree on wasm (winit and bevy_app use it).
+web-sys = { version = "0.3", features = ["Window", "Location"] }
 
 [[example]]
 name = "rapier"

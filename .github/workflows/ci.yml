@@ -61,6 +61,21 @@ jobs:
       - run: typos
       - uses: EmbarkStudios/cargo-deny-action@v2
 
+  # The library and the examples build for the browser (WebGPU). This checks
+  # that they compile; whether the browser accepts the pipelines is checked
+  # by hand with tools/web_example.py, since hosted runners have no WebGPU.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target wasm32-unknown-unknown --lib --examples
+      - run: python -m py_compile tools/web_example.py
+
   msrv:
     runs-on: ubuntu-latest
     steps:
