@@ -49,7 +49,8 @@ localhost.
 | Chrome 147, Windows | Fails: the browser rejects every indirect dispatch ("ImmediateAddressSpace feature is not enabled"). A browser bug, gone in Chromium 155. |
 | Chrome 151, macOS 26.6 (Apple M2 Pro) | Draws, at every quality tier, in the 10 storage buffers per stage it offers. No errors. |
 | Safari 27, macOS 26.6 (Apple M2 Pro) | Fails before grass draws: Safari rejects a shader in Bevy 0.20's standard material. See [Safari](#safari). |
-| Firefox, Chrome on Android | Not tested yet. |
+| Chrome 155, Android 16 (Samsung Galaxy S24, Exynos 2400 with Xclipse 940) | Chrome gives the page no WebGPU on this GPU, though `chrome://gpu` lists WebGPU as enabled. With `chrome://flags/#enable-unsafe-webgpu` on, it draws at `MEDIUM` and `ULTRA`; the frame time at `ULTRA` is below. |
+| Firefox | Not tested yet. |
 
 To test a browser, run `python tools/web_demo.py serve` and open
 `http://localhost:8080/?smoke`: the page steps through every quality tier and
@@ -138,7 +139,8 @@ at 60 Hz (16.7 ms is a full 60 Hz):
 | Integrated laptop GPU (Intel UHD, Xe) | Edge 155 | Full window | 16.8 ms | 33.3 ms | 50.1 ms | 66.7 ms |
 | Integrated laptop GPU (Intel UHD, Xe) | Edge 155 | 800 × 600 | 16.9 ms | 16.8 ms | 16.8 ms | 33.4 ms |
 | Discrete laptop GPU (NVIDIA T1200) | Brave 1.97 | 800 × 600 | 16.9 ms | 16.8 ms | 16.9 ms | 16.9 ms |
-| Macs, phones and desktop GPUs | | | not measured | | | |
+| Phone GPU (Samsung Xclipse 940, Galaxy S24) | Chrome 155, `enable-unsafe-webgpu` | Full screen | not measured | not measured | not measured | 45 ms (p50 33 ms) |
+| Macs and desktop GPUs | | | not measured | | | |
 
 So on an integrated GPU `LOW` is the tier that holds 60 Hz in a full window.
 The demo starts at `MEDIUM`, a guess for devices not measured yet.
