@@ -15,6 +15,8 @@
 //!   `--fixed-time`, 30 frames for each second of game time, for a video.
 //! * `--no-grass` puts `NoGrass` on every camera: the same scene without
 //!   grass, for what grass costs on a machine or in a browser.
+//! * `--max-storage-buffers N` asks the GPU for at most N storage buffers per
+//!   shader stage, the way a weaker device or browser would offer them.
 //!
 //! In a browser the flags come from the page's query string instead:
 //! `?perf&no-grass` is `--perf --no-grass`.
@@ -33,7 +35,9 @@ use std::time::Duration;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::ecs::schedule::SingleThreadedExecutor;
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
 use bevy::render::diagnostic::RenderDiagnosticsPlugin;
+use bevy::render::settings::{WgpuLimits, WgpuSettings};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::render::{ExtractSchedule, Render, RenderApp};
 use bevy::time::TimeUpdateStrategy;
@@ -50,6 +54,9 @@ pub(crate) struct ExampleArgs {
     pub(crate) single_threaded: bool,
     /// Where `--record` saves frames, and how many frames it covers.
     pub(crate) record: Option<(String, u32)>,
+    /// The storage buffers per shader stage to ask the GPU for, from
+    /// `--max-storage-buffers`.
+    pub(crate) max_storage_buffers: Option<u32>,
     /// Flags the example reads itself.
     pub(crate) flags: Vec<String>,
 }
@@ -65,6 +72,9 @@ impl ExampleArgs {
                 "--fixed-time" => args.fixed_time = true,
                 "--perf" => args.perf = true,
                 "--single-threaded" => args.single_threaded = true,
+                "--max-storage-buffers" => {
+                    args.max_storage_buffers = it.next().and_then(|v| v.parse().ok());
+                }
                 "--record" => {
                     let dir = it.next().expect("--record needs a directory");
                     args.record = Some((dir, args.record.as_ref().map_or(600, |r| r.1)));
@@ -127,6 +137,19 @@ impl ExampleArgs {
                         },
                         ..default()
                     }),
+                    ..default()
+                })
+                .set(RenderPlugin {
+                    render_creation: WgpuSettings {
+                        // Lowers only this limit: `unlimited` leaves the
+                        // adapter's own value for every other.
+                        constrained_limits: self.max_storage_buffers.map(|max| WgpuLimits {
+                            max_storage_buffers_per_shader_stage: max,
+                            ..WgpuLimits::unlimited()
+                        }),
+                        ..default()
+                    }
+                    .into(),
                     ..default()
                 })
                 .set(AssetPlugin {

@@ -27,6 +27,11 @@ use crate::trample;
 
 /// Bytes per instance.
 const INSTANCE_SIZE: u64 = 16;
+/// Bytes of the largest instance buffer a camera can have:
+/// `GrassSettings::MAX_INSTANCE_CAPACITY` blades at LOD 0 and half as many at
+/// each of LODs 1 and 2. No other binding of a view is as large.
+pub(crate) const MAX_INSTANCE_BYTES: u64 =
+    2 * GrassSettings::MAX_INSTANCE_CAPACITY as u64 * INSTANCE_SIZE;
 /// Bytes per `DrawIndexedIndirectArgs`.
 pub(crate) const DRAW_ARGS_SIZE: u64 = 20;
 /// `fixed_lod` value meaning "pick by distance".

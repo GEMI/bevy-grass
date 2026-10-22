@@ -74,7 +74,7 @@ pub(crate) struct GrassLayouts {
 }
 
 impl GrassLayouts {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let read = || storage_buffer_read_only_sized(false, None);
         let read_write = || storage_buffer_sized(false, None);
         let shared = BindGroupLayoutDescriptor::new(
@@ -150,6 +150,15 @@ impl GrassLayouts {
             shadow_view,
             empty,
         }
+    }
+
+    /// The layouts of the compute pipeline with entry point `entry`.
+    pub(crate) fn compute(&self, entry: &str) -> Vec<BindGroupLayoutDescriptor> {
+        let mut layout = vec![self.shared.clone(), self.view.clone()];
+        if entry == "size_dispatch" {
+            layout.push(self.dispatch.clone());
+        }
+        layout
     }
 }
 

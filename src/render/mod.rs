@@ -1,10 +1,12 @@
 //! The render world: shared and per-view resources, compute passes, draws.
+//! None of it runs on a device that cannot draw grass (see `platform`).
 
 pub(crate) mod bevy_glue;
 mod compute;
 mod extract;
 #[cfg(test)]
 mod gpu_test;
+pub(crate) mod platform;
 pub(crate) mod resources;
 mod shadows;
 pub(crate) mod view;
@@ -15,14 +17,16 @@ use bevy::core_pipeline::deferred::Opaque3dDeferred;
 use bevy::core_pipeline::prepass::Opaque3dPrepass;
 use bevy::core_pipeline::schedule::camera_driver;
 use bevy::ecs::prelude::*;
+use bevy::log::warn;
 use bevy::pbr::Shadow;
 use bevy::render::extract_component::ExtractComponentPlugin;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::SpecializedRenderPipelines;
-use bevy::render::renderer::RenderGraph;
+use bevy::render::renderer::{RenderAdapter, RenderDevice, RenderGraph};
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
 use crate::api::{GrassCamera, NoGrass};
+use platform::GrassSupport;
 
 /// Wires the render app. Added by `GrassPlugin`.
 pub(crate) struct GrassRenderPlugin {
@@ -38,6 +42,7 @@ impl Plugin for GrassRenderPlugin {
         // The stats the render world reads back go to the main world through
         // this shared handle.
         let readings = app.world().resource::<crate::stats::GpuReadings>().clone();
+        app.init_resource::<GrassSupport>();
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -64,9 +69,13 @@ impl Plugin for GrassRenderPlugin {
                         compute::init_generate_pipelines,
                     ),
                 )
-                    .chain(),
+                    .chain()
+                    .run_if(platform::supported),
             )
-            .add_systems(ExtractSchedule, resources::extract_grass)
+            .add_systems(
+                ExtractSchedule,
+                resources::extract_grass.run_if(platform::supported),
+            )
             .add_systems(
                 Render,
                 (
@@ -78,8 +87,38 @@ impl Plugin for GrassRenderPlugin {
                         view::prepare_view_bind_groups,
                     )
                         .in_set(RenderSystems::PrepareBindGroups),
-                ),
+                )
+                    .run_if(platform::supported),
             )
-            .add_systems(RenderGraph, compute::run_generate.before(camera_driver));
+            .add_systems(
+                RenderGraph,
+                compute::run_generate
+                    .before(camera_driver)
+                    .run_if(platform::supported),
+            );
+    }
+
+    /// Decides [`GrassSupport`] once the render device exists, which
+    /// `RenderPlugin` sees to in its own `finish`, before this one.
+    fn finish(&self, app: &mut App) {
+        let world = app.world();
+        let (Some(adapter), Some(device)) = (
+            world.get_resource::<RenderAdapter>(),
+            world.get_resource::<RenderDevice>(),
+        ) else {
+            return;
+        };
+        let support = platform::check(
+            adapter.get_downlevel_capabilities().flags,
+            &device.limits(),
+            &resources::GrassLayouts::new(),
+        );
+        if !support.is_supported() {
+            warn!("bevy_grass: no grass is drawn on this GPU: {support}. See GrassSupport.");
+        }
+        app.insert_resource(support);
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.insert_resource(support);
+        }
     }
 }

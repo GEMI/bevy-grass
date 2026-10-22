@@ -20,7 +20,21 @@ start of the span) instead of the `ron` error.
   `python tools/web_example.py` builds and serves them, and CI checks the
   wasm build. Browser support itself is not finished; see
   [docs/testing.md](docs/testing.md).
+- `GrassSupport`, a resource: whether this GPU can draw grass, and if not,
+  why (no compute shaders, as in WebGL2; no indirect draws; no storage
+  buffers in the vertex shader; too few storage buffers per shader stage; too
+  small a storage binding). Decided once when the renderer starts.
 - The examples' `--no-grass` flag: the same scene without grass.
+- The examples' `--max-storage-buffers N` flag: ask the GPU for at most N
+  storage buffers per shader stage, as a weaker device or browser offers.
+
+**Fixed**
+
+- On a device that cannot draw grass, the grass pipelines were still created,
+  and the wgpu validation error stopped Bevy's renderer. Now grass logs one
+  warning saying why and draws nothing, and the rest of the scene renders.
+  Grass binds 14 storage buffers in its busiest shader stage, so a device
+  that allows fewer gets the warning.
 
 ## 0.20.3 (October 21, 2026)
 

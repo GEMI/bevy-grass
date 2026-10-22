@@ -16,6 +16,16 @@ use super::resources::{GrassLayouts, GrassShaders, GrassShared, GrassSharedBindG
 use super::view::{GrassViewBindGroups, GrassViewBuffers};
 use crate::trample;
 
+/// Every compute pipeline's entry point, in `generate.wesl` and `trample.wesl`.
+pub(crate) const ENTRY_POINTS: [&str; 6] = [
+    "trample_decay",
+    "trample_stamp",
+    "cull",
+    "size_dispatch",
+    "generate",
+    "write_draw_args",
+];
+
 /// Cells in a trample window.
 const TRAMPLE_CELLS: u32 = (trample::TEXELS * trample::TEXELS) as u32;
 
@@ -37,13 +47,9 @@ pub(crate) fn init_generate_pipelines(
     shaders: Res<GrassShaders>,
 ) {
     let queue = |entry: &'static str| {
-        let mut layout = vec![layouts.shared.clone(), layouts.view.clone()];
-        if entry == "size_dispatch" {
-            layout.push(layouts.dispatch.clone());
-        }
         pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: Some(format!("grass_{entry}").into()),
-            layout,
+            layout: layouts.compute(entry),
             shader: if entry.starts_with("trample") {
                 shaders.trample.clone()
             } else {

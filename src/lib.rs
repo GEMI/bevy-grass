@@ -80,6 +80,7 @@ pub use edit::{
 };
 pub use far::{FarGrass, FarGrassMaterial, FarGrassPlugin, FarGrassUniform};
 pub use physics::{GrassColliderBounds, GrassColliderSystems, GrassInteractorFromCollider};
+pub use render::platform::GrassSupport;
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
 pub use stats::{GpuStats, GrassDiagnostics, GrassStats, TableStats};
 pub use style_file::{GrassStyleFileError, GrassStyleFilePlugin, GrassStyleLoader};
@@ -102,8 +103,8 @@ pub mod prelude {
         GrassInteractorFootprint, GrassInteractorFromCollider, GrassInteractorSpread, GrassPlugin,
         GrassPlugins, GrassQuality, GrassRegrowth, GrassSample, GrassSampler, GrassSettings,
         GrassShadows, GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin, GrassSun,
-        GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin, GrassWindSystems,
-        GroundTint, NoGrass,
+        GrassSupport, GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin,
+        GrassWindSystems, GroundTint, NoGrass,
     };
     #[cfg(feature = "debug")]
     pub use crate::{GrassDebug, GrassDebugPlugin};
@@ -325,7 +326,8 @@ fn register_types(app: &mut App) {
         .register_type::<GrassWindFrame>()
         .register_type::<GrassSettings>()
         .register_type::<GrassQuality>()
-        .register_type::<GrassShadows>();
+        .register_type::<GrassShadows>()
+        .register_type::<GrassSupport>();
 }
 
 /// Says which settings were out of range, once per change. The render world

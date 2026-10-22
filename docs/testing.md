@@ -32,5 +32,10 @@
   report of the browser's limits, its errors and the frame time, with a
   button that copies it as JSON. The examples' flags go in the query string:
   `meadow/?no-grass` is the same scene without grass.
+- **Weaker devices.** `GrassSupport`'s check has unit tests against wgpu's
+  WebGL2 limits and against too few storage buffers. An example run with
+  `--max-storage-buffers 8` asks the GPU for no more than a weaker device or
+  browser offers: it must log one `bevy_grass` warning, draw no grass and
+  raise no wgpu error.
 - **Lints.** `unsafe_code` is forbidden; clippy's pedantic set and rustdoc's
   missing-docs check pass.
