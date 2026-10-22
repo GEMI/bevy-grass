@@ -263,10 +263,19 @@
   }
 
   async function main() {
-    if (!navigator.gpu || !(await probe().catch(() => false))) {
-      notice(`<span class="bad">This browser has no WebGPU.</span><br>The demo needs WebGPU,
-        which current Chrome, Edge and Safari have, and Firefox on some systems.`);
-      return smoke && finishSmoke("no WebGPU");
+    // Three different failures, each with its own advice: an in-app browser
+    // (an Android WebView) has no navigator.gpu even where Chrome has it.
+    const problem = !navigator.gpu
+      ? `This browser has no WebGPU.</span><br>The demo needs WebGPU, which current
+        Chrome and Edge have. If this page opened inside another app, open it in the
+        browser itself.`
+      : await probe().then(
+        (found) => found ? null : `WebGPU gave this page no GPU.</span><br>The browser has
+          WebGPU, but not for this device's graphics chip or driver.`,
+        (e) => `WebGPU failed to start:</span> ${String(e).replace(/[&<>]/g, "")}`);
+    if (problem) {
+      notice(`<span class="bad">${problem}`);
+      return smoke && finishSmoke(problem.split("<")[0]);
     }
     const module_or_path = await download(new URL("bevy_grass_web_bg.wasm", import.meta.url));
     notice("Starting");
