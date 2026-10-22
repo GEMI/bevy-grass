@@ -3,7 +3,12 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## Unreleased
+## 0.20.4 (October 22, 2026)
+
+Grass in the browser: it draws through WebGPU, in 10 storage buffers per
+shader stage, and a device that cannot draw it gets one warning instead of a
+stopped renderer. A [web demo](https://gemi.github.io/bevy-grass/) and
+[docs/web.md](docs/web.md) come with it.
 
 **Breaking, and what to write instead**
 
