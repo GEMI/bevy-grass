@@ -180,6 +180,29 @@ PAGE = r"""<!doctype html>
   addEventListener("error", (e) => keep(report.errors, [e.message]));
   addEventListener("unhandledrejection", (e) => keep(report.errors, [e.reason]));
 
+  // A browser names a shader module it rejects but not why ("Fragment module
+  // is invalid" in Safari); its compiler's messages, with line and column,
+  // are only in getCompilationInfo. Each rejected module's source is kept in
+  // `rejectedShaders`, to copy from the console.
+  const rejectedShaders = [];
+  window.rejectedShaders = rejectedShaders;
+  if (navigator.gpu) {
+    const createShaderModule = GPUDevice.prototype.createShaderModule;
+    GPUDevice.prototype.createShaderModule = function (descriptor) {
+      const module = createShaderModule.call(this, descriptor);
+      module.getCompilationInfo().then((info) => {
+        const errors = info.messages.filter((m) => m.type === "error");
+        if (errors.length) rejectedShaders.push({ label: descriptor.label, code: String(descriptor.code) });
+        for (const m of errors) {
+          const line = String(descriptor.code).split("\n")[m.lineNum - 1] ?? "";
+          console.error(`shader ${descriptor.label || "(no label)"} ${m.lineNum}:${m.linePos}: ` +
+            `${m.message}\n  ${line.trim()}`);
+        }
+      }, () => {});
+      return module;
+    };
+  }
+
   // The limits and features bevy_grass depends on.
   const LIMITS = ["maxStorageBuffersPerShaderStage", "maxStorageBufferBindingSize",
     "maxBufferSize", "maxBindGroups", "maxUniformBuffersPerShaderStage",
