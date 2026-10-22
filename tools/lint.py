@@ -9,6 +9,10 @@ dev-dependency on this crate, so code that only `debug` or the tests use
 looks used to `--all-targets` and dead to a game. `-D warnings` goes to
 clippy, not RUSTFLAGS, so Bevy is not rebuilt. CI and the Claude Code stop
 hook both run this; exits non-zero on the first set that warns.
+
+The web demo (web/) is linted too: natively, and for wasm32-unknown-unknown
+when that target is installed, since its calls from the page exist only
+there.
 """
 
 import os
@@ -24,7 +28,9 @@ RUNS = [
     ["--lib", "--features", "rapier"],
     ["--lib", "--features", "avian"],
     ["--all-targets", "--all-features"],
+    ["-p", "bevy_grass_web", "--all-targets"],
 ]
+WASM = ["-p", "bevy_grass_web", "--target", "wasm32-unknown-unknown"]
 
 
 def cargo():
@@ -36,8 +42,20 @@ def cargo():
     return home + (".exe" if os.name == "nt" else "")
 
 
+def wasm_installed():
+    rustup = shutil.which("rustup")
+    if not rustup:
+        return False
+    installed = subprocess.run([rustup, "target", "list", "--installed"], cwd=ROOT,
+                               capture_output=True, text=True).stdout
+    return "wasm32-unknown-unknown" in installed.split()
+
+
 def main():
-    for args in RUNS:
+    runs = RUNS + [WASM] if wasm_installed() else RUNS
+    if runs is RUNS:
+        print("lint: wasm32-unknown-unknown not installed, the web demo's page calls are not linted")
+    for args in runs:
         command = [cargo(), "clippy", "--quiet", *args, "--", "-D", "warnings"]
         print("lint:", " ".join(command[1:]), flush=True)
         if subprocess.run(command, cwd=ROOT).returncode != 0:

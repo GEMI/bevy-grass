@@ -20,6 +20,10 @@ start of the span) instead of the `ron` error.
   `python tools/web_example.py` builds and serves them, and CI checks the
   wasm build. Browser support itself is not finished; see
   [docs/testing.md](docs/testing.md).
+- A web demo for GitHub Pages (`web/`, a package of its own that is not
+  published): a meadow with a quality switch, starting at `MEDIUM`, and a
+  preset picker. `python tools/web_demo.py` builds it for size, serves it,
+  and smoke-tests it in a browser.
 - `GrassSupport`, a resource: whether this GPU can draw grass, and if not,
   why (no compute shaders, as in WebGL2; no indirect draws; no storage
   buffers in the vertex shader; too few storage buffers per shader stage; too

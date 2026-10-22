@@ -1,0 +1,64 @@
+name: Web demo
+
+# Builds the web demo (web/) with tools/web_demo.py and publishes it on
+# GitHub Pages. It follows releases, so the demo shows the crate as published;
+# run it from the Actions tab to publish main in between. The repository's
+# Pages source must be "GitHub Actions" (Settings, Pages).
+#
+# This only builds and publishes. Whether browsers draw the demo is the smoke
+# test, run by hand: python tools/web_demo.py smoke, or serve and open
+# ?smoke in each browser (docs/testing.md).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # wasm-opt takes about a tenth off the download. Pinned, since a newer
+  # binaryen can change the output.
+  BINARYEN: version_132
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The wasm-bindgen CLI must be the version in Cargo.lock.
+      - id: versions
+        run: echo "wasm_bindgen=$(cd tools && python -c 'import web_example; print(web_example.locked_wasm_bindgen())')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+      - name: binaryen
+        run: |
+          curl -sSfL "https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN/binaryen-$BINARYEN-x86_64-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-$BINARYEN/bin" >> "$GITHUB_PATH"
+      - run: python tools/web_demo.py build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/web-demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

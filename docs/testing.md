@@ -37,6 +37,17 @@
   report of the browser's limits, its errors and the frame time, with a
   button that copies it as JSON. The examples' flags go in the query string:
   `meadow/?no-grass` is the same scene without grass.
+- **Web demo smoke test.** The hosted demo (`web/`, published to GitHub
+  Pages by `.github/workflows/pages.yml`) has its own check, run by hand
+  since hosted runners have no WebGPU. `python tools/web_demo.py smoke`
+  builds the demo, opens it with `?smoke` in Edge, Chrome or Brave on a fresh
+  profile, and passes if every quality tier drew blades and the page logged
+  no error; it prints the adapter, its storage-buffer limit and each tier's
+  frame time. For any other browser or a phone, `python tools/web_demo.py
+  serve` and open `http://localhost:8080/?smoke`: the page posts the same
+  report back, and the terminal prints and saves it under
+  `target/web-smoke/`. The demo also runs natively:
+  `cargo run -p bevy_grass_web --release`.
 - **Weaker devices.** `GrassSupport`'s check has unit tests against wgpu's
   WebGL2 limits and against too few storage buffers. An example run with
   `--max-storage-buffers 8` asks the GPU for no more than a weaker device or

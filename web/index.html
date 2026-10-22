@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bevy_grass</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Grass and foliage for Bevy 3D games, running in the browser through WebGPU.">
+<style>
+  :root { color-scheme: dark; --panel: rgba(12, 16, 12, 0.78); --text: #eef2ea; --dim: #a9b4a2;
+    --accent: #9ccc65; --bad: #ff8a80; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2418; color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas#grass { display: block; width: 100%; height: 100%; outline: none; }
+  #panel { position: fixed; top: 12px; left: 12px; width: min(320px, calc(100vw - 48px));
+    padding: 12px 14px; border-radius: 8px; background: var(--panel); backdrop-filter: blur(6px); }
+  #panel h1 { margin: 0 0 2px; font-size: 17px; }
+  #panel h1 a { color: inherit; text-decoration: none; }
+  #panel p { margin: 0 0 10px; color: var(--dim); }
+  #panel label { display: block; margin: 10px 0 4px; color: var(--dim); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  #tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  #tiers button, #preset { font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 5px; padding: 5px 0; cursor: pointer; }
+  #tiers button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }
+  #preset { width: 100%; padding: 5px 6px; }
+  #preset option { background: #1b2418; }
+  #status { margin-top: 10px; font: 12px/1.5 ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; }
+  #status .bad, #notice .bad { color: var(--bad); }
+  #panel details { margin-top: 8px; color: var(--dim); font-size: 13px; }
+  #panel summary { cursor: pointer; }
+  #notice { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+    text-align: center; pointer-events: none; }
+  #notice div { max-width: 520px; padding: 16px 20px; border-radius: 8px; background: var(--panel); }
+  #notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="grass" tabindex="0"></canvas>
+<div id="panel">
+  <h1><a href="https://github.com/GEMI/bevy-grass">bevy_grass</a></h1>
+  <p>Grass for Bevy, drawn by the GPU in your browser through WebGPU.</p>
+  <label>Quality</label>
+  <div id="tiers" role="group" aria-label="Quality"></div>
+  <label for="preset">Preset</label>
+  <select id="preset"></select>
+  <div id="status"></div>
+  <details>
+    <summary>Controls</summary>
+    WASD to fly, Q and E down and up, Shift faster. Hold the right mouse
+    button to look around, or press M to keep looking. 1 to 4 pick the
+    quality, [ and ] the preset.
+  </details>
+</div>
+<div id="notice"><div id="notice-text">Loading</div></div>
+
+<script type="module">
+  import init, * as demo from "./bevy_grass_web.js";
+
+  const params = new URLSearchParams(location.search);
+  const smoke = params.has("smoke");
+  const $ = (id) => document.getElementById(id);
+  const notice = (html) => { $("notice-text").innerHTML = html; $("notice").hidden = !html; };
+
+  // What the page saw, for the panel and the smoke test. Set up before the
+  // demo loads, so nothing it logs is missed.
+  const report = { page: "demo", url: location.href, userAgent: navigator.userAgent, adapter: null,
+    limits: {}, features: [], errors: [], warnings: [], status: null, tiers: [], pass: false, outcome: "" };
+  const keep = (list, args) => {
+    const text = Array.from(args, String).join(" ");
+    // winit ends its start-up with this exception on purpose.
+    if (text.includes("Using exceptions for control flow")) return;
+    if (list.length < 50) list.push(text.slice(0, 2000));
+  };
+  for (const [level, list] of [["error", report.errors], ["warn", report.warnings]]) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => { keep(list, args); original(...args); };
+  }
+  // Bevy logs every level through console.log, as "%cERROR%c origin%c text"
+  // with a style per %c.
+  const log = console.log.bind(console);
+  console.log = (...args) => {
+    const level = typeof args[0] === "string" && args[0].match(/^%c(ERROR|WARN)%c/);
+    if (level) keep(level[1] === "ERROR" ? report.errors : report.warnings, [args[0].replaceAll("%c", "")]);
+    log(...args);
+  };
+  addEventListener("error", (e) => keep(report.errors, [e.message]));
+  addEventListener("unhandledrejection", (e) => keep(report.errors, [e.reason]));
+
+  // Frame time from requestAnimationFrame over the last 300 frames: the
+  // whole page, not only the GPU.
+  const deltas = [];
+  let last = 0;
+  const frame = (now) => {
+    if (last) { deltas.push(now - last); if (deltas.length > 300) deltas.shift(); }
+    last = now;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  const frameMs = () => {
+    if (deltas.length < 30) return null;
+    const sorted = [...deltas].sort((a, b) => a - b);
+    const at = (q) => +sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))].toFixed(2);
+    return { p50: at(0.5), p95: at(0.95) };
+  };
+
+  // `?max-storage-buffers=N` asks WebGPU for a device with at most N storage
+  // buffers per shader stage, so the browser checks every pipeline against
+  // N: a test of the budget on a device that offers more, as a Mac that
+  // reports 10 would.
+  const storageCap = Number(params.get("max-storage-buffers")) || 0;
+  report.maxStorageBuffers = storageCap || null;
+  if (storageCap && navigator.gpu) {
+    const requestDevice = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = function (descriptor = {}) {
+      const requiredLimits = { ...descriptor.requiredLimits };
+      requiredLimits.maxStorageBuffersPerShaderStage =
+        Math.min(storageCap, requiredLimits.maxStorageBuffersPerShaderStage ?? storageCap);
+      return requestDevice.call(this, { ...descriptor, requiredLimits });
+    };
+  }
+
+  // The limits grass depends on, read the way the demo's renderer reads them.
+  const LIMITS = ["maxStorageBuffersPerShaderStage", "maxStorageBufferBindingSize", "maxBufferSize"];
+  async function probe() {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return false;
+    const info = adapter.info || {};
+    report.adapter = [info.vendor, info.architecture, info.device, info.description]
+      .filter(Boolean).join(" / ") || "(no adapter info)";
+    for (const name of LIMITS) report.limits[name] = adapter.limits[name];
+    report.features = [...adapter.features].sort();
+    return true;
+  }
+
+  // The wasm is tens of megabytes, so count it in as it arrives.
+  async function download(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      bytes += value.length;
+      notice(`Loading ${(bytes / 2 ** 20).toFixed(1)} MB`);
+    }
+    return new Blob(chunks).arrayBuffer();
+  }
+
+  let shown = null;
+  function showStatus() {
+    const text = demo.status();
+    if (!text) return;
+    const status = JSON.parse(text);
+    report.status = status;
+    if (status.quality !== shown?.quality) {
+      for (const button of $("tiers").children) {
+        button.setAttribute("aria-pressed", button.textContent.toUpperCase() === status.quality);
+      }
+    }
+    if (status.preset !== shown?.preset) $("preset").value = status.preset;
+    shown = status;
+    if (status.decided && !status.supported) {
+      $("status").innerHTML = `<span class="bad">No grass on this device:</span> ${status.support}.`;
+      return;
+    }
+    const [near, mid, far] = status.blades;
+    const ms = frameMs();
+    $("status").textContent = (status.readings ? `${(near + mid + far).toLocaleString()} blades: `
+      + `${near.toLocaleString()} near,\n${mid.toLocaleString()} mid, ${far.toLocaleString()} far`
+      : "Counting blades") + (ms ? `\nframe ${ms.p50} ms, p95 ${ms.p95} ms` : "");
+  }
+
+  function choose(key, value) {
+    if (value) params.set(key, value); else params.delete(key);
+    history.replaceState(null, "", `${location.pathname}${params.size ? "?" + params : ""}`);
+  }
+
+  function controls() {
+    for (const tier of demo.qualities()) {
+      const button = document.createElement("button");
+      button.textContent = tier[0] + tier.slice(1).toLowerCase();
+      button.addEventListener("click", () => { demo.set_quality(tier); choose("quality", tier); });
+      $("tiers").append(button);
+    }
+    for (const preset of demo.presets()) {
+      const option = document.createElement("option");
+      option.value = preset;
+      option.textContent = preset.toLowerCase().replaceAll("_", " ");
+      $("preset").append(option);
+    }
+    $("preset").addEventListener("change", (e) => {
+      demo.set_preset(e.target.value);
+      choose("preset", e.target.value);
+      $("grass").focus();
+    });
+  }
+
+  // `?smoke`: show each tier until the GPU has counted its blades twice,
+  // then send the report to the server that served the page
+  // (`tools/web_demo.py`), which decides pass or fail.
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+  async function until(test, seconds) {
+    for (let waited = 0; waited < seconds * 1000; waited += 250) {
+      showStatus();
+      if (test(report.status)) return true;
+      await wait(250);
+    }
+    return false;
+  }
+  async function smokeTest() {
+    const decided = await until((s) => s?.decided, 60);
+    if (!decided) return "the renderer did not start within 60 s";
+    if (!report.status.supported) return `no grass: ${report.status.support}`;
+    for (const quality of demo.qualities()) {
+      demo.set_quality(quality);
+      await until((s) => s.quality === quality, 10);
+      const start = report.status.readings;
+      const counted = await until((s) => s.readings >= start + 2, 60);
+      const blades = report.status.blades.reduce((a, b) => a + b, 0);
+      // The frame times of the last tier's start-up are behind it by now.
+      deltas.length = 0;
+      await wait(3000);
+      report.tiers.push({ quality, blades, frameMs: frameMs() });
+      if (!counted) return `${quality}: the GPU counted no blades within 60 s`;
+      if (!blades) return `${quality}: no blades drawn`;
+    }
+    return "";
+  }
+  async function finishSmoke(failure) {
+    report.outcome = failure || (report.errors.length ? `${report.errors.length} errors logged` : "ok");
+    report.pass = report.outcome === "ok";
+    document.title = `smoke: ${report.pass ? "pass" : "fail"}`;
+    window.smokeReport = report;
+    await fetch("smoke", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(report) }).catch(() => {});
+  }
+
+  async function main() {
+    if (!navigator.gpu || !(await probe().catch(() => false))) {
+      notice(`<span class="bad">This browser has no WebGPU.</span><br>The demo needs WebGPU,
+        which current Chrome, Edge and Safari have, and Firefox on some systems.`);
+      return smoke && finishSmoke("no WebGPU");
+    }
+    const module_or_path = await download(new URL("bevy_grass_web_bg.wasm", import.meta.url));
+    notice("Starting");
+    try {
+      await init({ module_or_path });
+    } catch (e) {
+      // Bevy's event loop starts by throwing this on purpose; the demo runs on.
+      if (!String(e).includes("Using exceptions for control flow")) throw e;
+    }
+    notice("");
+    controls();
+    if (params.get("quality")) demo.set_quality(params.get("quality").toUpperCase());
+    if (params.get("preset")) demo.set_preset(params.get("preset").toUpperCase());
+    setInterval(showStatus, 500);
+    $("grass").focus();
+    if (smoke) finishSmoke(await smokeTest());
+  }
+  window.grassReport = report;
+  main().catch((e) => {
+    console.error("demo: " + e);
+    notice(`<span class="bad">The demo stopped:</span> ${String(e).replace(/[&<>]/g, "")}`);
+    if (smoke) finishSmoke(String(e));
+  });
+</script>
+</body>
+</html>

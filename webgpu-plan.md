@@ -67,7 +67,7 @@ Five phases, about 1.5 to 2 weeks for one developer. The budget is 10 storage bu
    - Add a unit test that counts storage entries in each pipeline's combined layout: at most 10 per stage, and none in the fragment stage of the draw layout. One named constant holds the 10, for this test and for the phase 1 guard.
    - No table textures. Tile, clumps and tufts stay as they are.
    - Exit: `cargo test`, `cargo test -- --ignored gpu` and the goldens pass with `constrained_limits` at 10 and with the adapter's own limits. The goldens show no pixel changes. `tools/bench_ab.py` stays within the user's current bar (3% as of 2026-10-15) at p50 and p95, in both scenes.
-4. **Phase 3: web demo and CI (2 to 3 days).** ⏳ Next.
+4. **Phase 3: web demo and CI (2 to 3 days).** ✅ **Done on Windows** ([results](#phase-3-results-2026-10-22-branch-webgpu-phase0)). Open: the smoke test on macOS (Chrome and Safari), Firefox and Android, and a first deploy to GitHub Pages.
    - Add a `web/` package for the hosted demo (built with `wasm-bindgen`, plus `index.html`, deployed to GitHub Pages), and add `/web/` to `exclude`.
    - Start the demo at `GrassSettings::MEDIUM`, with a quality switch.
    - Run the browser smoke test by hand or nightly. Hosted CI keeps only the wasm compile check.
@@ -191,3 +191,30 @@ Exit checks:
 
 Not yet checked: a real 10-buffer browser (Chrome on a Mac). The browser grass cost on the Intel GPU (Phase 0) is still open.
 
+## Phase 3 results (2026-10-22, branch `webgpu-phase0`)
+
+Done on Windows. The demo draws every tier without console errors in Edge 155 (Intel) and Brave 1.97 (T1200), and in Edge on a device limited to 10 storage buffers. A Mac, Firefox and Android are still to run, and the demo is not deployed yet.
+
+- `web/` is the demo: a package called `bevy_grass_web`, `publish = false`, in a workspace with the crate, so it shares `Cargo.lock` and `target/`. A plain `cargo` command still builds only the crate, and `/web/` is in `exclude`. It shows the meadow with a clearing, a walker trampling a trail, and far grass. It starts at `MEDIUM`, and the page switches the tier (Low to Ultra) and the preset (every preset). The choice goes into the URL (`?quality=HIGH&preset=WHEAT`), so a view can be linked. It also runs natively: `cargo run -p bevy_grass_web --release`.
+- Size: a `web` profile (`opt-level = "s"`, fat LTO, one codegen unit), then `wasm-bindgen --remove-name-section`, then `wasm-opt -Os` (binaryen `version_132`). The download is 18.2 MiB, or 5.3 MiB gzipped, against 64.8 MiB for phase 0's `meadow`. wasm-opt saves only 9% of that (19.9 to 18.2 MiB). Most of the gain comes from the smaller Bevy feature set (no UI, text, audio, scenes or picking) and from LTO. A rebuild takes about 3 minutes, and 7 from clean.
+- `tools/web_demo.py` has three commands: `build` writes the site to `target/web-demo/`, `serve` serves it, and `smoke` tests it. Smoke opens `?smoke` in Edge, Chrome or Brave on a fresh profile. The page shows each tier until the GPU has counted blades twice, then posts a report. Smoke passes if every tier drew blades and nothing logged an error. `--headless` works with the real GPU in Edge and Chrome 155 on Windows, so a nightly run on a self-hosted machine is possible. For Safari, Firefox or a phone, `serve` and open `?smoke` by hand: the terminal prints and saves the same report.
+- `?max-storage-buffers=N` (`smoke --max-storage-buffers N`) asks WebGPU for a device with at most N storage buffers per stage. The browser then checks every pipeline against N. This is the browser counterpart of `constrained_limits`.
+- CI: the `wasm` job also lints the demo for wasm, and `tools/lint.py` lints it natively and, when the target is installed, for wasm. `.github/workflows/pages.yml` builds the site and publishes it to GitHub Pages on a `v*` tag or by hand. That needs the repository's Pages source set to "GitHub Actions". The browser smoke test stays out of hosted CI.
+
+Smoke results (headless, 800×600, vsync at 60 Hz, so frame times under 16.7 ms do not show):
+
+| Browser and device | Storage buffers | Result | Blades at Low / Medium / High / Ultra | Frame p50 / p95 at Ultra |
+| --- | --- | --- | --- | --- |
+| Edge 155, Intel UHD (Xe) | 16 | Pass, no errors or warnings | 5.1k / 26.5k / 70.7k / 168k | 16.7 / 33.4 ms |
+| Edge 155, Intel UHD, `--max-storage-buffers 10` | 10 (device) | Pass, no errors or warnings | the same | 16.7 / 49.8 ms |
+| Brave 1.97 (Chromium 155), T1200 | 16 | Pass, no errors or warnings | 5.2k / 27.1k / 72.1k / 171k | 16.7 / 16.9 ms |
+| Edge 155, Intel UHD, `--max-storage-buffers 8` | 8 (device) | No grass, as intended: one `bevy_grass` warning, no errors | none | none |
+
+Low, Medium and High hold 60 Hz at p95 on both GPUs in this window. In a full window, Edge on the Intel GPU showed Medium at a p95 of 33 ms and High at 50 ms, so the open browser cost from phase 0 remains.
+
+Found on the way: Bevy logs every level through `console.log` on wasm, so the phase 0 report panel (`tools/web_example.py`) never saw Bevy's own `ERROR` and `WARN` lines, only the browser's. Both pages now pick them out of `console.log`. Phase 0's "no errors" was read from that panel, so it holds only for browser-level errors. The smoke runs above use the fixed capture.
+
+Still to do:
+
+- [ ] Smoke on Chrome and Safari on macOS (a real 10-buffer device), Firefox, and Chrome on Android: `python tools/web_demo.py serve`, then open `?smoke`.
+- [ ] Set Pages to "GitHub Actions", push, and run the "Web demo" workflow once. Then add the demo's address to the README in phase 4.

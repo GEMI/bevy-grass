@@ -169,6 +169,14 @@ PAGE = r"""<!doctype html>
     const original = console[level].bind(console);
     console[level] = (...args) => { keep(list, args); original(...args); };
   }
+  // Bevy logs every level through console.log, as "%cERROR%c origin%c text"
+  // with a style per %c.
+  const log = console.log.bind(console);
+  console.log = (...args) => {
+    const level = typeof args[0] === "string" && args[0].match(/^%c(ERROR|WARN)%c/);
+    if (level) keep(level[1] === "ERROR" ? report.errors : report.warnings, [args[0].replaceAll("%c", "")]);
+    log(...args);
+  };
   addEventListener("error", (e) => keep(report.errors, [e.message]));
   addEventListener("unhandledrejection", (e) => keep(report.errors, [e.reason]));
 

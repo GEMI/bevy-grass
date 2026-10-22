@@ -20,8 +20,16 @@ exclude = [
   "/shots/",
   "/tests/golden/",
   "/tools/",
+  "/web/",
   "/webgpu-plan.md",
 ]
+
+# The hosted web demo (`web/`) is the only other package. A plain `cargo`
+# command here still builds and tests this crate alone; `-p bevy_grass_web`
+# picks the demo. Sharing the workspace shares Cargo.lock, so the demo is
+# built against the same Bevy and wasm-bindgen as the examples.
+[workspace]
+members = ["web"]
 
 # Any Bevy 0.20.x (patch releases do not break the render internals this crate
 # touches; a game that wants exactly 0.20.0 pins it in its own Cargo.toml and
@@ -163,5 +171,15 @@ debug = false
 # sets this in its own Cargo.toml.
 [profile.release-lto]
 inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+# The hosted web demo (`tools/web_demo.py`): a smaller download. Whole-program
+# optimisation drops the parts of Bevy the demo never calls, and "s" trades
+# some CPU speed for size (its frame time against opt-level 3 is not
+# measured yet). With wasm-opt, 18.2 MiB of wasm.
+[profile.web]
+inherits = "release"
+opt-level = "s"
 lto = "fat"
 codegen-units = 1

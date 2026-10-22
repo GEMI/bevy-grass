@@ -1,0 +1,58 @@
+[package]
+name = "bevy_grass_web"
+description = "The hosted bevy_grass demo: a meadow in the browser, through WebGPU."
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+publish = false
+
+[dependencies]
+bevy_grass = { path = ".." }
+# Only what the demo draws: no audio, gamepads, scenes, picking, text or UI,
+# each of which would add to the download. `tonemapping_luts` is the default
+# camera's tonemapper (its tables are zstd-compressed KTX2, and `zstd_rust`
+# reads them), and `free_camera` flies the camera.
+bevy = { version = "0.20", default-features = false, features = [
+  "std",
+  "async_executor",
+  "bevy_log",
+  "bevy_asset",
+  "bevy_window",
+  "bevy_winit",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+  "tonemapping_luts",
+  "zstd_rust",
+  "free_camera",
+] }
+
+# Run natively for development (`cargo run -p bevy_grass_web --release`).
+# winit needs a Linux display server to build.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "0.20", default-features = false, features = [
+  "multi_threaded",
+  "x11",
+] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The crate draws through WebGPU only; WebGL2 has no compute shaders.
+bevy = { version = "0.20", default-features = false, features = ["webgpu"] }
+# The calls `index.html` makes into the demo. Already in Bevy's tree on wasm,
+# and the CLI that binds it must match Cargo.lock's version.
+wasm-bindgen = "0.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Graphics maths: bounded conversions, as in the crate's own table.
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+# Bevy systems receive resources, commands and queries by value.
+needless_pass_by_value = "allow"

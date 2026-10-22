@@ -1134,6 +1134,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_grass_web"
+version = "0.0.0"
+dependencies = [
+ "bevy",
+ "bevy_grass",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "bevy_heavy"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
