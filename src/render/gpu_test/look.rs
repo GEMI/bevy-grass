@@ -98,11 +98,15 @@ fn gpu_a_style_using_every_look_term_compiles_and_draws() {
         );
     }
 
-    // Give the pipelines time to compile; none may fail.
+    // Give the pipelines time to compile, which with the other GPU tests
+    // running at once can take a few hundred frames; none may fail.
     let mut compiled = 0;
-    for _ in 0..120 {
+    for _ in 0..600 {
         app.update();
         compiled = compiled_grass_pipelines(&mut app);
+        if compiled > 0 && blades_after(&mut app, 1) > 0 {
+            break;
+        }
     }
     assert!(
         compiled > 0,
