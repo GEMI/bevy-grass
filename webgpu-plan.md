@@ -72,10 +72,10 @@ Five phases, about 1.5 to 2 weeks for one developer. The budget is 10 storage bu
    - Start the demo at `GrassSettings::MEDIUM`, with a quality switch.
    - Run the browser smoke test by hand or nightly. Hosted CI keeps only the wasm compile check.
    - Exit: the demo runs without console errors in each browser from phase 0, including on Macs that report 10.
-5. **Phase 4: docs and release (1 to 2 days).** Not started.
+5. **Phase 4: docs and release (1 to 2 days).** ✅ **Docs done; release prepared as 0.20.4** ([results](#phase-4-results-2026-10-22-branch-webgpu-phase0)). Open: merge, tag and publish.
    - Add `docs/web.md`: supported browsers, no WebGL2, the 10-buffer budget and the warning below it, binding sizes, the shadow caveat, the timestamp caveat and a performance tier per device class.
    - Update `rendering.md` (the layout table), `testing.md` (the constrained-limits run), `roadmap.md`, the README and `CHANGELOG.md`.
-   - Release as 0.21.0. The budget limits what future features can add, even though no public item changes.
+   - Release as 0.21.0. The budget limits what future features can add, even though no public item changes. Changed to 0.20.4 (decided 2026-10-22): `docs/roadmap.md` keeps 0.21 for Bevy 0.21, and patch releases have carried breaking changes before (0.20.1).
 
 Target layout, counting storage buffers per pipeline:
 
@@ -218,3 +218,9 @@ Still to do:
 
 - [ ] Smoke on Chrome and Safari on macOS (a real 10-buffer device), Firefox, and Chrome on Android: `python tools/web_demo.py serve`, then open `?smoke`.
 - [ ] Set Pages to "GitHub Actions", push, and run the "Web demo" workflow once. Then add the demo's address to the README in phase 4.
+
+## Phase 4 results (2026-10-22, branch `webgpu-phase0`)
+
+- `docs/web.md` is new: how to build a game for WebGPU, the browsers tested, what a device needs (the 10-buffer budget, the blade binding and the shared mask and heightmap binding, each with the `GrassSupport` value or warning it gives), the shadow caveat (`depth-clip-control`), the timing caveat (Bevy's per-pass GPU timestamps are written in the encoder, which WebGPU does not allow), and frame time per tier on the two GPUs measured. Its tier advice: on an integrated GPU only `LOW` holds 60 Hz in a full window.
+- The README lists the browser and the demo, and links the page. `rendering.md` already had the layout table and `testing.md` the constrained-limits run (phase 2); both now link to `web.md`, as does `GrassSupport`'s row in `api.md`. `roadmap.md` moves browser builds to Done.
+- Release: 0.20.4, not 0.21.0, as above. The demo's address (`https://gemi.github.io/bevy-grass/`) is in the README and `web.md`; it serves once Pages is set to "GitHub Actions" and the `v0.20.4` tag runs `pages.yml`.

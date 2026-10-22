@@ -25,12 +25,14 @@ In order:
    installing is one line without a git URL. Listed on Bevy Assets and
    awesome-bevy. Contributor files: CONTRIBUTING, issue templates and
    good-first-issue labels.
-2. **Browser builds.** A wasm32 build in CI and a browser demo on WebGPU.
-   WebGL2 stays unsupported: grass needs compute shaders.
-3. **1.0.** Freeze the API, with the performance gate held.
+2. **1.0.** Freeze the API, with the performance gate held.
 
 ## Done
 
+- **Browser builds** (0.20.4): grass runs in browsers through WebGPU, in 10
+  storage buffers per shader stage, with a hosted demo and a wasm build in
+  CI. WebGL2 stays unsupported: grass needs compute shaders. See
+  [Running in the browser](web.md).
 - **Runtime editing and queries** (unreleased): clear, paint, mow and
   restore grass through the density mask, brushes that edit as they move,
   regrowth, and density and height at any point on the CPU. See

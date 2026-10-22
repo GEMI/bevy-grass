@@ -36,7 +36,8 @@
   (or the examples named) and serves them on localhost. Each page shows a
   report of the browser's limits, its errors and the frame time, with a
   button that copies it as JSON. The examples' flags go in the query string:
-  `meadow/?no-grass` is the same scene without grass.
+  `meadow/?no-grass` is the same scene without grass. The browsers run so
+  far are listed in [Running in the browser](web.md#browsers).
 - **Web demo smoke test.** The hosted demo (`web/`, published to GitHub
   Pages by `.github/workflows/pages.yml`) has its own check, run by hand
   since hosted runners have no WebGPU. `python tools/web_demo.py smoke`

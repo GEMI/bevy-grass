@@ -24,6 +24,9 @@ start of the span) instead of the `ron` error.
   published): a meadow with a quality switch, starting at `MEDIUM`, and a
   preset picker. `python tools/web_demo.py` builds it for size, serves it,
   and smoke-tests it in a browser.
+- [docs/web.md](docs/web.md), running in the browser: how to build for
+  WebGPU, the browsers tested, what a device needs, the shadow and timing
+  caveats, and frame times per tier on the devices measured.
 - `GrassSupport`, a resource: whether this GPU can draw grass, and if not,
   why (no compute shaders, as in WebGL2; no indirect draws; no storage
   buffers in the vertex shader; too few storage buffers per shader stage; too

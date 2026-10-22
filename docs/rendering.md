@@ -57,6 +57,7 @@ Every grass pipeline binds at most 10 storage buffers in a shader stage: what
 98% of WebGPU devices offer (the spec promises 8). A device that offers fewer
 draws no grass and logs one warning; `GrassSupport` says why. A unit test keeps
 every pipeline within 10, and the GPU tests run on a device lowered to 10.
+[Running in the browser](web.md) has what else a device needs.
 
 | Pipeline | Group 0 | Group 1 | Group 2 | Storage buffers |
 | --- | --- | --- | --- | --- |

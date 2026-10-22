@@ -28,6 +28,8 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
   it, with exact motion vectors) and into the deferred G-buffer.
 - **Works with Rapier and Avian.** Physics bodies flatten the grass in the
   shape of their colliders.
+- **Runs in the browser** through WebGPU, with the same shaders and settings
+  as on native. [Try the demo](https://gemi.github.io/bevy-grass/).
 - **Editable while the game runs.** Clear paths and plots, mow, burn, grow
   and regrow grass, and read it back on the CPU for stealth and footsteps,
   with no cost per frame while nothing is edited.
@@ -80,6 +82,11 @@ Requirements:
   Developed and tested on Windows with Vulkan and DX12, and on Linux (X11) with
   Vulkan on an NVIDIA GPU. Other native platforms should work wherever Bevy runs
   compute shaders, but have not been tested yet.
+- **In a browser, WebGPU.** Build with Bevy's `webgpu` feature. Tested in
+  Edge and Brave (Chromium 155) on Windows; grass costs more there than
+  natively, so start a tier lower.
+  [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/web.md) has the browsers, the
+  limits and the numbers.
 
 Optional cargo features: `rapier` and `avian` (physics bodies trample the
 grass) and `debug` (gizmos showing fields, chunks and interactors).
@@ -294,7 +301,8 @@ every idea that was tried, kept or dropped.
   [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/wind.md), [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/trampling.md),
   [Editing and reading the grass](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/editing.md),
   [Shadows and rendering paths](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/rendering.md),
-  [Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/tooling.md)
+  [Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/tooling.md),
+  [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/web.md)
 - [API overview](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/api.md): every public type on one page. Everything a
   game needs is in `bevy_grass::prelude`, and every item has rustdoc.
 - [How it works](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/design.md): what makes it fast, and what makes it look
@@ -308,7 +316,7 @@ every idea that was tried, kept or dropped.
 ## Roadmap
 
 We try to release for each Bevy minor version within two weeks of its
-release. Next are a crates.io release and a browser demo.
+release. Next is a crates.io release.
 [Roadmap and scope](https://github.com/GEMI/bevy-grass/blob/v0.20.3/docs/roadmap.md) has the order, the version policy and
 what bevy_grass will not do.
 
