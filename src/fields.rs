@@ -18,7 +18,6 @@ use bevy::image::Image;
 use bevy::log::warn;
 use bevy::math::{EulerRot, Quat, UVec2, UVec4, Vec2, Vec3, Vec4};
 use bevy::platform::time::Instant;
-use bevy::render::render_resource::ShaderType;
 use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
 
@@ -26,15 +25,13 @@ use crate::api::{
     GrassBlade, GrassField, GrassFieldOverrides, GrassGround, GrassSpecies, GrassStyle,
 };
 use crate::edit::{self, EditLayers};
+use crate::gpu_layout::{ChunkGpu, FieldGpu, NO_MAP};
 use crate::ground::{HOLE, MeshGrounds, bake_mesh_grounds};
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{self, ChunkLayout};
 use crate::stats::TableStats;
 use crate::style::MAX_SPECIES;
 use crate::{GrassStats, GrassSystems};
-
-/// Marks a field without a mask or heightmap.
-pub(crate) const NO_MAP: u32 = u32::MAX;
 
 /// Side of a chunk, in metres.
 ///
@@ -47,60 +44,6 @@ pub(crate) const CHUNK_SIZE: f32 = 16.0;
 /// Entries beyond this index cannot be addressed by an instance's 8-bit
 /// field index. Every species of a field is an entry.
 const MAX_ENTRIES: usize = 256;
-
-/// One species of one field as the shaders see it. Mirrors `Field` in
-/// `common.wesl`.
-///
-/// A field is one entry per species, in a row: its style's own blades first,
-/// then each of the style's `species`. Chunks point at the first; a blade
-/// points at its species' entry. Every entry repeats the field's placement,
-/// so the shaders read whichever they hold.
-#[derive(Debug, Clone, Copy, PartialEq, Default, ShaderType)]
-pub(crate) struct FieldGpu {
-    /// xyz: the field's minimum corner at its base height.
-    pub min_corner: Vec4,
-    /// x, y: size along X and Z; z: heightmap scale; w: tile size.
-    pub extent: Vec4,
-    /// x: shortest blade, y: tallest blade, z: root width, w: blades per m².
-    pub shape: Vec4,
-    /// x: lean, y: stiffness, w: root occlusion.
-    pub motion: Vec4,
-    pub root_color: Vec4,
-    pub tip_color: Vec4,
-    /// x: seed, y: tiles per chunk side, z: mask offset, w: heightmap offset
-    /// (offsets in texels; `NO_MAP` when absent). On the GPU the heightmaps
-    /// follow the masks in one buffer, so the render world adds the masks'
-    /// length in words to `w` when it uploads the table.
-    pub placement: UVec4,
-    /// Mask width and height, heightmap width and height, in texels.
-    pub map_sizes: UVec4,
-    /// rgb: the ground's colour; w: how far roots blend toward it.
-    pub ground: Vec4,
-    /// x: specular, y: toon bands (0: physically based).
-    pub look: Vec4,
-    /// x: this species' chance of taking a blade the species listed before
-    /// it left; y: its clustering; z: species in the field and w: the tallest
-    /// blade of any of them (both on the field's first entry).
-    pub mix: Vec4,
-    /// x: twist, in turns; y: droop; z: fold; w: head, a share of the length.
-    pub form: Vec4,
-    /// rgb: head colour; w: head width.
-    pub head: Vec4,
-    /// rgb: patch colour over tip colour; w: patch amount.
-    pub patches: Vec4,
-    /// x: patch size; y: dry tips; z: dead blades.
-    pub variation: Vec4,
-    /// x: tuft pull; y: tuft size; z: the bare-patch noise threshold, or -1
-    /// for none; w: bare patch size.
-    pub tufts: Vec4,
-    /// x: the render layers the field is drawn on, one bit each; 0 while the
-    /// field is hidden. A view draws the field when its own layers share a bit.
-    pub access: UVec4,
-    /// x, y: the field's own X axis in world XZ, which turns with the field
-    /// about Y; its Z axis is the perpendicular (`Vec2::perp`). Positions in
-    /// the field are along these axes from `min_corner`.
-    pub axis: Vec4,
-}
 
 impl FieldGpu {
     /// The field's X axis in world XZ. An entry built by hand, with no axis,
@@ -131,16 +74,6 @@ impl FieldGpu {
 /// Unturned (`axis` = X) it is `v` exactly.
 fn turn(axis: Vec2, v: Vec2) -> Vec2 {
     axis * v.x + axis.perp() * v.y
-}
-
-/// One chunk. Mirrors `Chunk` in `common.wesl`: 32 bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Default, ShaderType)]
-pub(crate) struct ChunkGpu {
-    /// x, y: offset of the chunk's minimum corner inside its field, in metres;
-    /// z, w: lowest and highest ground in the chunk, world Y.
-    pub bounds: Vec4,
-    /// x: field index, y, z: chunk coordinates in the field.
-    pub ids: UVec4,
 }
 
 /// Everything the GPU needs to know about the fields. Replaced, never edited,

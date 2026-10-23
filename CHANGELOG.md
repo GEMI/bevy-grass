@@ -44,6 +44,10 @@ uploaded `GrassWindFrame` to a shader of its own copies its fields into a
   prepass's shader definitions are in one function, `prepass_shader_defs`,
   with the material group taken from `bevy::pbr::MATERIAL_BIND_GROUP_INDEX`
   rather than a hard-coded 3.
+- The field and chunk tables' GPU layout (`FieldGpu`, `ChunkGpu`, `NO_MAP`)
+  moved from `fields.rs` to a module of its own, `gpu_layout.rs`: the one
+  place where the field logic depends on the shaders' layout and on Bevy's
+  `ShaderType`.
 
 ## 0.20.5 (October 22, 2026)
 

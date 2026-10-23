@@ -11,6 +11,7 @@ const TIME_PERIOD: f32 = 3600.0;
 const TILE_POINTS: u32 = 1024u;
 const WIDTH_RANGE: f32 = 4.0;
 const LOD_VERTEX_STRIDE: u32 = 64u;
+/// Twin of `gpu_layout::NO_MAP`.
 const NO_MAP: u32 = 0xffffffffu;
 /// Twin of `trample::TEXELS`.
 const TRAMPLE_TEXELS: i32 = 256;
@@ -85,7 +86,7 @@ struct View {
     limits: vec4<f32>,
 }
 
-/// One field. Mirrors `FieldGpu`.
+/// One field. Mirrors `FieldGpu` in `gpu_layout.rs`.
 struct Field {
     min_corner: vec4<f32>,
     /// x, y: size; z: heightmap scale; w: tile size.
@@ -124,7 +125,7 @@ struct Field {
     axis: vec4<f32>,
 }
 
-/// One chunk. Mirrors `ChunkGpu`.
+/// One chunk. Mirrors `ChunkGpu` in `gpu_layout.rs`.
 struct Chunk {
     bounds: vec4<f32>,
     ids: vec4<u32>,

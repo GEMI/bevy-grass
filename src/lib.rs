@@ -51,6 +51,7 @@ mod debug;
 mod edit;
 mod far;
 mod fields;
+mod gpu_layout;
 mod ground;
 #[cfg(test)]
 mod mirror;

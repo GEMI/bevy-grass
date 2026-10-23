@@ -165,7 +165,7 @@ layout.
 **Fix.** Do not convert them: this is a hot path. Move the two structs into a
 `gpu_layout.rs` module whose docs say it is the contract with `common.wesl`.
 The dependency stays, but as one named seam instead of being spread through
-`fields.rs`.
+`fields.rs`. *Done:* `src/gpu_layout.rs`, with `NO_MAP`.
 
 ### C5. Lights are read from Bevy's components, in two places
 

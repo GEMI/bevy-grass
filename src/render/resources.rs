@@ -28,7 +28,8 @@ use super::platform;
 use super::view::ViewUniformData;
 use crate::GrassSettings;
 use crate::edit::PatchList;
-use crate::fields::{ChunkGpu, FieldGpu, FieldTables, NO_MAP};
+use crate::fields::FieldTables;
+use crate::gpu_layout::{ChunkGpu, FieldGpu, NO_MAP};
 use crate::shader_model::{self, GUST_SIZE, gust_noise};
 use crate::wind::GrassWindFrame;
 

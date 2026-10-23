@@ -38,7 +38,8 @@ use bevy::time::Time;
 use bevy::transform::components::{GlobalTransform, Transform};
 
 use crate::api::GrassField;
-use crate::fields::{FieldFrame, FieldSlot, FieldTables, NO_MAP, TablesDirty};
+use crate::fields::{FieldFrame, FieldSlot, FieldTables, TablesDirty};
+use crate::gpu_layout::NO_MAP;
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{bare_noise, gust_noise_table, hash2, unit};
 use crate::{GrassStats, GrassSystems};

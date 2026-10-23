@@ -137,7 +137,7 @@ mod system {
     use bevy::math::Vec4;
 
     use super::*;
-    use crate::fields::FieldGpu;
+    use crate::gpu_layout::FieldGpu;
 
     /// An app running `check_shadow_setup` over one field of blades
     /// `blade_width` metres wide.
