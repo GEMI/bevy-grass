@@ -25,6 +25,9 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     requests: Requests {
         quality: None,
         preset: None,
+        wind_strength: None,
+        shadows: None,
+        antialiasing: None,
     },
     status: String::new(),
 });
@@ -56,6 +59,37 @@ pub fn set_preset(name: &str) -> bool {
     found.is_some()
 }
 
+/// Sets the wind's overall strength, 0 (still) to 1 (storm), from the next frame.
+/// False if `strength` is not between 0 and 1.
+#[wasm_bindgen]
+pub fn set_wind_strength(strength: f32) -> bool {
+    if strength.is_finite() && (0.0..=1.0).contains(&strength) {
+        shared().requests.wind_strength = Some(strength);
+        true
+    } else {
+        false
+    }
+}
+
+/// Asks for shadows to be enabled or disabled from the next frame.
+#[wasm_bindgen]
+pub fn set_shadows(enabled: bool) -> bool {
+    shared().requests.shadows = Some(enabled);
+    true
+}
+
+/// Asks for the sample count to be set from the next frame.
+/// False if the sample count is not 1, 2, 4 or 8.
+#[wasm_bindgen]
+pub fn set_antialiasing(samples: u32) -> bool {
+    if [1, 2, 4, 8].contains(&samples) {
+        shared().requests.antialiasing = Some(samples);
+        true
+    } else {
+        false
+    }
+}
+
 /// The tiers, in the order the page shows them.
 #[wasm_bindgen]
 pub fn qualities() -> Vec<String> {
@@ -85,6 +119,9 @@ pub(crate) fn take_requests(mut requests: ResMut<Requests>) {
     if page != Requests::default() {
         requests.quality = page.quality.or(requests.quality);
         requests.preset = page.preset.or(requests.preset);
+        requests.wind_strength = page.wind_strength.or(requests.wind_strength);
+        requests.shadows = page.shadows.or(requests.shadows);
+        requests.antialiasing = page.antialiasing.or(requests.antialiasing);
     }
 }
 
@@ -92,11 +129,12 @@ pub(crate) fn publish_status(
     meadow: Option<Res<Meadow>>,
     stats: Res<GrassStats>,
     support: Res<GrassSupport>,
+    wind: Res<GrassWind>,
 ) {
     let Some(meadow) = meadow else {
         return;
     };
-    if !(meadow.is_changed() || stats.is_changed() || support.is_changed()) {
+    if !(meadow.is_changed() || stats.is_changed() || support.is_changed() || wind.is_changed()) {
         return;
     }
     // Tier and preset names are identifiers; the support message is prose.
@@ -112,12 +150,16 @@ pub(crate) fn publish_status(
         json,
         "{{\"support\":\"{message}\",\"decided\":{},\"supported\":{},\
          \"quality\":\"{}\",\"preset\":\"{}\",\"blades\":[{near},{mid},{far}],\
-         \"readings\":{},\"overflows\":{}}}",
+         \"readings\":{},\"overflows\":{},\"wind_strength\":{},\
+         \"shadows\":{},\"antialiasing\":{}}}",
         *support != GrassSupport::Unknown,
         support.is_supported(),
         QUALITIES[meadow.quality].0,
         meadow.preset,
         stats.gpu.readings,
         stats.gpu.overflows,
+        wind.strength,
+        meadow.shadows,
+        meadow.antialiasing,
     );
 }

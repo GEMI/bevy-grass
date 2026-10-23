@@ -20,11 +20,13 @@
   #panel label { display: block; margin: 10px 0 4px; color: var(--dim); font-size: 12px;
     text-transform: uppercase; letter-spacing: 0.04em; }
   #tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  #tiers button, #preset { font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.08);
+  #tiers button, #preset, #antialiasing { font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 5px; padding: 5px 0; cursor: pointer; }
   #tiers button[aria-pressed="true"] { background: var(--accent); color: #111; border-color: var(--accent); }
-  #preset { width: 100%; padding: 5px 6px; }
-  #preset option { background: #1b2418; }
+  #preset, #antialiasing { width: 100%; padding: 5px 6px; }
+  #preset option, #antialiasing option { background: #1b2418; }
+  #wind-strength { width: 100%; margin-top: 4px; accent-color: var(--accent); }
+  #panel label input[type="checkbox"] { margin-right: 6px; vertical-align: middle; }
   #status { margin-top: 10px; font: 12px/1.5 ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; }
   #status .bad, #notice .bad { color: var(--bad); }
   #panel details { margin-top: 8px; color: var(--dim); font-size: 13px; }
@@ -44,6 +46,16 @@
   <div id="tiers" role="group" aria-label="Quality"></div>
   <label for="preset">Preset</label>
   <select id="preset"></select>
+  <label for="wind-strength">Wind Strength</label>
+  <input type="range" id="wind-strength" min="0" max="1" step="0.05" value="0.35" style="width: 100%;">
+  <label><input type="checkbox" id="shadows" checked> Shadows</label>
+  <label for="antialiasing">Antialiasing</label>
+  <select id="antialiasing">
+    <option value="1">Off</option>
+    <option value="2">2x</option>
+    <option value="4" selected>4x</option>
+    <option value="8">8x</option>
+  </select>
   <div id="status"></div>
   <details>
     <summary>Controls</summary>
@@ -185,6 +197,15 @@
       }
     }
     if (status.preset !== shown?.preset) $("preset").value = status.preset;
+    if (status.wind_strength !== undefined && status.wind_strength !== shown?.wind_strength) {
+      $("wind-strength").value = status.wind_strength;
+    }
+    if (status.shadows !== undefined && status.shadows !== shown?.shadows) {
+      $("shadows").checked = status.shadows;
+    }
+    if (status.antialiasing !== undefined && status.antialiasing !== shown?.antialiasing) {
+      $("antialiasing").value = status.antialiasing;
+    }
     shown = status;
     if (status.decided && !status.supported) {
       $("status").innerHTML = `<span class="bad">No grass on this device:</span> ${status.support}.`;
@@ -219,6 +240,17 @@
       demo.set_preset(e.target.value);
       choose("preset", e.target.value);
       $("grass").focus();
+    });
+    const wind = $("wind-strength");
+    wind.addEventListener("input", (e) => {
+      demo.set_wind_strength(parseFloat(e.target.value));
+      choose("wind_strength", e.target.value);
+    });
+    $("shadows").addEventListener("change", (e) => {
+      demo.set_shadows(e.target.checked);
+    });
+    $("antialiasing").addEventListener("change", (e) => {
+      demo.set_antialiasing(parseInt(e.target.value));
     });
   }
 
@@ -289,6 +321,9 @@
     controls();
     if (params.get("quality")) demo.set_quality(params.get("quality").toUpperCase());
     if (params.get("preset")) demo.set_preset(params.get("preset").toUpperCase());
+    if (params.get("wind_strength")) demo.set_wind_strength(parseFloat(params.get("wind_strength")));
+    if (params.get("shadows")) demo.set_shadows(params.get("shadows") === "true");
+    if (params.get("antialiasing")) demo.set_antialiasing(parseInt(params.get("antialiasing")));
     setInterval(showStatus, 500);
     $("grass").focus();
     if (smoke) finishSmoke(await smokeTest());

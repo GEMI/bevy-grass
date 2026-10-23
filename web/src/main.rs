@@ -1,11 +1,12 @@
 //! The hosted `bevy_grass` demo: a meadow larger than the grass radius, a
 //! clearing, a walker trampling a trail, and far grass beyond the blades.
 //!
-//! It starts at `GrassSettings::MEDIUM`, not the native default `HIGH`:
-//! grass has measured many times dearer in a browser than natively on the
-//! same GPU, for reasons not yet known (see `docs/web.md`). The page switches the tier and the preset; natively, 1
-//! to 4 pick the tier and `[` and `]` step through the presets. WASD and the
-//! mouse fly the camera (hold the right button, or press M, to look).
+//! It starts at `GrassSettings::ULTRA`, the highest tier, with the
+//! `WILDFLOWER_MEADOW` preset. Grass has measured many times dearer in a
+//! browser than natively on the same GPU, for reasons not yet known (see
+//! `docs/web.md`); the page switches the tier and the preset, and natively
+//! 1 to 4 pick the tier and `[` and `]` step through the presets. WASD and
+//! the mouse fly the camera (hold the right button, or press M, to look).
 //!
 //! ```text
 //! cargo run -p bevy_grass_web --release        # natively
@@ -15,12 +16,11 @@
 #[cfg(target_arch = "wasm32")]
 mod page;
 
-use bevy::asset::RenderAssetUsages;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::view::Msaa;
 use bevy_grass::prelude::*;
 
 /// The tiers the page offers, in its order.
@@ -30,9 +30,9 @@ const QUALITIES: [(&str, GrassSettings); 4] = [
     ("HIGH", GrassSettings::HIGH),
     ("ULTRA", GrassSettings::ULTRA),
 ];
-/// `MEDIUM`, where the demo starts.
-const START_QUALITY: usize = 1;
-const START_PRESET: &str = "MEADOW";
+/// `ULTRA`, where the demo starts.
+const START_QUALITY: usize = 3;
+const START_PRESET: &str = "WILDFLOWER_MEADOW";
 
 /// Side of the meadow, in metres: wider than Ultra's 300 m circle of blades,
 /// so the blades end inside the field and far grass carries on beyond them.
@@ -81,6 +81,12 @@ struct Requests {
     quality: Option<usize>,
     /// A preset's name, as `GrassStyle::presets` gives it.
     preset: Option<&'static str>,
+    /// The wind's overall strength, 0 (still) to 1 (storm).
+    wind_strength: Option<f32>,
+    /// Whether shadows are enabled.
+    shadows: Option<bool>,
+    /// The number of MSAA samples, 1, 2, 4 or 8.
+    antialiasing: Option<u32>,
 }
 
 /// What a preset change rewrites, and what the demo shows now.
@@ -91,6 +97,10 @@ struct Meadow {
     /// An index into `QUALITIES`.
     quality: usize,
     preset: &'static str,
+    /// Whether shadows are enabled.
+    shadows: bool,
+    /// The number of MSAA samples, 1, 2, 4 or 8.
+    antialiasing: u32,
 }
 
 /// The preset called `name`, with the name as a `'static` string.
@@ -108,42 +118,16 @@ fn far_grass(style: &GrassStyle) -> FarGrass {
 #[derive(Component, Debug)]
 struct Walker;
 
-/// A mask with full density everywhere except a soft-edged round clearing
-/// at the centre.
-fn clearing_mask(size: u32, radius: f32) -> Image {
-    let mut data = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let uv = (Vec2::new(x as f32, y as f32) + 0.5) / size as f32;
-            // A soft edge about 3 m wide.
-            let density =
-                ((uv.distance(Vec2::splat(0.5)) - radius) / (3.2 / MEADOW)).clamp(0.0, 1.0);
-            data.extend_from_slice(&[(density * 255.0) as u8, 255, 0, 255]);
-        }
-    }
-    Image::new(
-        Extent3d {
-            width: size,
-            height: size,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::MAIN_WORLD,
-    )
-}
-
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut far_materials: ResMut<Assets<FarGrassMaterial>>,
     mut styles: ResMut<Assets<GrassStyle>>,
-    mut images: ResMut<Assets<Image>>,
 ) {
     commands.spawn((
         Camera3d::default(),
+        Msaa::Sample4,
         Transform::from_xyz(-6.0, 3.0, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
         FreeCamera::default(),
         DistanceFog {
@@ -184,11 +168,10 @@ fn setup(
         MeshMaterial3d(ground.clone()),
     ));
     let style = styles.add(style);
-    // The meadow, with a clearing 12 m across at its centre.
+    // The meadow.
     commands.spawn(GrassField {
         size: Vec2::splat(MEADOW),
         style: style.clone(),
-        density_map: Some(images.add(clearing_mask(1024, 6.0 / MEADOW))),
         ..default()
     });
     // A 1.8 m capsule, the height of a person.
@@ -204,6 +187,8 @@ fn setup(
         ground,
         quality: START_QUALITY,
         preset: name,
+        shadows: true,
+        antialiasing: 4,
     });
 }
 
@@ -240,6 +225,10 @@ fn keyboard(keys: Res<ButtonInput<KeyCode>>, meadow: Res<Meadow>, mut requests: 
     requests.preset = Some(names[(at + step) % names.len()]);
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system: each request changes its own resource or query"
+)]
 fn apply_requests(
     mut requests: ResMut<Requests>,
     mut meadow: ResMut<Meadow>,
@@ -247,6 +236,9 @@ fn apply_requests(
     mut styles: ResMut<Assets<GrassStyle>>,
     mut far_materials: ResMut<Assets<FarGrassMaterial>>,
     mut windows: Query<&mut Window>,
+    mut wind: ResMut<GrassWind>,
+    mut lights: Query<&mut DirectionalLight>,
+    mut cameras: Query<&mut Msaa, With<Camera3d>>,
 ) {
     if *requests == Requests::default() {
         return;
@@ -254,7 +246,32 @@ fn apply_requests(
     let Requests {
         quality,
         preset: name,
+        wind_strength,
+        shadows,
+        antialiasing,
     } = std::mem::take(&mut *requests);
+    if let Some(strength) = wind_strength {
+        wind.strength = strength;
+    }
+    if let Some(enabled) = shadows.filter(|enabled| *enabled != meadow.shadows) {
+        for mut light in &mut lights {
+            light.shadow_maps_enabled = enabled;
+        }
+        meadow.shadows = enabled;
+    }
+    if let Some(samples) = antialiasing.filter(|samples| *samples != meadow.antialiasing) {
+        let msaa = match samples {
+            1 => Msaa::Off,
+            2 => Msaa::Sample2,
+            8 => Msaa::Sample8,
+            // 4, and anything else the page sends.
+            _ => Msaa::Sample4,
+        };
+        for mut msaa_comp in &mut cameras {
+            *msaa_comp = msaa;
+        }
+        meadow.antialiasing = samples;
+    }
     if let Some(quality) = quality.filter(|at| *at != meadow.quality) {
         *settings = QUALITIES[quality].1;
         meadow.quality = quality;

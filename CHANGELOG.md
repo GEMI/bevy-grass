@@ -3,6 +3,23 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
+## Unreleased
+
+**Breaking, and what to write instead**
+
+`GrassSettings` has a new field, `mid_range_start`. A struct literal that
+names every field without `..GrassSettings::HIGH` (or another tier) needs
+`mid_range_start: 0.1` added.
+
+**Changed**
+
+- The mid-range thinning (`mid_range_density`, half the blades, the rest
+  wider) now begins at its own distance, `mid_range_start`: 10% of the radius
+  by default (10 m at High), instead of at `lod1_start` (20 m). Blades keep
+  full detail to `lod1_start` as before. On a T1200 laptop GPU this cut the
+  main pass's grass cost by 9–13% in perspective, with more ground showing
+  between blades from 10 m. Set `mid_range_start: 0.2` for the old look.
+
 ## 0.20.5 (October 22, 2026)
 
 Grass in the browser: it draws through WebGPU, in 10 storage buffers per
@@ -29,9 +46,10 @@ start of the span) instead of the `ron` error.
   `python tools/web_example.py` builds and serves them, and CI checks the
   wasm build. [docs/web.md](docs/web.md) lists the browsers tested.
 - A web demo for GitHub Pages (`web/`, a package of its own that is not
-  published): a meadow with a quality switch, starting at `MEDIUM`, and a
-  preset picker. `python tools/web_demo.py` builds it for size, serves it,
-  and smoke-tests it in a browser.
+  published): a meadow with a quality switch, starting at `ULTRA`, a preset
+  picker, a wind-strength slider, and toggles for shadows and antialiasing.
+  `python tools/web_demo.py` builds it for size, serves it, and smoke-tests it
+  in a browser.
 - `examples/webgpu_minimal.rs`: the quick start, ready for the browser
   (a canvas that fills the page, `LOW` on the web, and a message on screen
   when `GrassSupport` says the device cannot draw grass). The README has a
@@ -68,6 +86,10 @@ start of the span) instead of the `ron` error.
   heightmaps together are larger than one storage binding (128 MiB in
   WebGPU) log a warning and draw no grass, where before each had a binding
   of its own.
+- The web demo starts at `ULTRA` and the `WILDFLOWER_MEADOW` preset, and its
+  page has sliders and toggles for wind strength, shadows and antialiasing.
+  The bare circle in the middle of the field is gone, so the grass covers the
+  whole meadow.
 
 ## 0.20.3 (October 21, 2026)
 
