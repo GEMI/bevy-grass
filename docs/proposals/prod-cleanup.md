@@ -275,6 +275,9 @@ In order:
    `src/render/bevy_glue/tests/`.
 3. **Render code out of the public types** (C3): `GrassWindFrame`,
    `GrassCamera`, `NoGrass`. Breaking, so it goes in the 0.21 release.
+   *Done:* `WindUniform` in `render/resources.rs` is built from the frame in
+   `extract_grass` and for each far-grass material; `extract_cameras` in
+   `render/extract.rs` copies the two camera components.
 4. **`bevy_bridge.wesl`** (C2), so the shaders import Bevy in one file.
 5. **One light adapter and `GrassLightFrame`** (C5).
 6. **A Bevy port checklist** in `docs/`, listing every Bevy touch point.

@@ -17,6 +17,7 @@ use bevy::render::texture::GpuImage;
 use bevy::shader::ShaderRef;
 
 use crate::api::GrassStyle;
+use crate::render::resources::WindUniform;
 use crate::wind::{GrassWindFrame, GrassWindSystems};
 use crate::{GrassQuality, GrassSettings};
 
@@ -154,7 +155,7 @@ pub struct FarGrassUniform {
     color: Vec4,
     fade: Vec4,
     area: Vec4,
-    wind: GrassWindFrame,
+    wind: WindUniform,
 }
 
 impl AsBindGroupShaderType<FarGrassUniform> for FarGrass {
@@ -173,7 +174,7 @@ impl AsBindGroupShaderType<FarGrassUniform> for FarGrass {
                 if self.area.is_some() { 1.0 } else { 0.0 },
             ),
             area: Vec4::new(area.min.x, area.min.y, area.max.x, area.max.y),
-            wind: self.wind,
+            wind: self.wind.into(),
         }
     }
 }

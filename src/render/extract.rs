@@ -2,17 +2,20 @@
 
 use std::sync::Arc;
 
+use bevy::camera::Camera;
 use bevy::ecs::prelude::*;
 use bevy::light::DirectionalLight;
 use bevy::math::{UVec4, Vec2, Vec3};
 use bevy::platform::collections::HashMap;
 use bevy::render::Extract;
+use bevy::render::sync_world::RenderEntity;
 use bevy::transform::components::GlobalTransform;
 
-use super::resources::FrameUniform;
+use super::resources::{FrameUniform, WindUniform};
 use crate::GrassSettings;
 use crate::api::{
-    GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, GrassSun, interactor_offsets,
+    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, GrassSun,
+    NoGrass, interactor_offsets,
 };
 use crate::clock::GrassClock;
 use crate::edit::{MaskPatches, PatchList};
@@ -29,7 +32,7 @@ pub(crate) struct ExtractedGrass {
     pub mask_patches: Arc<PatchList>,
     pub frame: FrameUniform,
     /// This frame of wind, as the shaders read it.
-    pub wind: GrassWindFrame,
+    pub wind: WindUniform,
     /// Direction the first shadow-casting directional light shines, if any.
     pub shadow_light: Option<Vec3>,
     /// Direction to the light the deferred G-buffer treats as the sun: the
@@ -93,7 +96,8 @@ pub(crate) fn extract_grass(
         flutter: wind.flutter.max(0.0),
         gust_contrast: wind.gust_contrast.max(0.0),
         ..**wind
-    };
+    }
+    .into();
     // The light grass follows: the one marked `GrassSun`, or else the first
     // that casts shadows. The G-buffer's sun is that light, or else the first.
     let (shadow_light, sun) =
@@ -163,4 +167,33 @@ pub(crate) fn extract_grass(
     }
     extracted.interactors = stamps;
     extracted.tracked = tracked;
+}
+
+/// A camera's render entity and the grass components it may carry.
+type CameraComponents = (RenderEntity, Option<&'static GrassCamera>, Has<NoGrass>);
+
+/// Copies each camera's [`GrassCamera`] and [`NoGrass`] to its render
+/// entity, and takes them off again when the camera loses them.
+///
+/// A system rather than Bevy's `ExtractComponent`, so the public components
+/// carry no render-world code, and this, the only place that knows how they
+/// reach the render world, follows Bevy's extraction API alone.
+pub(crate) fn extract_cameras(
+    mut commands: Commands,
+    cameras: Extract<Query<CameraComponents, With<Camera>>>,
+) {
+    for (entity, grass_camera, no_grass) in &cameras {
+        let Ok(mut camera) = commands.get_entity(entity) else {
+            continue;
+        };
+        match grass_camera {
+            Some(grass_camera) => camera.insert(*grass_camera),
+            None => camera.remove::<GrassCamera>(),
+        };
+        if no_grass {
+            camera.insert(NoGrass);
+        } else {
+            camera.remove::<NoGrass>();
+        }
+    }
 }

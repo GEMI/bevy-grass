@@ -52,9 +52,12 @@ fn drive_wind(weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
 }
 ```
 
-`GrassWindFrame` has the shader's values directly: direction, strength, gust
-size and scroll (`gust_offset` and `previous_gust_offset`, for motion
-vectors), sway, flutter and gust contrast. Put the system in
+`GrassWindFrame` holds the values the shaders move blades by: direction,
+strength, gust size and scroll (`gust_offset` and `previous_gust_offset`, for
+motion vectors), sway, flutter and gust contrast. It is plain data, not the
+GPU layout: the renderer copies it into its own uniform each frame, so a
+change to the shaders does not change the type your source writes. Put the
+system in
 `GrassWindSystems::Sample` so the blades and the far-grass material read the
 same frame. The built-in model remains available by itself as
 `GrassWindPlugin`; [`examples/custom_wind.rs`](../examples/custom_wind.rs) is

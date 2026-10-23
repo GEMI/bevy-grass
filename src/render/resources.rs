@@ -23,7 +23,7 @@ use bevy::render::view::{ViewUniform, ViewUniforms};
 use bevy::shader::Shader;
 
 use super::compute::ComputePass;
-pub(crate) use super::extract::{ExtractedGrass, extract_grass};
+pub(crate) use super::extract::{ExtractedGrass, extract_cameras, extract_grass};
 use super::platform;
 use super::view::ViewUniformData;
 use crate::GrassSettings;
@@ -50,6 +50,41 @@ pub(crate) struct FrameUniform {
     pub chunk_size: f32,
     pub chunk_count: u32,
     pub lod_rows: UVec4,
+}
+
+/// Mirrors `Wind` in `wind.wesl`: [`GrassWindFrame`] as the shaders read it.
+///
+/// The public frame is plain data and this is its GPU layout, so a new wind
+/// term in the shaders changes this struct, not the type every custom wind
+/// source writes. Built once a frame, in `extract_grass` and for each
+/// far-grass material.
+#[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
+pub(crate) struct WindUniform {
+    pub direction: Vec2,
+    pub strength: f32,
+    pub gust_scale: f32,
+    pub gust_offset: Vec2,
+    pub previous_gust_offset: Vec2,
+    pub sway: f32,
+    pub sway_speed: f32,
+    pub flutter: f32,
+    pub gust_contrast: f32,
+}
+
+impl From<GrassWindFrame> for WindUniform {
+    fn from(wind: GrassWindFrame) -> Self {
+        Self {
+            direction: wind.direction,
+            strength: wind.strength,
+            gust_scale: wind.gust_scale,
+            gust_offset: wind.gust_offset,
+            previous_gust_offset: wind.previous_gust_offset,
+            sway: wind.sway,
+            sway_speed: wind.sway_speed,
+            flutter: wind.flutter,
+            gust_contrast: wind.gust_contrast,
+        }
+    }
 }
 
 /// Mirrors `LodTable` in `common.wesl`.
@@ -102,7 +137,7 @@ impl GrassLayouts {
                     read(),
                     // The tuft table.
                     read(),
-                    uniform_buffer::<GrassWindFrame>(false),
+                    uniform_buffer::<WindUniform>(false),
                 ),
             ),
         );
@@ -160,7 +195,7 @@ impl GrassLayouts {
                     // The noise the colour patches come from.
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
-                    uniform_buffer::<GrassWindFrame>(false),
+                    uniform_buffer::<WindUniform>(false),
                 ),
             ),
         );
@@ -204,7 +239,7 @@ impl GrassLayouts {
 #[derive(Resource)]
 pub(crate) struct GrassShared {
     pub frame: UniformBuffer<FrameUniform>,
-    pub wind: UniformBuffer<GrassWindFrame>,
+    pub wind: UniformBuffer<WindUniform>,
     pub fields: StorageBuffer<Vec<FieldGpu>>,
     chunks: StorageBuffer<Vec<ChunkGpu>>,
     /// Every mask, then every heightmap as `f32` bits: one storage binding

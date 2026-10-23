@@ -16,8 +16,6 @@ use bevy::mesh::Mesh;
 use bevy::platform::collections::HashSet;
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
-use bevy::render::RenderApp;
-use bevy::render::extract_component::ExtractComponent;
 use bevy::transform::components::Transform;
 
 use crate::{GrassSettings, GrassShadows};
@@ -253,8 +251,7 @@ impl GrassGround {
 /// The buffers a camera draws with are sized by
 /// [`GrassSettings::instance_capacity`](crate::GrassSettings::instance_capacity), which is the same for every camera.
 /// To leave a camera out altogether, use [`NoGrass`] or `RenderLayers`.
-#[derive(Component, ExtractComponent, Debug, Clone, Copy, PartialEq, Default, Reflect)]
-#[extract_app(RenderApp)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default, Reflect)]
 #[reflect(Component, Default, Debug, PartialEq)]
 pub struct GrassCamera {
     /// Overrides [`GrassSettings::radius`](crate::GrassSettings::radius).
@@ -271,8 +268,7 @@ pub struct GrassCamera {
 /// Marks a camera that should not draw grass (minimaps, UI cameras). A
 /// shorthand: a camera whose `RenderLayers` share none with a field's does
 /// not draw that field either.
-#[derive(Component, ExtractComponent, Debug, Clone, Copy, Default, Reflect)]
-#[extract_app(RenderApp)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component, Default, Debug)]
 pub struct NoGrass;
 

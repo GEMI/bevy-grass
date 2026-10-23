@@ -11,6 +11,14 @@ break the API; each breaking change below says what to write instead.
 names every field without `..GrassSettings::HIGH` (or another tier) needs
 `mid_range_start: 0.1` added.
 
+`GrassWindFrame` no longer implements Bevy's `ShaderType`, and `GrassCamera`
+and `NoGrass` no longer implement `ExtractComponent`. The public types are
+plain data now, so a change to the shaders' wind layout or to Bevy's
+extraction API no longer breaks them. Nothing changes for a game that writes
+them; the renderer copies them into the render world itself. A game that
+uploaded `GrassWindFrame` to a shader of its own copies its fields into a
+`ShaderType` struct of its own.
+
 **Changed**
 
 - The mid-range thinning (`mid_range_density`, half the blades, the rest

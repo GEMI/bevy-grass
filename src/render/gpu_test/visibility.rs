@@ -66,3 +66,45 @@ fn gpu_draws_a_field_only_where_visibility_and_render_layers_allow() {
         "the camera is back on layer 0"
     );
 }
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_camera_components_reach_the_render_world_and_leave_it() {
+    use bevy::render::sync_world::MainEntity;
+
+    use crate::api::{GrassCamera, NoGrass};
+
+    let mut app = headless_app();
+    let camera = app
+        .world_mut()
+        .query_filtered::<Entity, With<Camera3d>>()
+        .single(app.world())
+        .unwrap();
+    let in_render_world = |app: &mut App| {
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        world
+            .query::<(&MainEntity, Has<NoGrass>, Option<&GrassCamera>)>()
+            .iter(world)
+            .find(|(main, ..)| main.id() == camera)
+            .map(|(_, no_grass, grass_camera)| (no_grass, grass_camera.copied()))
+            .expect("the camera has a render entity")
+    };
+    app.update();
+    assert_eq!(in_render_world(&mut app), (false, None));
+
+    let grass_camera = GrassCamera {
+        radius: Some(12.0),
+        ..default()
+    };
+    app.world_mut()
+        .entity_mut(camera)
+        .insert((NoGrass, grass_camera));
+    app.update();
+    assert_eq!(in_render_world(&mut app), (true, Some(grass_camera)));
+
+    app.world_mut()
+        .entity_mut(camera)
+        .remove::<(NoGrass, GrassCamera)>();
+    app.update();
+    assert_eq!(in_render_world(&mut app), (false, None));
+}

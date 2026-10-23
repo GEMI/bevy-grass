@@ -9,7 +9,7 @@
 
 import package::shaders::common::{TAU, periodic};
 
-/// One frame of wind. Mirrors `GrassWindFrame` in Rust.
+/// One frame of wind. Mirrors `WindUniform` in `src/render/resources.rs`.
 struct Wind {
     /// Direction the wind blows toward, in world XZ. Normalized on use.
     direction: vec2<f32>,

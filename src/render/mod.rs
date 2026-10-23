@@ -19,13 +19,11 @@ use bevy::core_pipeline::schedule::camera_driver;
 use bevy::ecs::prelude::*;
 use bevy::log::warn;
 use bevy::pbr::Shadow;
-use bevy::render::extract_component::ExtractComponentPlugin;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::SpecializedRenderPipelines;
 use bevy::render::renderer::{RenderAdapter, RenderDevice, RenderGraph};
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
-use crate::api::{GrassCamera, NoGrass};
 use platform::GrassSupport;
 
 /// Wires the render app. Added by `GrassPlugin`.
@@ -35,10 +33,6 @@ pub(crate) struct GrassRenderPlugin {
 
 impl Plugin for GrassRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            ExtractComponentPlugin::<NoGrass>::default(),
-            ExtractComponentPlugin::<GrassCamera>::default(),
-        ));
         // The stats the render world reads back go to the main world through
         // this shared handle.
         let readings = app.world().resource::<crate::stats::GpuReadings>().clone();
@@ -74,7 +68,7 @@ impl Plugin for GrassRenderPlugin {
             )
             .add_systems(
                 ExtractSchedule,
-                resources::extract_grass.run_if(platform::supported),
+                (resources::extract_grass, resources::extract_cameras).run_if(platform::supported),
             )
             .add_systems(
                 Render,

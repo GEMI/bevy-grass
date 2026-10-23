@@ -26,7 +26,6 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::math::{Dir2, Vec2};
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
-use bevy::render::render_resource::ShaderType;
 use bevy::time::Time;
 
 use clock::WindClock;
@@ -137,9 +136,11 @@ impl Default for GrassWind {
     }
 }
 
-/// One frame of wind, in the exact form the shaders read.
+/// One frame of wind: the values the grass shaders move blades by.
 ///
-/// This is the seam between the wind and the grass. The built-in
+/// This is the seam between the wind and the grass. It is plain data, not
+/// the GPU layout: the renderer copies it into its own uniform each frame, so
+/// the shaders can change without changing this type. The built-in
 /// [`GrassWindPlugin`] fills it from [`GrassWind`] every frame; a game using
 /// another wind model turns that plugin off (`GrassPlugin { wind: false,
 /// ..default() }`) and writes this resource itself.
@@ -168,12 +169,11 @@ impl Default for GrassWind {
 /// so a custom source must advance them (or leave both at zero for a fixed
 /// gust pattern). The built-in model accumulates them in `wind/clock.rs`,
 /// which keeps them continuous when the wind changes speed or direction.
-#[derive(Resource, ShaderType, Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
 pub struct GrassWindFrame {
     /// Direction the wind blows toward, in world XZ. Any length: it is
-    /// normalized on use, and (0, 0) blows along +X. Twin of
-    /// `Wind::direction` in `shaders/wind.wesl`.
+    /// normalized on use, and (0, 0) blows along +X.
     pub direction: Vec2,
     /// Overall strength, 0 (still) and up.
     pub strength: f32,
