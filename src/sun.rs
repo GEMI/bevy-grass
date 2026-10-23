@@ -6,13 +6,25 @@
 //! so the choice is explicit: the light marked [`GrassSun`], or else the
 //! first shadow-casting one. "First" is by entity, so it does not change from
 //! run to run.
+//!
+//! The renderer never reads Bevy's lights directly. It reads one
+//! [`GrassLightFrame`] a frame, as it reads the wind: [`GrassLightPlugin`]
+//! fills it from Bevy's `DirectionalLight`s, and a game whose sun is
+//! something else (a sky or a day/night cycle of its own) turns that off and
+//! writes the frame itself. When Bevy reworks its lights, the adapter here
+//! is the one place that reads them for the renderer.
 
+use bevy::app::{App, Plugin, PostUpdate};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::prelude::*;
+use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::system::SystemParam;
 use bevy::light::{CascadeShadowConfig, DirectionalLight, DirectionalLightShadowMap};
 use bevy::log::warn;
 use bevy::math::Vec3;
+use bevy::reflect::Reflect;
+use bevy::reflect::std_traits::ReflectDefault;
+use bevy::transform::TransformSystems;
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::GrassSun;
@@ -32,6 +44,21 @@ pub(crate) struct SunCandidate {
 }
 
 impl SunCandidate {
+    /// A directional light as a candidate.
+    fn of(
+        entity: Entity,
+        light: &DirectionalLight,
+        transform: &GlobalTransform,
+        marked: bool,
+    ) -> Self {
+        Self {
+            entity,
+            casts: light.shadow_maps_enabled,
+            marked,
+            shines: transform.forward().as_vec3(),
+        }
+    }
+
     /// Where the light comes in "first": by entity index, which for lights
     /// spawned one after another is the order they were spawned in. (An
     /// `Entity` itself orders the other way round in Bevy 0.20.)
@@ -207,11 +234,8 @@ pub(crate) fn check_shadow_setup(
     let shadows = settings.shadows != GrassShadows::Off;
     let candidates: Vec<_> = lights
         .iter()
-        .map(|(entity, light, transform, _, marked)| SunCandidate {
-            entity,
-            casts: light.shadow_maps_enabled,
-            marked,
-            shines: transform.forward().as_vec3(),
+        .map(|(entity, light, transform, _, marked)| {
+            SunCandidate::of(entity, light, transform, marked)
         })
         .collect();
     let mut problems = sun_problems(&candidates, shadows);
@@ -237,6 +261,121 @@ pub(crate) fn check_shadow_setup(
     for problem in report.new_problems(problems) {
         warn!("bevy_grass: {problem}");
     }
+}
+
+/// The light grass follows this frame, as the renderer reads it.
+///
+/// This is the seam between a game's lights and the grass, as
+/// [`GrassWindFrame`](crate::GrassWindFrame) is for the wind. The built-in
+/// [`GrassLightPlugin`] fills it from Bevy's `DirectionalLight`s every frame
+/// (the one marked [`GrassSun`], or else the first that casts shadows). A
+/// game whose sun is not a `DirectionalLight`, or that wants to decide
+/// itself, turns that plugin off (`GrassPlugin { lights: false, ..default()
+/// }`) and writes this resource in [`GrassLightSystems::Sample`]:
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// # #[derive(Resource)] struct Sky { sun_shines: Vec3 }
+/// fn follow_the_sky(sky: Res<Sky>, mut light: ResMut<GrassLightFrame>) {
+///     *light = GrassLightFrame {
+///         // Grass's shadows are drawn into Bevy's shadow maps, so they
+///         // still need a shadow-casting DirectionalLight.
+///         shadow_direction: None,
+///         sun_direction: Some(sky.sun_shines),
+///     };
+/// }
+/// ```
+///
+/// Both directions are the way the light travels, as a
+/// `DirectionalLight`'s `GlobalTransform::forward()`; any length, normalized
+/// on use.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Default, Reflect)]
+#[reflect(Resource, Default, Debug, PartialEq)]
+pub struct GrassLightFrame {
+    /// The direction the light grass casts its shadows for shines, or `None`
+    /// when grass casts no shadows. Grass keeps the blades outside the view
+    /// whose shadows fall into it along this direction. The shadows
+    /// themselves are drawn into Bevy's shadow maps, the cascades of the
+    /// shadow-casting `DirectionalLight`s, whatever this says.
+    pub shadow_direction: Option<Vec3>,
+    /// The direction the sun shines, or `None` without one. A deferred camera
+    /// lights the far side of a blade by it, as light passing through the
+    /// blade. (The forward pass reads Bevy's lights directly.)
+    pub sun_direction: Option<Vec3>,
+}
+
+/// The light systems, in `PostUpdate`, after transforms are propagated.
+///
+/// [`Sample`](Self::Sample) is where the lights become a [`GrassLightFrame`]:
+/// the built-in [`GrassLightPlugin`] puts its own system there, and a game
+/// that writes the frame itself should put its system there too.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GrassLightSystems {
+    /// Samples this frame's lights into [`GrassLightFrame`].
+    Sample,
+}
+
+/// Adds the built-in light adapter: Bevy's directional lights into
+/// [`GrassLightFrame`] every frame. Part of [`GrassPlugin`](crate::GrassPlugin)
+/// unless it is built with `lights: false`.
+///
+/// Leave it out to decide the light yourself:
+///
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use bevy_grass::prelude::*;
+/// App::new()
+///     .add_plugins(DefaultPlugins)
+///     .add_plugins(GrassPlugins.set(GrassPlugin {
+///         lights: false,
+///         ..default()
+///     }))
+///     // Your own light: write `GrassLightFrame` in `GrassLightSystems::Sample`.
+///     .add_systems(PostUpdate, follow_the_sky.in_set(GrassLightSystems::Sample))
+///     .run();
+/// # fn follow_the_sky() {}
+/// ```
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GrassLightPlugin;
+
+impl Plugin for GrassLightPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<GrassLightFrame>()
+            .add_systems(PostUpdate, sample_lights.in_set(GrassLightSystems::Sample));
+    }
+}
+
+/// Orders [`GrassLightSystems::Sample`] after transform propagation, so the
+/// frame sees this frame's light directions. `GrassPlugin` calls it whether
+/// or not the built-in adapter is on, for a game's own system in the set.
+pub(crate) fn configure_light_systems(app: &mut App) {
+    app.init_resource::<GrassLightFrame>().configure_sets(
+        PostUpdate,
+        GrassLightSystems::Sample.after(TransformSystems::Propagate),
+    );
+}
+
+/// A directional light, for choosing the one grass follows.
+type SunLight = (
+    Entity,
+    &'static DirectionalLight,
+    &'static GlobalTransform,
+    Has<GrassSun>,
+);
+
+/// The built-in adapter: the light grass follows among Bevy's directional
+/// lights, written only when it changes.
+fn sample_lights(lights: Query<SunLight>, mut frame: ResMut<GrassLightFrame>) {
+    let (shadow_direction, sun_direction) =
+        pick_sun(lights.iter().map(|(entity, light, transform, marked)| {
+            SunCandidate::of(entity, light, transform, marked)
+        }));
+    frame.set_if_neq(GrassLightFrame {
+        shadow_direction,
+        sun_direction,
+    });
 }
 
 #[cfg(test)]

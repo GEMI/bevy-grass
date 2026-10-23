@@ -256,3 +256,76 @@ mod system {
         assert_eq!(said(&narrow).len(), 1, "{:?}", said(&narrow));
     }
 }
+
+mod adapter {
+    use bevy::MinimalPlugins;
+    use bevy::app::App;
+    use bevy::transform::components::Transform;
+
+    use super::*;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, GrassLightPlugin));
+        configure_light_systems(&mut app);
+        app
+    }
+
+    fn light(app: &mut App, casts: bool, looking: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                DirectionalLight {
+                    shadow_maps_enabled: casts,
+                    ..Default::default()
+                },
+                GlobalTransform::from(Transform::IDENTITY.looking_to(looking, Vec3::Y)),
+            ))
+            .id()
+    }
+
+    fn frame(app: &App) -> GrassLightFrame {
+        *app.world().resource::<GrassLightFrame>()
+    }
+
+    #[test]
+    fn the_frame_follows_the_light_grass_would_pick() {
+        let mut app = app();
+        app.update();
+        assert_eq!(frame(&app), GrassLightFrame::default(), "no light yet");
+
+        let moon = Vec3::new(0.3, -1.0, 0.0).normalize();
+        let sun = Vec3::new(-0.5, -1.0, 0.2).normalize();
+        light(&mut app, false, moon);
+        let marked = light(&mut app, true, sun);
+        app.update();
+        let seen = frame(&app);
+        // Only the sun casts shadows, so it is both; the moon came first but
+        // casts none.
+        assert!((seen.shadow_direction.unwrap() - sun).length() < 1e-5);
+        assert!((seen.sun_direction.unwrap() - sun).length() < 1e-5);
+
+        // With the sun gone, grass follows the moon, which casts no shadows.
+        app.world_mut()
+            .entity_mut(marked)
+            .remove::<DirectionalLight>();
+        app.update();
+        let seen = frame(&app);
+        assert_eq!(seen.shadow_direction, None);
+        assert!((seen.sun_direction.unwrap() - moon).length() < 1e-5);
+    }
+
+    #[test]
+    fn without_the_adapter_a_frame_the_game_writes_is_kept() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        configure_light_systems(&mut app);
+        light(&mut app, true, Vec3::NEG_Y);
+        let own = GrassLightFrame {
+            shadow_direction: None,
+            sun_direction: Some(Vec3::new(1.0, -1.0, 0.0)),
+        };
+        app.insert_resource(own);
+        app.update();
+        assert_eq!(frame(&app), own);
+    }
+}

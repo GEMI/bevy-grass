@@ -283,7 +283,12 @@ In order:
    a `StandardMaterial` extension whose entry point takes Bevy's
    `VertexOutput`. The shadow pass binds the light's view through the bridge
    too, under `GRASS_SHADOW_PASS`. All 44 goldens unchanged.
-5. **One light adapter and `GrassLightFrame`** (C5).
+5. **One light adapter and `GrassLightFrame`** (C5). *Done:* `GrassLightFrame
+   { shadow_direction, sun_direction }`, `GrassLightPlugin` (off with
+   `GrassPlugin { lights: false, .. }`) and `GrassLightSystems::Sample` in
+   `PostUpdate` after transform propagation; `extract_grass` reads the frame.
+   `check_shadow_setup` still reads Bevy's cascades, which are Bevy's by
+   nature, through the same `SunCandidate::of`.
 6. **A Bevy port checklist** in `docs/`, listing every Bevy touch point.
    After steps 2 to 5 it is short: `bevy_glue.rs`, the scheduling in
    `render/mod.rs`, `bevy_bridge.wesl`, `far.rs` and `gpu_layout.rs`.

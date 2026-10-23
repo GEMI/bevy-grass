@@ -85,6 +85,7 @@ pub use render::platform::GrassSupport;
 pub use settings::{GrassQuality, GrassSettings, GrassShadows};
 pub use stats::{GpuStats, GrassDiagnostics, GrassStats, TableStats};
 pub use style_file::{GrassStyleFileError, GrassStyleFilePlugin, GrassStyleLoader};
+pub use sun::{GrassLightFrame, GrassLightPlugin, GrassLightSystems};
 pub use wind::{GrassWind, GrassWindFrame, GrassWindPlugin, GrassWindSystems};
 
 use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, PostUpdate, Update};
@@ -101,11 +102,12 @@ pub mod prelude {
         FarGrass, FarGrassMaterial, FarGrassPlugin, GrassBlade, GrassBrush, GrassBrushFootprint,
         GrassBrushShape, GrassCamera, GrassColliderBounds, GrassColliderSystems, GrassEdit,
         GrassEditOp, GrassField, GrassFieldOverrides, GrassGround, GrassInteractor,
-        GrassInteractorFootprint, GrassInteractorFromCollider, GrassInteractorSpread, GrassPlugin,
-        GrassPlugins, GrassQuality, GrassRegrowth, GrassSample, GrassSampler, GrassSettings,
-        GrassShadows, GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin, GrassSun,
-        GrassSupport, GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin,
-        GrassWindSystems, GroundTint, NoGrass,
+        GrassInteractorFootprint, GrassInteractorFromCollider, GrassInteractorSpread,
+        GrassLightFrame, GrassLightPlugin, GrassLightSystems, GrassPlugin, GrassPlugins,
+        GrassQuality, GrassRegrowth, GrassSample, GrassSampler, GrassSettings, GrassShadows,
+        GrassSpecies, GrassStats, GrassStyle, GrassStyleFilePlugin, GrassSun, GrassSupport,
+        GrassSystems, GrassVariation, GrassWind, GrassWindFrame, GrassWindPlugin, GrassWindSystems,
+        GroundTint, NoGrass,
     };
     #[cfg(feature = "debug")]
     pub use crate::{GrassDebug, GrassDebugPlugin};
@@ -219,7 +221,8 @@ impl PluginGroup for GrassPlugins {
 /// out the far-grass material or the style files.
 ///
 /// The settings are the [`GrassSettings`] resource from then on; change that
-/// to change them at runtime. The built-in wind can be left out:
+/// to change them at runtime. The built-in wind, and the built-in choice of
+/// light ([`GrassLightPlugin`]), can be left out:
 ///
 /// ```no_run
 /// # use bevy::prelude::*;
@@ -241,6 +244,9 @@ pub struct GrassPlugin {
     /// Add the built-in [`GrassWindPlugin`]. Turn it off to drive the grass
     /// with another wind model that writes [`GrassWindFrame`].
     pub wind: bool,
+    /// Add the built-in [`GrassLightPlugin`], which follows Bevy's
+    /// directional lights. Turn it off to write [`GrassLightFrame`] yourself.
+    pub lights: bool,
 }
 
 impl Default for GrassPlugin {
@@ -248,6 +254,7 @@ impl Default for GrassPlugin {
         Self {
             settings: GrassSettings::default(),
             wind: true,
+            lights: true,
         }
     }
 }
@@ -290,8 +297,12 @@ impl Plugin for GrassPlugin {
             )
             .add_plugins(render::GrassRenderPlugin { shaders });
         physics::plugin(app);
+        sun::configure_light_systems(app);
         if self.wind {
             app.add_plugins(GrassWindPlugin);
+        }
+        if self.lights {
+            app.add_plugins(GrassLightPlugin);
         }
     }
 }
@@ -326,6 +337,7 @@ fn register_types(app: &mut App) {
         .register_type::<GrassCamera>()
         .register_type::<GrassWind>()
         .register_type::<GrassWindFrame>()
+        .register_type::<GrassLightFrame>()
         .register_type::<GrassSettings>()
         .register_type::<GrassQuality>()
         .register_type::<GrassShadows>()

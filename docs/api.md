@@ -10,9 +10,12 @@ material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-pa
 | Item | Kind | What it does |
 | --- | --- | --- |
 | `GrassPlugins` | Plugin group | `GrassPlugin`, `FarGrassPlugin` and `GrassStyleFilePlugin`. Add it after `DefaultPlugins`; `.set(GrassPlugin { settings, ..default() })` starts from other settings, `.disable::<FarGrassPlugin>()` leaves one out |
-| `GrassPlugin` | Plugin | The grass itself (fields, styles, interaction, rendering). `settings: GrassSettings` (`High` by default), and `wind: bool` (the built-in `GrassWindPlugin`, on by default) |
+| `GrassPlugin` | Plugin | The grass itself (fields, styles, interaction, rendering). `settings: GrassSettings` (`High` by default), `wind: bool` (the built-in `GrassWindPlugin`, on by default) and `lights: bool` (the built-in `GrassLightPlugin`, on by default) |
 | `GrassWindPlugin` | Plugin | The built-in wind model. Part of `GrassPlugin`; leave it out with `wind: false` and write `GrassWindFrame` yourself |
 | `GrassWindFrame` | Resource | The wind the shaders read this frame: direction, strength, gust size and scroll, sway, flutter and gust contrast. The built-in model or your own source writes it in `GrassWindSystems::Sample` |
+| `GrassLightPlugin` | Plugin | The built-in light adapter: Bevy's directional lights into `GrassLightFrame`. Part of `GrassPlugin`; leave it out with `lights: false` and write `GrassLightFrame` yourself |
+| `GrassLightFrame` | Resource | The light grass follows this frame: `shadow_direction` (the shadow-casting light, for keeping blades whose shadows fall into view) and `sun_direction` (what a deferred camera lights the far side of blades by), each an `Option<Vec3>`, the way the light shines |
+| `GrassLightSystems` | System set (`PostUpdate`, after transform propagation) | `Sample`: where `GrassLightFrame` is written, by the built-in adapter or your own system |
 | `GrassSettings` | Resource | Reach, density, shadows, buffer sizes, levels of detail and trampling; every setting is in the [settings table](settings.md#tune-the-distances-the-blades-and-the-trampling). Presets `COMPETITIVE`, `LOW`, `MEDIUM`, `HIGH` (default), `ULTRA`. Change it at any time |
 | `GrassQuality` | Enum | `Competitive`, `Low`, `Medium`, `High` (default), `Ultra`: a hardware tier for a graphics menu. `GrassSettings::from(GrassQuality::High)` |
 | `GrassShadows` | Enum | `Off`, `Near` (full-detail blades into the first shadow cascade; default), `Full` (also mid-range blades into the second). `GrassSettings::shadows` |

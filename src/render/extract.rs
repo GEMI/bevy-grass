@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use bevy::camera::Camera;
 use bevy::ecs::prelude::*;
-use bevy::light::DirectionalLight;
 use bevy::math::{UVec4, Vec2, Vec3};
 use bevy::platform::collections::HashMap;
 use bevy::render::Extract;
@@ -14,13 +13,13 @@ use bevy::transform::components::GlobalTransform;
 use super::resources::{FrameUniform, WindUniform};
 use crate::GrassSettings;
 use crate::api::{
-    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, GrassSun,
-    NoGrass, interactor_offsets,
+    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass,
+    interactor_offsets,
 };
 use crate::clock::GrassClock;
 use crate::edit::{MaskPatches, PatchList};
 use crate::fields::{CHUNK_SIZE, FieldTables};
-use crate::sun::{SunCandidate, pick_sun};
+use crate::sun::GrassLightFrame;
 use crate::trample::{self, Stamp, Tracked};
 use crate::wind::GrassWindFrame;
 
@@ -56,14 +55,6 @@ type Interactor = (
     Option<&'static GrassInteractorFootprint>,
 );
 
-/// A directional light, for choosing the one grass follows.
-type SunLight = (
-    Entity,
-    &'static DirectionalLight,
-    &'static GlobalTransform,
-    Has<GrassSun>,
-);
-
 /// Copies the tables (only when rebuilt, by reference), the wind, the clock,
 /// the shadow-casting light and mode, and the interactors.
 pub(crate) fn extract_grass(
@@ -71,7 +62,7 @@ pub(crate) fn extract_grass(
     tables: Extract<Res<FieldTables>>,
     wind: Extract<Res<GrassWindFrame>>,
     clock: Extract<Res<GrassClock>>,
-    lights: Extract<Query<SunLight>>,
+    light: Extract<Res<GrassLightFrame>>,
     interactors: Extract<Query<Interactor>>,
     (settings, patches): (Extract<Res<GrassSettings>>, Extract<Res<MaskPatches>>),
 ) {
@@ -98,21 +89,13 @@ pub(crate) fn extract_grass(
         ..**wind
     }
     .into();
-    // The light grass follows: the one marked `GrassSun`, or else the first
-    // that casts shadows. The G-buffer's sun is that light, or else the first.
-    let (shadow_light, sun) =
-        pick_sun(
-            lights
-                .iter()
-                .map(|(entity, light, transform, marked)| SunCandidate {
-                    entity,
-                    casts: light.shadow_maps_enabled,
-                    marked,
-                    shines: transform.forward().as_vec3(),
-                }),
-        );
-    extracted.shadow_light = shadow_light;
-    extracted.sun = sun.map(|shines| -shines);
+    // The light grass follows, from the built-in adapter or the game. A
+    // direction of no length means no light.
+    extracted.shadow_light = light.shadow_direction.and_then(Vec3::try_normalize);
+    extracted.sun = light
+        .sun_direction
+        .and_then(Vec3::try_normalize)
+        .map(|shines| -shines);
     // Take the old list so its capacity survives the frame, then fill it
     // while the tables are borrowed.
     let mut stamps = std::mem::take(&mut extracted.interactors);

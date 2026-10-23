@@ -19,6 +19,19 @@ them; the renderer copies them into the render world itself. A game that
 uploaded `GrassWindFrame` to a shader of its own copies its fields into a
 `ShaderType` struct of its own.
 
+`GrassPlugin` has a new field, `lights` (`true` by default). A literal that
+names every field without `..default()` needs `lights: true` added.
+
+**Added**
+
+- `GrassLightFrame`, the light grass follows this frame (the shadow-casting
+  light's direction and the sun's), written by the new built-in
+  `GrassLightPlugin` from Bevy's directional lights in
+  `GrassLightSystems::Sample`. A game whose sun is not a `DirectionalLight`
+  builds `GrassPlugin { lights: false, .. }` and writes the frame itself, as
+  it can the wind. The renderer reads the frame instead of querying Bevy's
+  lights, so Bevy's light types are read in one place.
+
 **Changed**
 
 - The mid-range thinning (`mid_range_density`, half the blades, the rest

@@ -38,6 +38,30 @@ commands.spawn((
   lights cast shadows and none is marked, when a marked light does not cast
   shadows, and when more than one light is marked.
 
+### A sun of your own
+
+The renderer reads the light it follows from one resource a frame,
+`GrassLightFrame`, as it reads the wind from `GrassWindFrame`. The built-in
+`GrassLightPlugin` fills it from Bevy's directional lights as above. A game
+whose sun is something else (a sky, an atmosphere, a day/night cycle that
+drives a component of its own) turns it off and writes the frame in
+`GrassLightSystems::Sample`:
+
+```rust
+app.add_plugins(GrassPlugins.set(GrassPlugin { lights: false, ..default() }))
+    .add_systems(PostUpdate, follow_the_sky.in_set(GrassLightSystems::Sample));
+
+fn follow_the_sky(sky: Res<Sky>, mut light: ResMut<GrassLightFrame>) {
+    light.sun_direction = Some(sky.sun_shines);
+}
+```
+
+`sun_direction` is what a deferred camera lights the far side of blades by;
+the forward pass lights them by Bevy's own lights. `shadow_direction` only
+decides which blades outside the view are kept because their shadows fall
+into it: grass's shadows are drawn into Bevy's shadow maps, so they still
+come from a shadow-casting `DirectionalLight`.
+
 ## Rendering paths
 
 | Camera has | Grass is drawn into |
