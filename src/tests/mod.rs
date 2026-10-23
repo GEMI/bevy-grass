@@ -34,7 +34,7 @@ fn through_ron(value: &dyn PartialReflect, registry: &TypeRegistry) -> Box<dyn P
 fn the_readme_quick_start_is_the_minimal_example() {
     // The first thing a new user copies must be a program that runs, so
     // the README holds the example's text and a test keeps them equal.
-    let example = include_str!("../examples/minimal.rs");
+    let example = include_str!("../../examples/minimal.rs");
     let code = example
         .split(
             "
@@ -48,7 +48,7 @@ fn the_readme_quick_start_is_the_minimal_example() {
 
 ",
         );
-    let readme = include_str!("../README.md");
+    let readme = include_str!("../../README.md");
     let section = readme
         .split("## Quick start")
         .nth(1)

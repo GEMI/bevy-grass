@@ -51,7 +51,7 @@ fn sway_and_flutter_are_continuous_where_the_time_wraps() {
 
 #[test]
 fn the_shader_and_the_clock_agree_on_the_period() {
-    let shader = include_str!("../shaders/common.wesl");
+    let shader = include_str!("../../shaders/common.wesl");
     assert!(
         shader.contains("const TIME_PERIOD: f32 = 3600.0;"),
         "common.wesl's TIME_PERIOD must equal clock::TIME_PERIOD"

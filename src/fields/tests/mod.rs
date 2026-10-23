@@ -1386,11 +1386,11 @@ fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
     // one of the terms: a definition no shader reads compiles nothing in, and
     // a name no term emits is a branch that can never be turned on.
     let sources = [
-        include_str!("../shaders/blade.wesl"),
-        include_str!("../shaders/common.wesl"),
-        include_str!("../shaders/grass.wesl"),
-        include_str!("../shaders/grass_prepass.wesl"),
-        include_str!("../shaders/look.wesl"),
+        include_str!("../../shaders/blade.wesl"),
+        include_str!("../../shaders/common.wesl"),
+        include_str!("../../shaders/grass.wesl"),
+        include_str!("../../shaders/grass_prepass.wesl"),
+        include_str!("../../shaders/look.wesl"),
     ];
     let mut definitions: Vec<&str> = LookFeatures::TERMS.iter().map(|(_, def)| *def).collect();
     for definition in &definitions {
