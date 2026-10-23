@@ -268,7 +268,11 @@ In order:
    blessed on the T1200; WARP and lavapipe need theirs from CI.
 2. **Tripwire tests in `bevy_glue.rs`** (C1): `deferred_by_default`, the
    layout count before `truncate(2)`, and the prepass def list named against
-   Bevy's source. About an hour.
+   Bevy's source. About an hour. *Done:* `main_pass_layout` builds groups 0
+   and 1 from Bevy's view layout and asserts that `MeshPipeline::specialize`
+   built them in that order; `deferred_by_default` asserts the resource's
+   shape; `prepass_shader_defs` names its Bevy source; unit tests in
+   `src/render/bevy_glue/tests/`.
 3. **Render code out of the public types** (C3): `GrassWindFrame`,
    `GrassCamera`, `NoGrass`. Breaking, so it goes in the 0.21 release.
 4. **`bevy_bridge.wesl`** (C2), so the shaders import Bevy in one file.

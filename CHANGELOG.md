@@ -28,6 +28,14 @@ names every field without `..GrassSettings::HIGH` (or another tier) needs
   shadows. It fails on any `ERROR` in the log as well, which is how a
   shader or pipeline that Bevy broke shows up: it draws nothing rather than
   failing.
+- The three places where grass relies on Bevy internals that do not fail
+  to compile when they change are now checked. The main pass's bind groups
+  are taken from Bevy's view layout and compared with what
+  `MeshPipeline::specialize` built, rather than cut to two. The deferred
+  default, read through reflection, is asserted and unit-tested. The
+  prepass's shader definitions are in one function, `prepass_shader_defs`,
+  with the material group taken from `bevy::pbr::MATERIAL_BIND_GROUP_INDEX`
+  rather than a hard-coded 3.
 
 ## 0.20.5 (October 22, 2026)
 

@@ -1,7 +1,13 @@
 //! Every touch point with Bevy's render internals: pipeline specialization,
 //! phase items in `Opaque3d`, `Opaque3dPrepass`, `Opaque3dDeferred` and
-//! `Shadow`, and the render commands that draw them. A Bevy upgrade should
-//! need changes here and little else.
+//! `Shadow`, and the render commands that draw them. Most of a Bevy upgrade
+//! happens here.
+//!
+//! What compiles against a new Bevy can still be wrong at runtime: a bind
+//! group in another slot, a shader definition renamed, a private field read
+//! through reflection. Each of those is checked here, by a debug assertion or
+//! a unit test, so a port finds them in `cargo test` rather than in a game
+//! that quietly stops drawing grass.
 //!
 //! Grass is one `NonMesh` binned phase item per camera, drawn with three
 //! `draw_indexed_indirect` calls (one per bucket) whatever the number of
@@ -30,10 +36,10 @@ use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::material::OpaqueRendererMethod;
 use bevy::mesh::{Mesh, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
-    DefaultOpaqueRendererMethod, LightEntity, MeshPipeline, MeshPipelineKey, PrepassPipeline,
-    SetMeshViewBindGroup, SetMeshViewBindingArrayBindGroup, SetPrepassViewBindGroup,
-    SetPrepassViewEmptyBindGroup, Shadow, ShadowBatchSetKey, ShadowBinKey, ViewKeyCache,
-    ViewKeyPrepassCache, ViewLightEntities,
+    DefaultOpaqueRendererMethod, LightEntity, MATERIAL_BIND_GROUP_INDEX, MeshPipeline,
+    MeshPipelineKey, MeshPipelineViewLayout, PrepassPipeline, SetMeshViewBindGroup,
+    SetMeshViewBindingArrayBindGroup, SetPrepassViewBindGroup, SetPrepassViewEmptyBindGroup,
+    Shadow, ShadowBatchSetKey, ShadowBinKey, ViewKeyCache, ViewKeyPrepassCache, ViewLightEntities,
 };
 use bevy::reflect::{PartialReflect, ReflectRef};
 use bevy::render::mesh::MeshVertexBufferLayouts;
@@ -108,9 +114,11 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
                 .shader_defs
                 .extend(key.features.shader_defs().map(ShaderDefVal::from));
         }
-        // Keep the view (0) and binding-array (1) groups; grass data is 2.
-        descriptor.layout.truncate(2);
-        descriptor.layout.push(self.grass_layout.clone());
+        descriptor.layout = main_pass_layout(
+            &descriptor.layout,
+            self.mesh_pipeline.get_view_layout(key.mesh.into()),
+            self.grass_layout.clone(),
+        );
         descriptor.primitive.cull_mode = None;
         // Grass writes and tests depth itself, also when the view has a
         // prepass that already drew it: the depths are equal, so the lit pass
@@ -123,6 +131,30 @@ impl SpecializedRenderPipeline for GrassMainPipeline {
         }
         descriptor
     }
+}
+
+/// The main pass's bind group layouts: Bevy's view (0) and binding-array (1)
+/// groups, which `DrawGrassMain` binds with Bevy's own render commands, then
+/// the grass group where the mesh group was.
+///
+/// `MeshPipeline::specialize` (`bevy_pbr` 0.20, `render/mesh.rs`) builds
+/// exactly those three. If a release reorders or adds groups, the pipeline
+/// still builds and fails only when wgpu validates it, or binds the wrong
+/// group with no error at all, so debug builds check Bevy's layout here.
+fn main_pass_layout(
+    bevy_layout: &[BindGroupLayoutDescriptor],
+    view: MeshPipelineViewLayout,
+    grass: BindGroupLayoutDescriptor,
+) -> Vec<BindGroupLayoutDescriptor> {
+    debug_assert!(
+        bevy_layout.len() == 3
+            && bevy_layout[0] == view.main_layout
+            && bevy_layout[1] == view.binding_array_layout,
+        "bevy_grass: MeshPipeline::specialize no longer builds [view, binding array, mesh] \
+         ({} groups); update main_pass_layout and DrawGrassMain",
+        bevy_layout.len()
+    );
+    vec![view.main_layout, view.binding_array_layout, grass]
 }
 
 /// The prepass and deferred pipeline: depth, and normals, motion vectors and
@@ -150,36 +182,7 @@ impl SpecializedRenderPipeline for GrassPrepassPipeline {
         let normals = key.contains(MeshPipelineKey::NORMAL_PREPASS);
         let motion = key.contains(MeshPipelineKey::MOTION_VECTOR_PREPASS);
         let deferred = key.contains(MeshPipelineKey::DEFERRED_PREPASS);
-        let mut defs: Vec<ShaderDefVal> = vec![
-            "PREPASS_PIPELINE".into(),
-            // Bevy's PBR modules name a material group; grass has none.
-            ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3),
-        ];
-        // Toon shading needs the lights, which a G-buffer pass has not got.
-        defs.extend(
-            features
-                .shader_defs()
-                .filter(|def| *def != "GRASS_TOON")
-                .map(ShaderDefVal::from),
-        );
-        for (on, name) in [
-            (
-                key.contains(MeshPipelineKey::DEPTH_PREPASS),
-                "DEPTH_PREPASS",
-            ),
-            (normals, "NORMAL_PREPASS"),
-            (motion, "MOTION_VECTOR_PREPASS"),
-            (deferred, "DEFERRED_PREPASS"),
-            (normals || deferred, "NORMAL_PREPASS_OR_DEFERRED_PREPASS"),
-            (
-                motion || deferred,
-                "MOTION_VECTOR_PREPASS_OR_DEFERRED_PREPASS",
-            ),
-        ] {
-            if on {
-                defs.push(name.into());
-            }
-        }
+        let mut defs = prepass_shader_defs(key, features);
         let mut targets = prepass_target_descriptors(normals, motion, deferred);
         if targets.iter().all(Option::is_none) {
             // Depth only: no fragment shader at all.
@@ -235,6 +238,55 @@ impl SpecializedRenderPipeline for GrassPrepassPipeline {
             ..Default::default()
         }
     }
+}
+
+/// The shader definitions of the prepass and deferred pipeline, before
+/// `PREPASS_FRAGMENT`, which depends on the targets.
+///
+/// Bevy's PBR modules read these, and Bevy sets them in a private function,
+/// `PrepassPipeline::specialize` (`bevy_pbr` 0.20, `prepass/mod.rs`), so this
+/// copies the ones grass needs. The rest are left out on purpose: grass has
+/// no vertex attributes, lightmaps, skins, morphs or alpha modes, and its
+/// shader does not read `VIEW_PROJECTION_*`. A port compares this list with
+/// that function: a definition Bevy renames compiles and is silently ignored.
+fn prepass_shader_defs(key: MeshPipelineKey, features: LookFeatures) -> Vec<ShaderDefVal> {
+    let normals = key.contains(MeshPipelineKey::NORMAL_PREPASS);
+    let motion = key.contains(MeshPipelineKey::MOTION_VECTOR_PREPASS);
+    let deferred = key.contains(MeshPipelineKey::DEFERRED_PREPASS);
+    let mut defs: Vec<ShaderDefVal> = vec![
+        "PREPASS_PIPELINE".into(),
+        // Bevy's PBR modules name a material group; grass has none.
+        ShaderDefVal::UInt(
+            "MATERIAL_BIND_GROUP".into(),
+            MATERIAL_BIND_GROUP_INDEX as u32,
+        ),
+    ];
+    // Toon shading needs the lights, which a G-buffer pass has not got.
+    defs.extend(
+        features
+            .shader_defs()
+            .filter(|def| *def != "GRASS_TOON")
+            .map(ShaderDefVal::from),
+    );
+    for (on, name) in [
+        (
+            key.contains(MeshPipelineKey::DEPTH_PREPASS),
+            "DEPTH_PREPASS",
+        ),
+        (normals, "NORMAL_PREPASS"),
+        (motion, "MOTION_VECTOR_PREPASS"),
+        (deferred, "DEFERRED_PREPASS"),
+        (normals || deferred, "NORMAL_PREPASS_OR_DEFERRED_PREPASS"),
+        (
+            motion || deferred,
+            "MOTION_VECTOR_PREPASS_OR_DEFERRED_PREPASS",
+        ),
+    ] {
+        if on {
+            defs.push(name.into());
+        }
+    }
+    defs
 }
 
 /// The shadow pipeline: depth only, for directional-light views.
@@ -433,15 +485,24 @@ type CameraItems = (
 
 /// Whether opaque materials render deferred by default. Grass follows the
 /// default, like a `StandardMaterial` left at `OpaqueRendererMethod::Auto`.
+///
+/// The method is a private field of Bevy's resource, so reflection reads it.
+/// If Bevy changes the resource's shape this would quietly say "forward" and
+/// deferred cameras would lose their grass, so debug builds assert the shape
+/// and a unit test checks both answers.
 fn deferred_by_default(method: &DefaultOpaqueRendererMethod) -> bool {
-    // The method is private to Bevy; reflection reads it.
-    match method.reflect_ref() {
+    let method = match method.reflect_ref() {
         ReflectRef::TupleStruct(method) => method
             .field(0)
-            .and_then(<dyn PartialReflect>::try_downcast_ref::<OpaqueRendererMethod>)
-            .is_some_and(|method| *method == OpaqueRendererMethod::Deferred),
-        _ => false,
-    }
+            .and_then(<dyn PartialReflect>::try_downcast_ref::<OpaqueRendererMethod>),
+        _ => None,
+    };
+    debug_assert!(
+        method.is_some(),
+        "bevy_grass: DefaultOpaqueRendererMethod is no longer a tuple of an \
+         OpaqueRendererMethod; update deferred_by_default"
+    );
+    method.is_some_and(|method| *method == OpaqueRendererMethod::Deferred)
 }
 
 /// The pipelines `queue_grass` specializes.
@@ -760,3 +821,6 @@ fn queue_shadows(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
