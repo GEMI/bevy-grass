@@ -1,6 +1,6 @@
 # Production cleanup: separating grass from Bevy
 
-Status: in progress (October 2026); each step below says when it was done. An architecture review of where
+Status: done (October 2026); each step below says what was built. An architecture review of where
 bevy_grass is tied to Bevy's render internals, to Bevy's rendering settings
 and to features it does not own (wind, lights, physics), and what to change
 before the Bevy 0.21 port so that port is a matter of fixing one known list of
@@ -228,7 +228,9 @@ The real cost of a design change is internal: a new look term touches about
 six places (`style.rs`, the `style_file.rs` file struct, `FieldGpu`, `Field`
 in `common.wesl`, `look.wesl`, `mirror.rs`). That is the price of the twin
 rules and is acceptable; a checklist in the house rules helps more than a
-refactor.
+refactor. *Done:* the policy is in [Roadmap and scope](../roadmap.md#keeping-up-with-bevy),
+and the house rules (`.claude/skills/bevy-grass-style/SKILL.md`) have the
+checklist for a new look term.
 
 ## The four concerns
 
@@ -296,6 +298,7 @@ In order:
 6. **A Bevy port checklist** in `docs/`, listing every Bevy touch point.
    After steps 2 to 5 it is short: `bevy_glue.rs`, the scheduling in
    `render/mod.rs`, `bevy_bridge.wesl`, `far.rs` and `gpu_layout.rs`.
+   *Done:* [Porting to a new Bevy](../porting.md), linked from the roadmap.
 
 Steps 3 and 4 change shader or public code, so each is measured against the
 current performance bar and checked against the goldens before it is kept.

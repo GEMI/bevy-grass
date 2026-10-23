@@ -71,6 +71,9 @@ names every field without `..default()` needs `lights: true` added.
   motion-vector conventions, behind small functions in grass's terms.
   `look.wesl` is grass logic only, and builds a `GrassSurface` that the
   bridge turns into Bevy's `PbrInput`. Images are unchanged.
+- [Porting to a new Bevy](docs/porting.md) lists every place grass touches
+  Bevy's renderer, what breaks there and how it is caught, and the order of
+  a port. The roadmap states the policy for new fields in the design types.
 
 ## 0.20.5 (October 22, 2026)
 
