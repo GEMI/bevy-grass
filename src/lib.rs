@@ -254,6 +254,7 @@ impl Default for GrassPlugin {
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
+        load_shader_library!(app, "shaders/bevy_bridge.wesl");
         load_shader_library!(app, "shaders/blade.wesl");
         load_shader_library!(app, "shaders/common.wesl");
         load_shader_library!(app, "shaders/wind.wesl");

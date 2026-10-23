@@ -48,6 +48,12 @@ uploaded `GrassWindFrame` to a shader of its own copies its fields into a
   moved from `fields.rs` to a module of its own, `gpu_layout.rs`: the one
   place where the field logic depends on the shaders' layout and on Bevy's
   `ShaderType`.
+- The grass shaders import Bevy's shader modules in one file,
+  `bevy_bridge.wesl`: the view, the sun and ambient light, `PbrInput`,
+  lighting and post-processing, the G-buffer and the prepass's normal and
+  motion-vector conventions, behind small functions in grass's terms.
+  `look.wesl` is grass logic only, and builds a `GrassSurface` that the
+  bridge turns into Bevy's `PbrInput`. Images are unchanged.
 
 ## 0.20.5 (October 22, 2026)
 

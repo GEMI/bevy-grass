@@ -15,12 +15,11 @@
 //! * `GRASS_TOON`: flat toon bands (forward only).
 //! * `GRASS_SHAPE`: heads, in their own colour.
 //! * `GRASS_VARIATION`: colour patches, dry tips and dead blades.
+//!
+//! Grass logic only: what Bevy's lighting makes of the surface is in
+//! `bevy_bridge`.
 
-import bevy_pbr::render::{
-    pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
-    pbr_functions::calculate_view,
-    mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
-};
+import package::shaders::bevy_bridge::GrassSurface;
 import package::shaders::common::{Field, Instance, instance_random, straw_of};
 import package::shaders::blade::{noise_texture, noise_sampler};
 
@@ -118,33 +117,27 @@ fn unpack_look(color: vec4<f32>, terms: vec4<f32>) -> Look {
     return look;
 }
 
-/// The blade's surface for Bevy's lighting. `normal` is the side being lit.
-fn blade_pbr_input(
+/// The blade's surface for Bevy's lighting (`grass_pbr_input`). `normal` is
+/// the side being lit.
+fn blade_surface(
     look: Look,
     normal: vec3<f32>,
     frag_coord: vec4<f32>,
     world_position: vec4<f32>,
     is_orthographic: bool,
-) -> PbrInput {
-    var pbr_input = pbr_input_new();
-    pbr_input.material.base_color = vec4<f32>(look.color.rgb, 1.0);
+) -> GrassSurface {
     // With sheen, the upper blade is glossier and reflects more, so wind
     // waves show as a moving sheen. Without, the whole blade is a matte leaf.
-    pbr_input.material.perceptual_roughness = 0.7 - 0.25 * look.sheen;
-    pbr_input.material.metallic = 0.0;
-    pbr_input.material.reflectance = vec3<f32>(0.25 + 0.45 * look.sheen);
-    // Bevy fogs only materials that ask for it; without this grass stood out,
-    // unfogged, in front of everything the mist had faded.
-    pbr_input.material.flags |= STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
-    pbr_input.diffuse_occlusion = vec3<f32>(look.occlusion);
-    pbr_input.world_normal = normal;
-    pbr_input.N = normal;
-    pbr_input.frag_coord = frag_coord;
-    pbr_input.world_position = world_position;
-    pbr_input.is_orthographic = is_orthographic;
-    pbr_input.V = calculate_view(world_position, is_orthographic);
-    pbr_input.flags = MESH_FLAGS_SHADOW_RECEIVER_BIT;
-    return pbr_input;
+    return GrassSurface(
+        look.color.rgb,
+        0.7 - 0.25 * look.sheen,
+        0.25 + 0.45 * look.sheen,
+        look.occlusion,
+        normal,
+        frag_coord,
+        world_position,
+        is_orthographic,
+    );
 }
 
 /// How much of the direct light a backlit face gets: the light that passed

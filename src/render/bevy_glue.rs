@@ -317,7 +317,12 @@ impl SpecializedRenderPipeline for GrassShadowPipeline {
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
-                shader_defs: features.shader_defs().map(ShaderDefVal::from).collect(),
+                // `bevy_bridge` binds the light's view instead of the mesh view.
+                shader_defs: features
+                    .shader_defs()
+                    .chain(["GRASS_SHADOW_PASS"])
+                    .map(ShaderDefVal::from)
+                    .collect(),
                 ..Default::default()
             },
             fragment: None,

@@ -279,6 +279,10 @@ In order:
    `extract_grass` and for each far-grass material; `extract_cameras` in
    `render/extract.rs` copies the two camera components.
 4. **`bevy_bridge.wesl`** (C2), so the shaders import Bevy in one file.
+   *Done,* for the grass draws; `far_ground.wesl` keeps its own imports, as
+   a `StandardMaterial` extension whose entry point takes Bevy's
+   `VertexOutput`. The shadow pass binds the light's view through the bridge
+   too, under `GRASS_SHADOW_PASS`. All 44 goldens unchanged.
 5. **One light adapter and `GrassLightFrame`** (C5).
 6. **A Bevy port checklist** in `docs/`, listing every Bevy touch point.
    After steps 2 to 5 it is short: `bevy_glue.rs`, the scheduling in

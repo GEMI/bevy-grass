@@ -2,20 +2,26 @@
 //! deferred G-buffer: depth always; normals, motion vectors and the G-buffer
 //! when the view asks for them. Group 0 is Bevy's prepass view group, 1 is
 //! its empty group and 2 is the grass group, as in the other grass draws.
+//! What Bevy's prepass expects of its outputs is in `bevy_bridge`.
 //!
 //! Motion vectors are exact: the blade is built a second time as it stood
 //! last frame, with last frame's bend, clock and camera.
 
-import bevy_pbr::render::mesh_view_bindings::view;
+import package::shaders::bevy_bridge::{
+    view_world_from_view, view_clip_from_view, view_clip_from_world, view_viewport_width,
+    view_is_orthographic, prepass_normal,
+};
 import package::shaders::blade::{blade_ref, blade_vertex, current_eye, previous_eye, fields, grass_view};
 
 @if(MOTION_VECTOR_PREPASS)
-import bevy_pbr::prepass::bindings::previous_view_uniforms;
+import package::shaders::bevy_bridge::{
+    previous_view_from_world, previous_clip_from_view, previous_clip_from_world, prepass_motion_vector,
+};
 
 @if(DEFERRED_PREPASS)
-import package::shaders::look::{blade_look, look_terms, unpack_look, blade_pbr_input, transmitted};
+import package::shaders::look::{blade_look, look_terms, unpack_look, blade_surface, transmitted};
 @if(DEFERRED_PREPASS)
-import bevy_pbr::deferred::functions::deferred_gbuffer_from_pbr_input;
+import package::shaders::bevy_bridge::{grass_pbr_input, grass_gbuffer, DEFERRED_LIGHTING_PASS_ID};
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -51,11 +57,11 @@ fn vertex(
     let blade_at = blade_ref(vertex_index, instance_index);
     let blade = blade_vertex(
         blade_at,
-        current_eye(view.world_from_view, view.clip_from_view, view.clip_from_world, view.viewport.z),
+        current_eye(view_world_from_view(), view_clip_from_view(), view_clip_from_world(), view_viewport_width()),
     );
     var out: VertexOutput;
     out.world_position = vec4<f32>(blade.world_position, 1.0);
-    out.position = view.clip_from_world * out.world_position;
+    out.position = view_clip_from_world() * out.world_position;
 
 @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)
     out.world_normal = blade.normal;
@@ -64,10 +70,10 @@ fn vertex(
     let previous = blade_vertex(
         blade_at,
         previous_eye(
-            previous_view_uniforms.view_from_world,
-            previous_view_uniforms.clip_from_view,
-            previous_view_uniforms.clip_from_world,
-            view.viewport.z,
+            previous_view_from_world(),
+            previous_clip_from_view(),
+            previous_clip_from_world(),
+            view_viewport_width(),
         ),
     );
     out.previous_world_position = vec4<f32>(previous.world_position, 1.0);
@@ -90,7 +96,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Blades are two-sided: the back face's normal is flipped.
     let normal = normalize(in.world_normal) * select(-1.0, 1.0, is_front);
 @if(NORMAL_PREPASS)
-    out.normal = vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
+    out.normal = prepass_normal(normal);
 
 @if(DEFERRED_PREPASS) {
     // Translucency, as near the forward pass as a G-buffer allows: a face
@@ -102,24 +108,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let lit_side = select(normal, -normal, backlit);
     var look = unpack_look(in.look_color, in.look_terms);
     look.color = vec4<f32>(look.color.rgb * select(vec3<f32>(1.0), transmitted(look.color), backlit), look.color.a);
-    let pbr_input = blade_pbr_input(
-        look,
-        lit_side,
-        in.position,
-        in.world_position,
-        view.clip_from_view[3].w == 1.0,
-    );
-    out.deferred = deferred_gbuffer_from_pbr_input(pbr_input);
-    // Bevy's own lighting pass, the one `StandardMaterial` uses.
-    out.deferred_lighting_pass_id = 1u;
+    out.deferred = grass_gbuffer(grass_pbr_input(
+        blade_surface(look, lit_side, in.position, in.world_position, view_is_orthographic()),
+    ));
+    out.deferred_lighting_pass_id = DEFERRED_LIGHTING_PASS_ID;
 }
 }
 
-@if(MOTION_VECTOR_PREPASS) {
-    let clip = view.unjittered_clip_from_world * in.world_position;
-    let previous_clip = previous_view_uniforms.unjittered_clip_from_world * in.previous_world_position;
-    // As Bevy's prepass: a UV-space offset, y down.
-    out.motion_vector = (clip.xy / clip.w - previous_clip.xy / previous_clip.w) * vec2<f32>(0.5, -0.5);
-}
+@if(MOTION_VECTOR_PREPASS)
+    out.motion_vector = prepass_motion_vector(in.world_position, in.previous_world_position);
     return out;
 }
