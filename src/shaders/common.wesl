@@ -51,6 +51,8 @@ struct View {
     lod1_start: f32,
     lod2_start: f32,
     lod_band: f32,
+    /// Where the mid-range thinning begins, in metres.
+    mid_range_start: f32,
     density_scale: f32,
     /// LOD for every blade, or 3 for distance-based LOD.
     fixed_lod: u32,
@@ -153,8 +155,8 @@ fn unit(h: u32) -> f32 {
 
 /// Twin of `DistanceLod::falloff`.
 fn density_falloff(view: View, distance: f32) -> f32 {
-    let into_lod1 = clamp((distance - (view.lod1_start - view.lod_band * 0.5)) / view.lod_band, 0.0, 1.0);
-    return distance_thinning(view, distance) * mix(1.0, view.lod_density.z, into_lod1);
+    let into_mid = clamp((distance - (view.mid_range_start - view.lod_band * 0.5)) / view.lod_band, 0.0, 1.0);
+    return distance_thinning(view, distance) * mix(1.0, view.lod_density.z, into_mid);
 }
 
 /// The distance table, before the mid-range thinning: 1 to the start of LOD 1,

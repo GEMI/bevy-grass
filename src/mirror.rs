@@ -107,12 +107,12 @@ impl DistanceLod {
     /// Share of the full density drawn at `distance`. The architecture's
     /// table (100% to the start of LOD 1, 50% where LOD 2 starts, 15% at 90%
     /// of the radius, then fading to nothing at the radius so the edge never
-    /// shows as a line), times `mid_range_density` from LOD 1's dither band
-    /// on. The WESL twin is `density_falloff`.
+    /// shows as a line), times `mid_range_density` from a dither band around
+    /// `mid_range_start` on. The WESL twin is `density_falloff`.
     pub(crate) fn falloff(&self, distance: f32) -> f32 {
-        let into_lod1 =
-            ((distance - (self.lod_start[0] - self.band * 0.5)) / self.band).clamp(0.0, 1.0);
-        self.distance_thinning(distance) * lerp(1.0, self.mid_range_density, into_lod1)
+        let into_mid =
+            ((distance - (self.mid_range_start - self.band * 0.5)) / self.band).clamp(0.0, 1.0);
+        self.distance_thinning(distance) * lerp(1.0, self.mid_range_density, into_mid)
     }
 
     /// The architecture's table alone. The WESL twin is `distance_thinning`.

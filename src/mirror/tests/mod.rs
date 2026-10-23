@@ -134,8 +134,9 @@ fn falloff_is_continuous_and_never_increases() {
     }
     assert_eq!(lod.falloff(100.0), 0.0);
     // The architecture's table (50–100% across LOD 1, 15–50% across
-    // LOD 2), halved from LOD 1's band on.
-    assert!((lod.falloff(17.0) - 1.0).abs() < 1e-6);
+    // LOD 2), halved from a band around 10 m on, before LOD 1 begins.
+    assert!((lod.falloff(7.0) - 1.0).abs() < 1e-6);
+    assert!((lod.falloff(17.0) - 0.5).abs() < 1e-6);
     assert!((lod.falloff(50.0) - 0.25).abs() < 1e-6);
     assert!((lod.falloff(90.0) - 0.075).abs() < 1e-6);
 }

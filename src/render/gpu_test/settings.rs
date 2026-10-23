@@ -237,6 +237,19 @@ fn gpu_distance_and_budget_settings_change_what_is_drawn() {
         "{denser} blades with the whole mid-range, {all} with half"
     );
 
+    // Starting the mid-range thinning further out keeps more blades, and the
+    // uniform carries the new distance.
+    *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
+        mid_range_start: 0.3,
+        ..high
+    };
+    let (view, later) = view_after(&mut app, 4);
+    assert_eq!(view.mid_range_start, high.radius * 0.3);
+    assert!(
+        later > all,
+        "{later} blades thinning from 30 m, {all} from 10 m"
+    );
+
     // No thinning at all by distance: nothing is lost before the fade.
     *app.world_mut().resource_mut::<GrassSettings>() = GrassSettings {
         lod2_density: 1.0,

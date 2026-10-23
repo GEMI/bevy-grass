@@ -66,8 +66,8 @@ pub struct GrassSettings {
     /// How far grass reaches from a perspective camera, in metres; at
     /// least 1. The distances below that shape the thinning and the levels
     /// of detail ([`lod1_start`](Self::lod1_start),
-    /// [`lod2_start`](Self::lod2_start), [`fade_start`](Self::fade_start))
-    /// are shares of it. Orthographic cameras draw what they see and ignore
+    /// [`lod2_start`](Self::lod2_start), [`fade_start`](Self::fade_start),
+    /// [`mid_range_start`](Self::mid_range_start)) are shares of it. Orthographic cameras draw what they see and ignore
     /// it.
     pub radius: f32,
     /// Multiplier on every style's density, 0 (no grass) and up; 1 draws
@@ -134,11 +134,19 @@ pub struct GrassSettings {
     /// The share of the blades drawn where the last fade begins, 0 to 1,
     /// reached in a straight line from `lod2_density` at `lod2_start`.
     pub fade_density: f32,
-    /// A further share of the blades kept from the start of LOD 1 on, 0 to
-    /// 1, on top of the thinning above; the blades that stay widen to cover
-    /// the gaps. GPUs shade thin blades poorly, so halving the mid-range
-    /// cost 16% in the benchmark and looked the same; raise it toward 1 for
-    /// a lusher mid-distance at a price.
+    /// Where the mid-range thinning ([`mid_range_density`](Self::mid_range_density))
+    /// begins, as a share of the radius, 0 to 1. It is independent of the
+    /// levels of detail: blades thin from here but keep full detail until
+    /// `lod1_start`. Halving from 10 m instead of 20 m at High cut the main
+    /// pass's grass cost by 9–13% in perspective on a laptop GPU; push it
+    /// out toward `lod1_start` for denser grass close to the camera.
+    pub mid_range_start: f32,
+    /// A further share of the blades kept from
+    /// [`mid_range_start`](Self::mid_range_start) on, 0 to 1, on top of the
+    /// thinning above; the blades that stay widen to cover the gaps. GPUs
+    /// shade thin blades poorly, so halving the mid-range cost 16% in the
+    /// benchmark and looked the same; raise it toward 1 for a lusher
+    /// mid-distance at a price.
     pub mid_range_density: f32,
     /// Most that blades widen as thinning leaves fewer of them, as a
     /// multiple of their own width, 1 (never) to 3.2. Widening keeps the
@@ -245,6 +253,7 @@ impl GrassSettings {
         lod_blend: 4.0,
         lod2_density: 0.5,
         fade_density: 0.15,
+        mid_range_start: 0.1,
         mid_range_density: 0.5,
         max_widening: 2.5,
         turn_to_camera: 0.4,
@@ -307,6 +316,7 @@ impl GrassSettings {
             lod_blend: finite(self.lod_blend, high.lod_blend).max(0.01),
             lod2_density: finite(self.lod2_density, high.lod2_density).clamp(0.0, 1.0),
             fade_density: finite(self.fade_density, high.fade_density).clamp(0.0, 1.0),
+            mid_range_start: finite(self.mid_range_start, high.mid_range_start).clamp(0.0, 1.0),
             mid_range_density: finite(self.mid_range_density, high.mid_range_density)
                 .clamp(0.0, 1.0),
             max_widening: finite(self.max_widening, high.max_widening)
@@ -373,6 +383,7 @@ impl GrassSettings {
             lod_blend,
             lod2_density,
             fade_density,
+            mid_range_start,
             mid_range_density,
             max_widening,
             turn_to_camera,

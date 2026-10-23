@@ -542,13 +542,75 @@ A refactor for WebGPU, measured to check it costs nothing. Every grass pipeline 
 
 Every result is inside the 3% bar, and all but one inside the ±2% noise; the one above, C's p95 at the ARPG camera (+0.068 ms), is under the bar. **Kept: no measurable cost.** Images are unchanged: every golden matches at the adapter's limits and with `--max-storage-buffers 10`.
 
+## Deferred against forward (October 23, 2026)
+
+A measurement, not a change: grass has drawn into Bevy's deferred G-buffer since M4, but the bench could not draw deferred, so its cost was unknown. The hypothesis: a deferred pass writes only the G-buffer for each grass fragment and lights each pixel once, so blades hidden behind nearer ones cost less, and lighting is about half the main pass.
+
+**Method.** For this pass only, the bench gained `--deferred` (Bevy's deferred renderer, with the depth prepass and MSAA off, which it needs) and `--no-msaa` (forward with MSAA off), and `tools/bench_ab.py` a `nograss+flag` baseline, because deferred changes what the terrain costs too. All three were removed afterwards as not worth keeping. T1200, dev profile with optimised dependencies, `90fcd59`, six interleaved rounds of all six runs in both scenes. Each renderer's grass cost is its run minus the no-grass run with the same flags in the same round. A first set of four rounds was discarded: something else on the machine pushed no-grass frames from 2.7 to 5–13 ms in three of them.
+
+| Grass cost (p50 / p95) | Perspective | DEMO ARPG GAME |
+| --- | --- | --- |
+| Forward, 4× MSAA (the bench's default) | 2.94 / 3.86 ms | 2.40 / 2.93 ms |
+| Forward, MSAA off | 1.81 / 2.42 ms | 1.32 / 2.30 ms |
+| Deferred (MSAA off) | 1.59 / 2.27 ms | 1.83 / 2.49 ms |
+| **Deferred against forward, both MSAA off** | **−12.3% / −6.1%** | **+38.9% / +8.2%** |
+
+- **It depends on how many blades stand behind each other.** The perspective flythrough looks across the field, many blades deep toward the horizon, and deferred lights only the nearest; that pays for the G-buffer. The ARPG camera looks down, most grass fragments are visible anyway, and the G-buffer writes and the full-screen lighting pass cost more than the hidden fragments saved.
+- **Against the default forward path (4× MSAA), deferred looks 24–46% cheaper, but that is mostly the MSAA it cannot have.** A deferred game anti-aliases with TAA instead, whose cost is not in these numbers. Deferred also approximates translucency less well and has no toon bands ([Shadows and rendering paths](rendering.md#rendering-paths)).
+- **MSAA is now 38–45% of grass cost at p50** (22–37% at p95), more than the 27–32% measured after G6.
+
+**Rejected: nothing to change in the library, and the bench flags were dropped.** Deferred is a game's choice of renderer, and grass already supports it. For a perspective game that already runs without MSAA, deferred makes grass about 12% cheaper on this GPU; for a top-down camera, forward is cheaper.
+
+## Three look-trading levers on the T1200 (October 23, 2026)
+
+The three levers that belong to the library rather than to a game setting such as MSAA: fewer, wider blades close to the camera; fewer, wider blades in the shadow map; and a cheaper shadow filter for grass.
+
+| # | Hypothesis | What was built |
+| --- | --- | --- |
+| L1 | Near blades are the most expensive, so thin them sooner | LOD 1's density falloff (half density, survivors widened) starts at 10 m instead of `lod1_start` (20 m at High) |
+| L2 | The shadow map needs fewer blades than the eye | The shadow pass draws only blades with `seed` ≥ 0.5, 1.41× as wide |
+| L3 | A 4-tap filter is enough for grass's own shadows | Castaño's 3×3 tent (4 hardware-filtered taps) for grass instead of the view's Gaussian (Castaño 5×5, 9 taps). Between G3's single 2×2 tap and the Gaussian. Bevy has no such filter, so for this pass a copy of `bevy_pbr` 0.20.0 gained `SHADOW_FILTER_METHOD_CASTANO_FOUR` and grass's pipeline swapped the Gaussian's define for it |
+
+**Method.** T1200, dev profile with optimised dependencies, `90fcd59`, every build (the reference too) against the patched `bevy_pbr`, which on its own renders all 36 goldens identically. The bench gained `--no-msaa` again for this pass and lost it afterwards. Four interleaved rounds of ten runs (the reference, three variants and no grass, each with 4× MSAA and with it off) in both scenes; each variant is paired with the reference in the same round, as a share of the reference's grass cost with the same MSAA. A stub that made the 4-tap filter return full shadow darkened only the grass, so L3's define did take effect.
+
+Two earlier attempts were discarded: the laptop had gone into Modern Standby (idle timeout, screen off) a few minutes before the first, which held the CPU at 20–40% of its base clock and pushed no-grass frames from 2.1–3.0 to 6–8 ms. The run that counts kept the machine awake with `SetThreadExecutionState` for its duration.
+
+**Frame time could not judge L1 and L3 with MSAA off in perspective.** The reference's frame sat at 4.0–4.7 ms and both variants stepped below it, so their frame time fell by 0.6–0.7 ms while their main pass fell by 0.18–0.20 ms: frame pacing, not grass. L1 and L3 change only the main pass, so they are judged on its GPU timestamps, which agreed across rounds to within about 3 points. The grass shadow pass has no timestamp of its own, so L2 is judged on the frame.
+
+Main pass, share of its grass cost (3.20 / 1.96 ms in perspective with MSAA on / off, 2.77 / 1.96 ms at DEMO ARPG GAME's camera), p50 / p95:
+
+| # | Perspective, 4× MSAA | Perspective, MSAA off | DEMO ARPG GAME, 4× MSAA | DEMO ARPG GAME, MSAA off |
+| --- | --- | --- | --- | --- |
+| L1 | **−12.9% / −10.4%** | **−9.1% / −9.2%** | +0.6% / +1.8% | +0.2% / −2.2% |
+| L2 | +0.4% / +0.5% | +1.8% / +0.9% | +2.1% / +1.9% | +2.8% / −1.6% |
+| L3 | **−10.2% / −8.4%** | **−10.0% / −10.6%** | **−4.6% / −6.2%** | **−6.4% / −10.3%** |
+
+Frame, share of grass cost (2.84 / 1.67 ms in perspective, 2.28 / 1.24 ms at DEMO ARPG GAME's camera), p50 / p95:
+
+| # | Perspective, 4× MSAA | Perspective, MSAA off | DEMO ARPG GAME, 4× MSAA | DEMO ARPG GAME, MSAA off |
+| --- | --- | --- | --- | --- |
+| L1 | −5.1% / −13.7% | (pacing) | +0.5% / −1.1% | −1.1% / −12.9% |
+| L2 | −0.6% / +0.1% | −4.9% / −3.4% | −3.1% / +0.6% | −7.0% / +12.3% |
+| L3 | −3.1% / −4.0% | (pacing) | −4.7% / −2.9% | −10.8% / −19.9% |
+
+Looks, from the 36 goldens against the T1200's (mean difference of 255, and pixels off by more than 16):
+
+- **L3:** mean 0.03–1.88, 0–3.3% of pixels; under 0.4% in all but five presets (`corkscrew_alien`, `cel_field`, `stylized`, `crystal_spires`, `cozy_pastel`). G3's 2×2 filter was 0.3–11%. Side by side the presets cannot be told apart; the difference is spread over the edges of blades' shadows on each other.
+- **L1:** mean 0.03–0.73, 0.05–1.4% of pixels, but the goldens' camera sees little of the 10–20 m band. In the bench's flythrough, more ground shows between blades from 10 m.
+
+Verdicts:
+
+- **L1 is kept.** It passes in perspective; DEMO ARPG GAME's orthographic camera has no distance LOD, so it is the control here, not a failure. The developer accepted the look. It shipped as a setting of its own, `GrassSettings::mid_range_start` (0.1 of the radius in every tier), so blades still keep full detail to `lod1_start`; lowering `lod1_start` instead would also have switched them to 3 rows from 10 m. The shipped build renders the 36 goldens pixel-identically to the measured variant.
+- **L2 is rejected.** The frame moved by less than its noise, and the main pass got 1–3% slower. As P4 found, the shadow map's cost is its pixels, and half the blades at 1.41× the width cover about as many shadow-map texels.
+- **L3 is rejected by the developer.** It passes in both scenes with both MSAA settings, but it cannot ship as measured: it needs a filter that Bevy does not have, so it would take an upstream Bevy change, or grass sampling the sun's shadow itself with Bevy's cascade selection and biases copied, which then has to follow Bevy's shadow code at every release.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
 
 1. **MSAA**, a game setting: 27–32% of grass cost, with more shimmer on thin blades.
 2. **Shadows off in DEMO ARPG GAME.** See experiment 2, decision D5: grass in the shadow map is 22% of grass cost at DEMO ARPG GAME's camera.
-3. **Fewer near blades.** LOD 0 is 100% density to 18 m. Halving from 10 m would apply experiment 7's gain to the most expensive blades, at a visible cost close to the camera.
+3. **Fewer near blades.** Thinning from 10 m was kept (L1, `mid_range_start`). What is left is thinning sooner still, or 3-row blades sooner (`lod1_start`), each a further look change.
 4. **DEMO ARPG GAME style.** See experiment 8, decision D3.
 5. **The game's build and executor** on CPU-bound PCs: fat LTO and single-threaded schedules (above), and untried, PGO and a faster allocator such as mimalloc.
-6. **G3, Bevy's 4-tap shadow filter for grass**: −12 to −18% measured on the 4070 Ti, waiting on the developer's decision about the look.
+6. **A cheaper shadow filter for grass.** G3, Bevy's 2×2 hardware filter: −12 to −18% on the 4070 Ti, crisper and grainier. G3 waits on the developer's decision. L3, a 4-tap 3×3 tent: −5 to −11% of the main pass's grass cost on the T1200 and nearly invisible, but rejected by the developer, since it needs a filter Bevy does not have.

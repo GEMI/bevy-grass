@@ -129,7 +129,9 @@ pub(crate) struct DistanceLod {
     /// The share of the blades kept where LOD 2 begins, and where the fade
     /// begins.
     pub density_at: [f32; 2],
-    /// The share of blades kept from the start of LOD 1 on, on top of the
+    /// Where the mid-range thinning begins, in metres.
+    pub mid_range_start: f32,
+    /// The share of blades kept from `mid_range_start` on, on top of the
     /// thinning; coverage widening makes the survivors wider. Thin blades
     /// waste most of the fragment work on the 2×2 pixel quads GPUs shade in,
     /// so half as many blades at 1.4× the width cost 16% less in the
@@ -149,6 +151,7 @@ impl DistanceLod {
             band: settings.lod_blend,
             fade_start: settings.fade_start,
             density_at: [settings.lod2_density, settings.fade_density],
+            mid_range_start: settings.radius * settings.mid_range_start,
             mid_range_density: settings.mid_range_density,
         }
     }

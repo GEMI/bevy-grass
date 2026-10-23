@@ -103,7 +103,8 @@ The first seven are set by the tier:
 | `fade_start` | 0.9 | Where the last fade to nothing begins, as a share of `radius`; 1 ends abruptly |
 | `lod_blend` | 4 m | Width of the dithered band around each LOD boundary |
 | `lod2_density`, `fade_density` | 0.5, 0.15 | Share of blades kept where LOD 2 begins and where the fade begins (density falls in a line from 1 at `lod1_start`) |
-| `mid_range_density` | 0.5 | A further share kept from LOD 1 on; the survivors widen to cover. Raise it for lusher mid-distance at a price |
+| `mid_range_start` | 0.1 | Where the mid-range thinning begins, as a share of `radius` (0 to 1), independent of the levels of detail. Push it out toward `lod1_start` for denser grass close to the camera, at a price |
+| `mid_range_density` | 0.5 | A further share kept from `mid_range_start` on; the survivors widen to cover. Raise it for lusher mid-distance at a price |
 | `max_widening` | 2.5 | The most thinned blades widen, as a multiple of their width (1 to 3.2) |
 | `turn_to_camera` | 0.4 | How far an edge-on blade turns toward the camera: 0 thins to lines, 1 always faces it |
 | `orthographic_extent` | 256 m | Half the side of the square around an orthographic camera in which blades are stored (8 to 4,096). Blades further away are misplaced, so a map camera that sees a kilometre raises it; positions take 16 bits, so a bigger extent is coarser (8 mm at 256 m, 12 cm at 4,096 m) |

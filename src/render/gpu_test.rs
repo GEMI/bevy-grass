@@ -165,6 +165,7 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
         band: view.lod_band,
         fade_start: view.lod_density.w,
         density_at: [view.lod_density.x, view.lod_density.y],
+        mid_range_start: view.mid_range_start,
         mid_range_density: view.lod_density.z,
     };
     let camera = view.camera_position.truncate();
@@ -348,6 +349,10 @@ fn generation_matches_the_cpu_mirror_in(mut app: App, settings: crate::GrassSett
     assert_eq!(view.lod1_start, settings.radius * settings.lod1_start);
     assert_eq!(view.lod2_start, settings.radius * settings.lod2_start);
     assert_eq!(view.lod_band, settings.lod_blend);
+    assert_eq!(
+        view.mid_range_start,
+        settings.radius * settings.mid_range_start
+    );
     assert_eq!(
         view.lod_density,
         Vec4::new(

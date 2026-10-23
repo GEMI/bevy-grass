@@ -29,7 +29,9 @@ numbers.
    fixed order per blade, and the survivors widen to keep the same coverage.
    GPUs shade pixels in 2 × 2 quads, so one wider blade is cheaper than two
    thin ones covering the same area. Halving mid-range density (the default of
-   `mid_range_density`) cut grass cost by 16.5% with no visible change.
+   `mid_range_density`) cut grass cost by 16.5% with no visible change, and
+   starting that halving at 10 m instead of 20 m (`mid_range_start`) cut the
+   main pass's grass cost by another 9–13% in perspective on a T1200.
 6. **Coarser blades for top-down cameras.** Orthographic cameras draw every
    blade at the same size, so they use 3-row blades. That was 9% faster and
    indistinguishable at 1:1.

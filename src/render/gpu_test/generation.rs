@@ -20,6 +20,7 @@ fn gpu_generation_matches_the_cpu_mirror_with_other_distances_and_densities() {
         lod_blend: 9.0,
         lod2_density: 0.7,
         fade_density: 0.3,
+        mid_range_start: 0.15,
         mid_range_density: 0.8,
         max_widening: 1.6,
         ..crate::GrassSettings::HIGH

@@ -225,7 +225,7 @@ fn the_new_knobs_default_to_the_numbers_that_were_once_fixed() {
         assert_eq!(tier.fade_start, 0.9);
         assert_eq!(tier.lod_blend, 4.0);
         assert_eq!((tier.lod2_density, tier.fade_density), (0.5, 0.15));
-        assert_eq!(tier.mid_range_density, 0.5);
+        assert_eq!((tier.mid_range_start, tier.mid_range_density), (0.1, 0.5));
         assert_eq!(tier.max_widening, 2.5);
         assert_eq!(tier.turn_to_camera, 0.4);
         assert_eq!(tier.orthographic_extent, 256.0);
@@ -244,6 +244,7 @@ fn the_new_knobs_are_clamped_and_named_like_the_others() {
         lod_blend: 0.0,
         lod2_density: 7.0,
         fade_density: -1.0,
+        mid_range_start: 2.0,
         mid_range_density: f32::NAN,
         max_widening: 50.0,
         turn_to_camera: -2.0,
@@ -258,6 +259,7 @@ fn the_new_knobs_are_clamped_and_named_like_the_others() {
     assert_eq!(fixed.blade_rows, [1, GrassSettings::MAX_BLADE_ROWS, 5]);
     assert_eq!(fixed.lod_blend, 0.01);
     assert_eq!((fixed.lod2_density, fixed.fade_density), (1.0, 0.0));
+    assert_eq!(fixed.mid_range_start, 1.0);
     assert_eq!(fixed.mid_range_density, 0.5, "NaN: the default");
     assert_eq!(fixed.max_widening, GrassSettings::MAX_WIDENING);
     assert_eq!(fixed.turn_to_camera, 0.0);
@@ -280,6 +282,7 @@ fn the_new_knobs_are_clamped_and_named_like_the_others() {
         "lod_blend",
         "lod2_density",
         "fade_density",
+        "mid_range_start",
         "mid_range_density",
         "max_widening",
         "turn_to_camera",

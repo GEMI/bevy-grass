@@ -143,7 +143,7 @@ at 60 Hz (16.7 ms is a full 60 Hz):
 | Macs and desktop GPUs | | | not measured | | | |
 
 So on an integrated GPU `LOW` is the tier that holds 60 Hz in a full window.
-The demo starts at `MEDIUM`, a guess for devices not measured yet.
+The demo starts at `ULTRA`, as the page's default; the quality buttons let you drop to `LOW`.
 
 **wasm runs on one thread.** Rebuilding the field tables, after a field, a
 mask or a heightmap changes, runs on the main thread there, and masks

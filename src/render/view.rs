@@ -53,6 +53,8 @@ pub(crate) struct ViewUniformData {
     pub lod1_start: f32,
     pub lod2_start: f32,
     pub lod_band: f32,
+    /// Where the mid-range thinning begins, in metres.
+    pub mid_range_start: f32,
     pub density_scale: f32,
     pub fixed_lod: u32,
     pub max_visible_chunks: u32,
@@ -404,6 +406,7 @@ fn view_uniform(
         lod1_start: lod.lod_start[0],
         lod2_start: lod.lod_start[1],
         lod_band: lod.band,
+        mid_range_start: lod.mid_range_start,
         density_scale: settings.density_scale,
         fixed_lod,
         max_visible_chunks: settings.max_chunk_slices,
