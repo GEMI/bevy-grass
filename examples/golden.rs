@@ -2,6 +2,13 @@
 //! time, and compared with the images in `tests/golden/<renderer>/`. A shader
 //! change that alters the picture fails the check; one that does not passes.
 //!
+//! A second set, the render paths (`path_*.png`), draws one preset through
+//! each way Bevy can render a camera: without MSAA, with each prepass, with
+//! TAA, deferred, HDR with bloom, orthographic and without grass shadows.
+//! These are the paths that break first when Bevy changes, and they break
+//! silently: a shader or pipeline that fails draws no grass and logs an
+//! `ERROR`. So the run also fails when anything but this check logs one.
+//!
 //! ```text
 //! cargo run --example golden               # compare; exit code 1 on a mismatch
 //! cargo run --example golden -- --bless    # write the goldens for this renderer
@@ -29,12 +36,25 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
+use bevy::anti_alias::taa::TemporalAntiAliasing;
 use bevy::app::ScheduleRunnerPlugin;
-use bevy::camera::RenderTarget;
+use bevy::camera::{Hdr, RenderTarget, ScalingMode};
+use bevy::core_pipeline::prepass::{
+    DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass,
+};
+use bevy::ecs::system::EntityCommands;
 use bevy::light::CascadeShadowConfigBuilder;
+use bevy::log::LogPlugin;
+use bevy::log::tracing::{Event, Level};
+use bevy::log::tracing_subscriber::Layer;
+use bevy::log::tracing_subscriber::layer::Context;
+use bevy::log::tracing_subscriber::registry::Registry;
+use bevy::material::OpaqueRendererMethod;
+use bevy::pbr::DefaultOpaqueRendererMethod;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{PipelineCache, TextureFormat, TextureUsages};
@@ -70,6 +90,102 @@ const LOUD: u8 = 16;
 /// while a real change, which moves pixels by more than one level, still fails.
 const NOISE: u8 = 1;
 
+/// One way of rendering a camera, and what it adds to the camera.
+struct RenderPath {
+    name: &'static str,
+    camera: fn(&mut EntityCommands),
+}
+
+/// The render paths, each drawn with [`PATH_STYLE`]. Forward with 4× MSAA is
+/// Bevy's default and every preset's path; it is here too, so the set can be
+/// compared within itself.
+const RENDER_PATHS: [RenderPath; 8] = [
+    RenderPath {
+        name: "forward",
+        camera: |_| {},
+    },
+    RenderPath {
+        name: "forward_no_msaa",
+        camera: |camera| {
+            camera.insert(Msaa::Off);
+        },
+    },
+    RenderPath {
+        name: "depth_prepass",
+        camera: |camera| {
+            camera.insert(DepthPrepass);
+        },
+    },
+    RenderPath {
+        name: "every_prepass_taa",
+        camera: |camera| {
+            camera.insert((
+                Msaa::Off,
+                DepthPrepass,
+                NormalPrepass,
+                MotionVectorPrepass,
+                TemporalAntiAliasing::default(),
+            ));
+        },
+    },
+    RenderPath {
+        name: "deferred",
+        camera: |camera| {
+            camera.insert((
+                Msaa::Off,
+                DepthPrepass,
+                MotionVectorPrepass,
+                DeferredPrepass,
+            ));
+        },
+    },
+    RenderPath {
+        name: "hdr_bloom",
+        camera: |camera| {
+            camera.insert((Hdr, Bloom::NATURAL));
+        },
+    },
+    RenderPath {
+        name: "orthographic",
+        camera: |camera| {
+            camera.insert(Projection::from(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical {
+                    viewport_height: 5.0,
+                },
+                ..OrthographicProjection::default_3d()
+            }));
+        },
+    },
+    RenderPath {
+        name: "no_grass_shadows",
+        camera: |camera| {
+            camera.insert(GrassCamera {
+                shadows: Some(GrassShadows::Off),
+                ..default()
+            });
+        },
+    },
+];
+
+/// The preset every render path draws.
+const PATH_STYLE: GrassStyle = GrassStyle::MEADOW;
+
+/// `ERROR` events logged by anything but this check: a shader that does not
+/// compile, a pipeline that does not validate, a wgpu error.
+static LOGGED_ERRORS: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts `ERROR` events into [`LOGGED_ERRORS`].
+struct CountErrors;
+
+impl Layer<Registry> for CountErrors {
+    fn on_event(&self, event: &Event<'_>, _context: Context<'_, Registry>) {
+        let metadata = event.metadata();
+        if *metadata.level() == Level::ERROR && metadata.target() != module_path!() {
+            LOGGED_ERRORS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let bless = args.iter().any(|arg| arg == "--bless");
@@ -83,6 +199,10 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
+            .set(LogPlugin {
+                custom_layer: |_| Some(Box::new(CountErrors)),
+                ..default()
+            })
             .set(WindowPlugin {
                 primary_window: None,
                 exit_condition: ExitCondition::DontExit,
@@ -118,6 +238,11 @@ fn main() {
     // The wind's clock stands still at 0, so the picture is the same however
     // long the GPU takes.
     .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
+    // Opaque materials render deferred where a camera has a deferred
+    // prepass, which only the `deferred` path has. Every other patch's
+    // materials are forward, as in a forward game: a camera without a
+    // deferred prepass does not draw a deferred material at all.
+    .insert_resource(DefaultOpaqueRendererMethod::deferred())
     .insert_resource(Golden {
         bless,
         ready: ready.clone(),
@@ -184,32 +309,51 @@ fn setup(
         }
         .build(),
     ));
-    let soil = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.20, 0.15, 0.09),
-        perceptual_roughness: 0.95,
-        ..default()
-    });
     let plane = meshes.add(Plane3d::default().mesh().size(12.0, 12.0));
     let person = meshes.add(Capsule3d::new(0.25, 1.3));
-    let blue = materials.add(Color::srgb(0.15, 0.32, 0.75));
+    let mut soil_and_person = |method: OpaqueRendererMethod| {
+        let soil = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.20, 0.15, 0.09),
+            perceptual_roughness: 0.95,
+            opaque_render_method: method,
+            ..default()
+        });
+        let blue = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.15, 0.32, 0.75),
+            opaque_render_method: method,
+            ..default()
+        });
+        (soil, blue)
+    };
+    let forward = soil_and_person(OpaqueRendererMethod::Forward);
+    let deferred = soil_and_person(OpaqueRendererMethod::Auto);
 
-    for (index, (name, style)) in GrassStyle::presets().enumerate() {
+    let presets = GrassStyle::presets().map(|(name, style)| (name.to_lowercase(), style, None));
+    let paths = RENDER_PATHS
+        .iter()
+        .map(|path| (format!("path_{}", path.name), PATH_STYLE, Some(path)));
+    for (index, (name, style, path)) in presets.chain(paths).enumerate() {
         let at = Vec3::new(index as f32 * SPACING, 0.0, 0.0);
         let mut image =
             Image::new_target_texture(WIDTH, HEIGHT, TextureFormat::Rgba8UnormSrgb, None);
         image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
         let image = images.add(image);
-        commands.spawn((
+        let mut camera = commands.spawn((
             Camera3d::default(),
             RenderTarget::from(image.clone()),
             // One camera's shadow cascade covers only its own patch.
             Transform::from_translation(at + Vec3::new(-3.0, 2.0, 5.5))
                 .looking_at(at + Vec3::new(0.0, 0.4, 0.0), Vec3::Y),
-            Shot {
-                name: name.to_lowercase(),
-                image,
-            },
+            Shot { name, image },
         ));
+        if let Some(path) = path {
+            (path.camera)(&mut camera);
+        }
+        let (soil, blue) = if path.is_some_and(|path| path.name == "deferred") {
+            &deferred
+        } else {
+            &forward
+        };
         commands.spawn((
             Mesh3d(plane.clone()),
             MeshMaterial3d(soil.clone()),
@@ -250,7 +394,7 @@ fn capture(
     }
     golden.captured = true;
     let renderer = renderer_name(adapter.as_deref());
-    info!("capturing {} presets with {renderer}", shots.iter().count());
+    info!("capturing {} images with {renderer}", shots.iter().count());
     for shot in &shots {
         golden.pending += 1;
         let name = shot.name.clone();
@@ -272,6 +416,15 @@ fn capture(
                     }
                     golden.pending -= 1;
                     if golden.pending == 0 {
+                        let errors = LOGGED_ERRORS.load(Ordering::Relaxed);
+                        if errors > 0 {
+                            let failure = format!(
+                                "{errors} ERROR messages in the log: a shader, pipeline or \
+                                 GPU call failed, see above"
+                            );
+                            error!("{failure}");
+                            golden.failures.push(failure);
+                        }
                         let code = if golden.failures.is_empty() {
                             info!(
                                 "golden images: all match ({})",
@@ -279,7 +432,7 @@ fn capture(
                             );
                             0
                         } else {
-                            error!("golden images: {} differ", golden.failures.len());
+                            error!("golden images: {} failures", golden.failures.len());
                             1
                         };
                         // Straight out, not through `AppExit`: on WARP the

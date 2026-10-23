@@ -20,6 +20,15 @@ names every field without `..GrassSettings::HIGH` (or another tier) needs
   main pass's grass cost by 9–13% in perspective, with more ground showing
   between blades from 10 m. Set `mid_range_start: 0.2` for the old look.
 
+**Internal**
+
+- The golden check also draws `MEADOW` through eight render paths
+  (`path_*.png`): forward with and without MSAA, the depth prepass, every
+  prepass with TAA, deferred, HDR with bloom, orthographic, and no grass
+  shadows. It fails on any `ERROR` in the log as well, which is how a
+  shader or pipeline that Bevy broke shows up: it draws nothing rather than
+  failing.
+
 ## 0.20.5 (October 22, 2026)
 
 Grass in the browser: it draws through WebGPU, in 10 storage buffers per

@@ -24,7 +24,13 @@
 - **Golden images.** Every preset is rendered headless at a fixed time and
   compared with reference images in `tests/golden/`, on a hardware GPU and on
   two software renderers, WARP (Windows) and llvmpipe (Linux, in CI).
-  `cargo run --example golden -- --bless` updates them. Metal has no
+  `cargo run --example golden -- --bless` updates them. The same run draws
+  `MEADOW` through eight render paths (`path_*.png`): forward with and
+  without MSAA, the depth prepass, every prepass with TAA, deferred, HDR
+  with bloom, an orthographic camera, and a camera without grass shadows.
+  These are the paths a Bevy release breaks first, and a broken shader or
+  pipeline there draws nothing and logs an `ERROR` rather than failing, so
+  the run also fails on any `ERROR` in the log. Metal has no
   references of its own: on an Apple M2 Pro every preset came within a mean
   PSNR of 40.5 dB of WARP's (lowest 29.14 dB, `elephant_grass`), and the
   unit, doc and GPU tests pass there.
