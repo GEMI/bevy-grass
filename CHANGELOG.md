@@ -24,6 +24,10 @@ names every field without `..default()` needs `lights: true` added.
 
 **Added**
 
+- `GrassWindFrame::advance(delta, gust_speed)` scrolls the gusts along the
+  frame's direction, as the built-in wind does, so a custom wind source no
+  longer has to work out the gust texture's scrolling itself. The
+  `custom_wind` example uses it.
 - `GrassLightFrame`, the light grass follows this frame (the shadow-casting
   light's direction and the sun's), written by the new built-in
   `GrassLightPlugin` from Bevy's directional lights in

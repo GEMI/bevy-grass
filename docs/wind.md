@@ -43,12 +43,11 @@ app.add_plugins(GrassPlugins.set(GrassPlugin {
     ..default()
 }));
 // ...and in `Update`, in `GrassWindSystems::Sample`:
-fn drive_wind(weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
-    *wind = GrassWindFrame {
-        direction: weather.direction,
-        strength: weather.strength,
-        ..GrassWind::BREEZE.into()
-    };
+fn drive_wind(time: Res<Time>, weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
+    wind.direction = weather.direction;
+    wind.strength = weather.strength;
+    // Roll the gusts along the wind at the weather's speed, in m/s.
+    wind.advance(time.delta_secs(), weather.speed);
 }
 ```
 
@@ -56,7 +55,12 @@ fn drive_wind(weather: Res<Weather>, mut wind: ResMut<GrassWindFrame>) {
 strength, gust size and scroll (`gust_offset` and `previous_gust_offset`, for
 motion vectors), sway, flutter and gust contrast. It is plain data, not the
 GPU layout: the renderer copies it into its own uniform each frame, so a
-change to the shaders does not change the type your source writes. Put the
+change to the shaders does not change the type your source writes. They
+are the grass shader's parameters, not a general description of wind: the
+gusts are a noise texture scrolled along the wind, and
+`GrassWindFrame::advance(delta, gust_speed)` scrolls it the way the built-in
+model does, continuously when the speed or direction changes, so your source
+does not have to. Put the
 system in
 `GrassWindSystems::Sample` so the blades and the far-grass material read the
 same frame. The built-in model remains available by itself as

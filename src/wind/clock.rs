@@ -27,7 +27,7 @@ pub(super) struct WindClock {
 impl WindClock {
     /// Moves the gusts `delta` seconds along `wind`.
     pub(super) fn advance(&mut self, delta: f64, wind: &GrassWind) {
-        let step = gust_step(wind, delta);
+        let step = gust_step(wind.direction, wind.gust_speed, wind.gust_scale, delta);
         self.gust = (self.gust + step).rem_euclid(DVec2::ONE);
         self.gust_offset = self.gust.as_vec2();
         self.previous_gust_offset = (self.gust - step).rem_euclid(DVec2::ONE).as_vec2();
@@ -43,16 +43,17 @@ impl WindClock {
     }
 }
 
-/// How far the gusts scroll in `delta` seconds, in repeats of the texture:
-/// the wind's speed along its direction, over the size of a gust.
-fn gust_step(wind: &GrassWind, delta: f64) -> DVec2 {
-    let direction = wind.direction.as_dvec2();
+/// How far gusts of `gust_scale` metres, moving at `gust_speed` metres per
+/// second toward `direction`, scroll in `delta` seconds, in repeats of the
+/// texture. Shared by the built-in clock and [`GrassWindFrame::advance`].
+pub(super) fn gust_step(direction: Vec2, gust_speed: f32, gust_scale: f32, delta: f64) -> DVec2 {
+    let direction = direction.as_dvec2();
     let direction = if direction.length_squared() > 1e-8 {
         direction.normalize()
     } else {
         DVec2::X
     };
-    direction * (f64::from(wind.gust_speed) * delta / f64::from(wind.gust_scale.max(0.01)))
+    direction * (f64::from(gust_speed) * delta / f64::from(gust_scale.max(0.01)))
 }
 
 #[cfg(test)]
@@ -74,7 +75,7 @@ mod tests {
         // The scroll between two frames is the same from the start to the
         // end of the clock, and equals one frame's step.
         let wind = GrassWind::GUSTY;
-        let step = gust_step(&wind, 1.0 / 60.0);
+        let step = gust_step(wind.direction, wind.gust_speed, wind.gust_scale, 1.0 / 60.0);
         let mut clock = WindClock::default();
         for _ in 0..(3600 * 60 + 120) {
             clock.advance(1.0 / 60.0, &wind);
@@ -101,7 +102,8 @@ mod tests {
         let before = clock.gust_offset;
         clock.advance(0.25, &fast);
         let moved = (clock.gust_offset - before).length();
-        let expected = gust_step(&fast, 0.25).length() as f32;
+        let expected =
+            gust_step(fast.direction, fast.gust_speed, fast.gust_scale, 0.25).length() as f32;
         assert!((moved - expected).abs() < 1e-5, "{moved} vs {expected}");
     }
 
@@ -116,7 +118,7 @@ mod tests {
             direction: Vec2::ZERO,
             ..GrassWind::BREEZE
         };
-        let step = gust_step(&none, 1.0);
+        let step = gust_step(none.direction, none.gust_speed, none.gust_scale, 1.0);
         assert!(step.x > 0.0 && step.y == 0.0);
     }
 

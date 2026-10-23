@@ -23,7 +23,7 @@ use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::ecs::system::{Res, ResMut};
-use bevy::math::{Dir2, Vec2};
+use bevy::math::{DVec2, Dir2, Vec2};
 use bevy::reflect::Reflect;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::time::Time;
@@ -136,11 +136,15 @@ impl Default for GrassWind {
     }
 }
 
-/// One frame of wind: the values the grass shaders move blades by.
+/// One frame of wind: the grass shader's wind parameters.
 ///
 /// This is the seam between the wind and the grass. It is plain data, not
 /// the GPU layout: the renderer copies it into its own uniform each frame, so
-/// the shaders can change without changing this type. The built-in
+/// the shaders can change without changing this type. The fields are the
+/// parameters of the grass's own wind shader (a gust texture scrolled along
+/// the wind, per-blade sway and tip flutter), not a general description of
+/// wind: a weather system maps its wind onto them, and
+/// [`advance`](Self::advance) scrolls the gusts for it. The built-in
 /// [`GrassWindPlugin`] fills it from [`GrassWind`] every frame; a game using
 /// another wind model turns that plugin off (`GrassPlugin { wind: false,
 /// ..default() }`) and writes this resource itself.
@@ -166,9 +170,10 @@ impl Default for GrassWind {
 ///
 /// `gust_offset` and `previous_gust_offset` are how far the gust texture has
 /// scrolled, in repeats, now and a frame ago. Motion vectors compare the two,
-/// so a custom source must advance them (or leave both at zero for a fixed
-/// gust pattern). The built-in model accumulates them in `wind/clock.rs`,
-/// which keeps them continuous when the wind changes speed or direction.
+/// so a custom source moves both together: [`advance`](Self::advance) does,
+/// or leave both at zero for a fixed gust pattern. The built-in model
+/// accumulates them the same way in `wind/clock.rs`, which keeps them
+/// continuous when the wind changes speed or direction.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
 pub struct GrassWindFrame {
@@ -208,6 +213,44 @@ impl From<GrassWind> for GrassWindFrame {
             flutter: wind.flutter,
             gust_contrast: wind.gust_contrast,
         }
+    }
+}
+
+impl GrassWindFrame {
+    /// Scrolls the gusts `delta` seconds along the wind, at `gust_speed` metres per second.
+    ///
+    /// The gusts move toward [`direction`](Self::direction) by
+    /// `gust_speed * delta` metres, in units of
+    /// [`gust_scale`](Self::gust_scale): what the built-in model does each
+    /// frame. The step is added to where the gusts are, so they stay
+    /// continuous when the speed or direction changes, and the old offset
+    /// becomes `previous_gust_offset` for motion vectors. Set the direction
+    /// and gust size first, then call this once a frame:
+    ///
+    /// ```no_run
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// # #[derive(Resource)] struct Weather { direction: Vec2, speed: f32 }
+    /// fn sample_weather(
+    ///     time: Res<Time>,
+    ///     weather: Res<Weather>,
+    ///     mut wind: ResMut<GrassWindFrame>,
+    /// ) {
+    ///     wind.direction = weather.direction;
+    ///     wind.advance(time.delta_secs(), weather.speed);
+    /// }
+    /// ```
+    pub fn advance(&mut self, delta: f32, gust_speed: f32) {
+        let step = clock::gust_step(
+            self.direction,
+            gust_speed,
+            self.gust_scale,
+            f64::from(delta),
+        );
+        self.previous_gust_offset = self.gust_offset;
+        self.gust_offset = (self.gust_offset.as_dvec2() + step)
+            .rem_euclid(DVec2::ONE)
+            .as_vec2();
     }
 }
 

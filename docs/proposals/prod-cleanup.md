@@ -202,7 +202,11 @@ The design is right; two weak spots.
 
 **Fix.** Document the frame as "the grass shader's wind parameters", and add
 a helper such as `GrassWindFrame::advance(dt, direction, speed)` so a custom
-source does not have to re-derive the scrolling.
+source does not have to re-derive the scrolling. *Done:* `advance(delta,
+gust_speed)` takes the direction and gust size from the frame itself, so
+they cannot disagree, and shares `gust_step` with the built-in clock.
+`GrassWind` is still initialised with `wind: false`; it stays, as harmless,
+since a game may read it.
 
 ### C7. The grass design API: stable logic, breaking growth
 

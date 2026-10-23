@@ -33,14 +33,16 @@ fn main() {
     .run();
 }
 
-/// What a weather system would provide: a direction and a strength. This one
-/// is constant; [`drive_wind`] adds the movement over time.
+/// What a weather system would provide: a direction, a strength and a wind
+/// speed. This one is constant; [`drive_wind`] adds the movement over time.
 #[derive(Resource, Debug, Clone, Copy)]
 struct Weather {
     /// Direction the weather system says the wind blows toward, in world XZ.
     direction: Vec2,
     /// Strength the weather system reports, 0 to 1.
     strength: f32,
+    /// How fast gusts cross the field, in metres per second.
+    speed: f32,
 }
 
 impl Default for Weather {
@@ -48,6 +50,7 @@ impl Default for Weather {
         Self {
             direction: Vec2::new(1.0, 0.2),
             strength: 0.55,
+            speed: 5.0,
         }
     }
 }
@@ -63,14 +66,11 @@ fn drive_wind(time: Res<Time>, weather: Res<Weather>, mut wind: ResMut<GrassWind
         weather.direction.x * sin + weather.direction.y * cos,
     );
     let breath = 0.75 + 0.25 * (seconds * 0.9).sin();
-    *wind = GrassWindFrame {
-        direction,
-        strength: weather.strength * breath,
-        // A custom model can scroll the gust texture itself by advancing
-        // `gust_offset` and `previous_gust_offset`. This one leaves the
-        // pattern in place, so the motion comes from direction and strength.
-        ..GrassWind::BREEZE.into()
-    };
+    wind.direction = direction;
+    wind.strength = weather.strength * breath;
+    // Roll the gusts across the field along the turning wind. The frame
+    // starts as `GrassWind::BREEZE`'s, which sets the gust size and the sway.
+    wind.advance(time.delta_secs(), weather.speed);
 }
 
 fn setup(
