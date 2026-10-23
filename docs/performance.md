@@ -604,6 +604,19 @@ Verdicts:
 - **L2 is rejected.** The frame moved by less than its noise, and the main pass got 1–3% slower. As P4 found, the shadow map's cost is its pixels, and half the blades at 1.41× the width cover about as many shadow-map texels.
 - **L3 is rejected by the developer.** It passes in both scenes with both MSAA settings, but it cannot ship as measured: it needs a filter that Bevy does not have, so it would take an upstream Bevy change, or grass sampling the sun's shadow itself with Bevy's cascade selection and biases copied, which then has to follow Bevy's shadow code at every release.
 
+## Production cleanup: grass separated from Bevy (October 23, 2026)
+
+A refactor, measured to check it costs nothing: the steps of [Production cleanup](proposals/prod-cleanup.md). Tripwires in `bevy_glue.rs`; the public wind frame and camera components without render code (a private `WindUniform`, a camera extract system); the tables' layout in `gpu_layout.rs`; every Bevy shader import in `bevy_bridge.wesl`; `GrassLightFrame` and its adapter; `GrassWindFrame::advance`. Images are unchanged: the 36 preset goldens and the 8 new render-path goldens match, also with `--max-storage-buffers 10`.
+
+**Method.** `tools/bench_ab.py`, T1200, dev profile with optimised dependencies, both scenes, `20c4aa3` (before) against each step and against the end (`f19b523`). The rounds of the middle steps were noisy: twice the laptop throttled between rounds, no-grass frames going from 2.8 to 6.3 ms, and those rounds were discarded. Each step that changed per-frame work was within its noise (steps 2 to 4 and C4, −1.9% to +2.0% of grass cost at p50 over 3 to 8 rounds, with an unchanged step as the control); the light adapter's own rounds were all throttled, so it is judged by the final run. The final run, six interleaved rounds, had steady no-grass frames (2.8–3.1 ms). Grass cost (reference minus `--no-grass`, p50): 2.71 ms in perspective, 2.35 ms at DEMO ARPG GAME's camera.
+
+| Final against before | Perspective p50 / p95 | DEMO ARPG GAME p50 / p95 |
+| --- | --- | --- |
+| Frame, share of grass cost | +0.4% / +1.3% | −0.8% / −2.2% |
+| Main pass (GPU), median | +0.024 ms | −0.018 ms |
+
+The perspective main pass was slower in all six rounds, by 0.014 to 0.063 ms, about 0.9% of its grass cost: likely real and likely `bevy_bridge.wesl`, whose step alone measured +0.019 ms there, though the shaders compute the same values. It is under the 3% bar and does not show in the frame. **Kept.**
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
