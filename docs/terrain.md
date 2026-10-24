@@ -159,8 +159,50 @@ fn ground(
 }
 ```
 
-A custom terrain shader can call the same WESL function instead:
-`bevy_grass::shaders::far::grass_far_color`.
+A game with a terrain shader of its own calls the same WESL function,
+`bevy_grass::shaders::far::grass_far_color`, from it. Its material holds a
+`FarGrassUniform` and the gust texture, and a system rewrites the uniform
+each frame, since the gusts scroll:
+
+```rust
+#[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
+struct Terrain {
+    #[uniform(0)]
+    far: FarGrassUniform,          // `var<uniform> far: FarGrass;` in the shader
+    #[texture(1)]
+    #[sampler(2)]
+    gusts: Handle<Image>,          // FarGrass::GUSTS
+    // ...the terrain's own bindings
+}
+
+fn follow_the_grass(
+    grass: Res<TerrainGrass>,      // your FarGrass, e.g. FarGrass::new(&style)
+    wind: Res<GrassWindFrame>,
+    settings: Res<GrassSettings>,
+    mut terrains: ResMut<Assets<Terrain>>,
+) {
+    let far = grass.0.uniform(&wind, &settings);
+    for (_, terrain) in terrains.iter_mut() {
+        terrain.far = far;
+    }
+}
+// app.add_systems(Update, follow_the_grass.after(GrassWindSystems::Sample));
+```
+
+and in the shader:
+
+```wgsl
+import bevy_grass::shaders::far::{FarGrass, grass_far_color};
+
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> far: FarGrass;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var gust_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var gust_sampler: sampler;
+// ...
+let color = grass_far_color(world_position, view.world_position, soil, far, gust_texture, gust_sampler);
+```
+
+[`examples/custom_terrain.rs`](../examples/custom_terrain.rs) is the whole
+thing, with its shader beside it.
 
 | Item | What it does |
 | --- | --- |
@@ -170,7 +212,9 @@ A custom terrain shader can call the same WESL function instead:
 | `FarGrass::new(&style)` | Colour from the style; the fade follows the grass radius, also when it changes |
 | `.with_fade(Vec2)` | A fade of your own, whatever the radius |
 | `.with_area(rect)` | Only inside this world-XZ rectangle |
-| `FarGrassUniform` | The material's GPU data (for custom materials) |
+| `FarGrassUniform` | The material's GPU data, for a terrain material of your own |
+| `FarGrass::uniform(&wind, &settings)` | That data with this frame's wind and grass radius |
+| `FarGrass::GUSTS` | The gust texture `grass_far_color` reads |
 | `grass_far_color` (WESL) | `bevy_grass::shaders::far::grass_far_color`, for your own terrain shader |
 
 ## Hide a field, or leave a camera out

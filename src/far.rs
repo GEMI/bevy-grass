@@ -50,8 +50,9 @@ use crate::{GrassQuality, GrassSettings};
 /// the radius with [`GrassCamera`](crate::GrassCamera) does not move the fade:
 /// it belongs to the ground, not to a view.
 ///
-/// Custom terrain shaders can call the same WESL function,
-/// `bevy_grass::shaders::far::grass_far_color`.
+/// A terrain shader of your own can call the same WESL function,
+/// `bevy_grass::shaders::far::grass_far_color`; [`FarGrass::uniform`] gives
+/// its material the data.
 pub type FarGrassMaterial = ExtendedMaterial<StandardMaterial, FarGrass>;
 
 /// The far-grass part of [`FarGrassMaterial`].
@@ -128,6 +129,92 @@ impl FarGrass {
             ..self
         }
     }
+
+    /// The gust texture `grass_far_color` reads, the same noise the blades
+    /// bend by, for a terrain material of your own (see
+    /// [`FarGrass::uniform`]).
+    pub const GUSTS: Handle<Image> = GUST_TEXTURE;
+
+    /// This far grass as the `FarGrass` uniform of `far.wesl`, with the wind
+    /// and the grass radius of this frame, for a terrain material of your
+    /// own.
+    ///
+    /// [`FarGrassMaterial`] keeps its far grass up to date by itself. A game
+    /// with its own terrain material gives it a `FarGrassUniform` and the
+    /// [`FarGrass::GUSTS`] texture, rewrites the uniform each frame (the
+    /// gusts scroll), and calls `grass_far_color` from its shader:
+    ///
+    /// ```no_run
+    /// # use bevy::prelude::*;
+    /// # use bevy::render::render_resource::AsBindGroup;
+    /// # use bevy::shader::ShaderRef;
+    /// # use bevy_grass::prelude::*;
+    /// # use bevy_grass::FarGrassUniform;
+    /// #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
+    /// struct Terrain {
+    ///     #[uniform(0)]
+    ///     far: FarGrassUniform,
+    ///     #[texture(1)]
+    ///     #[sampler(2)]
+    ///     gusts: Handle<Image>,
+    /// }
+    ///
+    /// impl Material for Terrain {
+    ///     fn fragment_shader() -> ShaderRef {
+    ///         // Imports `bevy_grass::shaders::far::{FarGrass, grass_far_color}`.
+    ///         "shaders/terrain.wesl".into()
+    ///     }
+    /// }
+    ///
+    /// /// What the terrain's far grass looks like.
+    /// #[derive(Resource)]
+    /// struct TerrainGrass(FarGrass);
+    ///
+    /// fn follow_the_grass(
+    ///     grass: Res<TerrainGrass>,
+    ///     wind: Res<GrassWindFrame>,
+    ///     settings: Res<GrassSettings>,
+    ///     mut terrains: ResMut<Assets<Terrain>>,
+    /// ) {
+    ///     let far = grass.0.uniform(&wind, &settings);
+    ///     for (_, terrain) in terrains.iter_mut() {
+    ///         terrain.far = far;
+    ///     }
+    /// }
+    /// # let _ = FarGrass::GUSTS;
+    /// ```
+    ///
+    /// Put the system after `GrassWindSystems::Sample`, so the far grass and
+    /// the blades read the same wind.
+    #[must_use]
+    pub fn uniform(&self, wind: &GrassWindFrame, settings: &GrassSettings) -> FarGrassUniform {
+        Self {
+            wind: *wind,
+            radius: settings.sanitized().radius,
+            ..self.clone()
+        }
+        .packed()
+    }
+
+    /// The uniform, with the wind and radius this far grass holds.
+    fn packed(&self) -> FarGrassUniform {
+        let color = LinearRgba::from(self.color).to_vec4().truncate();
+        let area = self.area.unwrap_or_default();
+        let fade = self
+            .fade
+            .unwrap_or_else(|| Vec2::new(self.radius * 0.5, self.radius * 0.95));
+        FarGrassUniform {
+            color: color.extend(self.amount.clamp(0.0, 1.0)),
+            fade: Vec4::new(
+                fade.x,
+                fade.y.max(fade.x + 0.01),
+                self.sheen,
+                if self.area.is_some() { 1.0 } else { 0.0 },
+            ),
+            area: Vec4::new(area.min.x, area.min.y, area.max.x, area.max.y),
+            wind: self.wind.into(),
+        }
+    }
 }
 
 impl Default for FarGrass {
@@ -149,8 +236,9 @@ impl MaterialExtension for FarGrass {
 /// The material's shader, embedded by `GrassPlugin`.
 const FAR_GROUND_SHADER: &str = "embedded://bevy_grass/shaders/far_ground.wesl";
 
-/// Mirrors `FarGrass` in `far.wesl`.
-#[derive(Debug, Clone, Copy, ShaderType)]
+/// Mirrors `FarGrass` in `far.wesl`: what [`FarGrass::uniform`] gives a
+/// terrain material of your own.
+#[derive(Debug, Clone, Copy, PartialEq, ShaderType)]
 pub struct FarGrassUniform {
     color: Vec4,
     fade: Vec4,
@@ -160,22 +248,7 @@ pub struct FarGrassUniform {
 
 impl AsBindGroupShaderType<FarGrassUniform> for FarGrass {
     fn as_bind_group_shader_type(&self, _images: &RenderAssets<GpuImage>) -> FarGrassUniform {
-        let color = LinearRgba::from(self.color).to_vec4().truncate();
-        let area = self.area.unwrap_or_default();
-        let fade = self
-            .fade
-            .unwrap_or_else(|| Vec2::new(self.radius * 0.5, self.radius * 0.95));
-        FarGrassUniform {
-            color: color.extend(self.amount.clamp(0.0, 1.0)),
-            fade: Vec4::new(
-                fade.x,
-                fade.y.max(fade.x + 0.01),
-                self.sheen,
-                if self.area.is_some() { 1.0 } else { 0.0 },
-            ),
-            area: Vec4::new(area.min.x, area.min.y, area.max.x, area.max.y),
-            wind: self.wind.into(),
-        }
+        self.packed()
     }
 }
 
@@ -249,3 +322,6 @@ impl Plugin for FarGrassPlugin {
             .add_systems(Update, sync_with_grass.after(GrassWindSystems::Sample));
     }
 }
+
+#[cfg(test)]
+mod tests;

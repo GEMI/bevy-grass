@@ -31,6 +31,11 @@ that names every field without `..default()` needs `wind_scale: 1.0` added.
 
 **Added**
 
+- `FarGrass::uniform(&wind, &settings)` and `FarGrass::GUSTS`: what a
+  terrain material of the game's own needs to call `grass_far_color` from
+  its shader, the far grass `FarGrassMaterial` draws. Before, its uniform
+  could not be built outside the crate. The new `custom_terrain` example is
+  a material with its own shader doing it.
 - `GrassFieldOverrides::wind_scale`: one field moves less in the shared
   wind, or more: a courtyard, a greenhouse, a windswept ridge. The gusts
   stay in step with the fields around it. The tip flutter scales with it.

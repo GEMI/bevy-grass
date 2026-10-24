@@ -334,6 +334,7 @@ cargo run --release --example meadow
 | `code_terrain` | An island built from a height function in 16 chunk meshes, with one field over it from the same function, bare on the beach and the cliff |
 | `editing` | Paint with the mouse (clear, mow, grow, restore), a mower and a walker with `GrassBrush`es, a cleared plot, regrowth, and `GrassSampler` reading the grass under the cursor |
 | `custom_wind` | The built-in wind turned off and a `Weather` resource driving the grass |
+| `custom_terrain` | A terrain material with its own shader that carries the grass colour past the last blade through `grass_far_color` |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures (`--show depth\|normals\|motion`) |
 | `bench` | The benchmark: a 2 × 2 km heightmap, a flythrough or the top-down camera (`--ortho`), with a CSV of every frame's timings |
 | `golden` | Every preset rendered headless and compared with reference images (`--bless` to update them) |
