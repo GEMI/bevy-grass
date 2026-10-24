@@ -39,6 +39,11 @@ In order:
 
 ## Done
 
+- **Strategy cameras and terrain from code** (0.20.6): grass across the
+  ground a high camera sees (`GrassCamera::radius_from_ground`), fields on
+  terrain built from a height or density function, and a sun or wind the
+  game drives itself. See [Settings](settings.md#strategy-cameras) and
+  [Fields, terrain and visibility](terrain.md#grow-grass-on-terrain-built-from-code).
 - **Browser builds** (0.20.5): grass runs in browsers through WebGPU, in 10
   storage buffers per shader stage, with a hosted demo and a wasm build in
   CI. WebGL2 stays unsupported: grass needs compute shaders. Safari waits on

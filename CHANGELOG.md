@@ -3,7 +3,18 @@
 All notable changes to bevy_grass, newest first. Until 1.0 any release may
 break the API; each breaking change below says what to write instead.
 
-## Unreleased
+## 0.20.6 (October 24, 2026)
+
+Strategy cameras, terrain built from code, and no more blinking blades.
+`GrassCamera::radius_from_ground` draws grass across the ground a high
+camera sees; `GrassField::with_ground_from_fn` and `with_density_from_fn`
+grow a field on terrain a game builds itself; `GrassLightFrame` and
+`GrassWindFrame::advance` let a game drive grass from a sun or wind of its
+own. Blades no longer flash the clear colour behind a depth prepass or
+white in a low sun's glint, gusts no longer show a grid from above, and an
+MSAA sample count the GPU cannot do no longer turns the window black. The
+[web demo](https://gemi.github.io/bevy-grass/) has every setting of the
+crate in its panel and copies what you tune as Rust.
 
 **Breaking, and what to write instead**
 
@@ -119,7 +130,8 @@ jump each time they cross a repeat.
   0.3, below where Bevy's grazing reflectance reaches full. Looking into a
   low sun, `MEADOW` flashes about 0.2 pixels a frame instead of 36. Elsewhere
   the look is unchanged to the eye; the goldens differ by a mean of at most
-  0.5 of 255, and the forward and deferred paths change alike.
+  0.5 of 255, and the forward and deferred paths change alike. Styles
+  without sheen pay nothing for it.
 - Seen from a strategy camera, the gusts rolled across the field in squares.
   The gust texture repeats every `gust_scale` metres (25 m in `BREEZE`), and
   from 100 m up dozens of repeats show at once, in a grid along the world's

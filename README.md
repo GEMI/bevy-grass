@@ -6,20 +6,27 @@ walkable grass, flowers and seed heads, trampling by characters and by
 [Rapier and Avian](#physics-engines-rapier-and-avian) physics bodies, and
 every blade lit by Bevy's own PBR.
 
-> **New in 0.20.5: grass in the browser.** bevy_grass runs on **WebGPU** as
-> well as natively, with the same shaders and settings: **[try the live
-> demo](https://gemi.github.io/bevy-grass/)**, or start from the
-> [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/webgpu_minimal.rs). Supported: Windows (Vulkan,
+> **New in 0.20.6:** strategy and city-builder cameras
+> (`GrassCamera::radius_from_ground`), grass on terrain built from code, a
+> sun or wind of your own, and fixes for blades that blinked behind a depth
+> prepass or in a low sun. The **[live
+> demo](https://gemi.github.io/bevy-grass/)** now has every setting of the
+> crate in its panel, and copies what you tune as Rust.
+> [CHANGELOG](https://github.com/GEMI/bevy-grass/blob/v0.20.6/CHANGELOG.md) has the rest.
+>
+> **Grass in the browser** since 0.20.5: bevy_grass runs on **WebGPU** as
+> well as natively, with the same shaders and settings; start from the
+> [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/webgpu_minimal.rs). Supported: Windows (Vulkan,
 > DX12), Linux (Vulkan), macOS (Metal), and browsers with WebGPU, tested in
 > Chrome, Edge and Brave. Not WebGL2, since grass needs compute shaders, and
 > not yet Safari, which rejects a shader in Bevy 0.20 itself.
 > [Platforms](#platforms) has what is tested.
 
-![A person walks through three presets in turn, WILDFLOWER_MEADOW, RYE_AND_CORNFLOWERS and REED_MARSH, parting the grass, which springs back behind them as the wind rolls through](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.5/docs/images/walk.webp)
+![A person walks through three presets in turn, WILDFLOWER_MEADOW, RYE_AND_CORNFLOWERS and REED_MARSH, parting the grass, which springs back behind them as the wind rolls through](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.6/docs/images/walk.webp)
 
-![Eight biome presets in square patches of their own ground, each with its name under it: REED_MARSH in standing water, PAMPAS, ELEPHANT_GRASS, RYE_AND_CORNFLOWERS, COTTON_BOG on dark peat, DUNE_MARRAM on sand, SPINIFEX on red earth and FROSTED_MEADOW on snow](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.5/docs/images/showcase_biomes.jpg)
+![Eight biome presets in square patches of their own ground, each with its name under it: REED_MARSH in standing water, PAMPAS, ELEPHANT_GRASS, RYE_AND_CORNFLOWERS, COTTON_BOG on dark peat, DUNE_MARRAM on sand, SPINIFEX on red earth and FROSTED_MEADOW on snow](https://raw.githubusercontent.com/GEMI/bevy-grass/v0.20.6/docs/images/showcase_biomes.jpg)
 
-Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md).
+Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/presets.md).
 
 - **No blades are stored.** Every frame, compute shaders decide which blades
   exist near each camera and build them on the GPU. A 4 km field costs what a
@@ -39,7 +46,7 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
   shape of their colliders.
 - **Runs in the browser** through WebGPU, with the same shaders and settings
   as on native. [Try the demo](https://gemi.github.io/bevy-grass/), or read the
-  [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/webgpu_minimal.rs).
+  [WebGPU example](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/webgpu_minimal.rs).
 - **Editable while the game runs.** Clear paths and plots, mow, burn, grow
   and regrow grass, and read it back on the CPU for stealth and footsteps,
   with no cost per frame while nothing is edited.
@@ -48,7 +55,7 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
   kelp, crystal and cel-shaded fields, also shipped as `.grass.ron` files that
   reload while the game runs.
 
-> **Status:** pre-release (0.20.5). Everything on this page is built and
+> **Status:** pre-release (0.20.6). Everything on this page is built and
 > tested; [Roadmap](#roadmap) has what is next.
 
 ## Contents
@@ -72,7 +79,7 @@ Add the crate next to Bevy in your game's `Cargo.toml`:
 ```toml
 [dependencies]
 bevy = "0.20"
-bevy_grass = "0.20.5"
+bevy_grass = "0.20.6"
 ```
 
 | Bevy | bevy_grass |
@@ -114,17 +121,17 @@ For the browser, turn on Bevy's `webgpu` feature for wasm:
 bevy = { version = "0.20", features = ["webgpu"] }
 ```
 
-[`examples/webgpu_minimal.rs`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/webgpu_minimal.rs) is the quick start
+[`examples/webgpu_minimal.rs`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/webgpu_minimal.rs) is the quick start
 below, ready for the browser: a canvas that fills the page, a lower quality
 tier on the web, and a message on screen if the device cannot draw grass.
 Grass costs more in a browser than natively on the same GPU, so start a tier
-lower there. [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/web.md) has the
+lower there. [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/web.md) has the
 browsers tested, what a device needs, and frame times per tier.
 
 ## Quick start
 
 Add `GrassPlugins` after `DefaultPlugins`, and spawn a `GrassField`. This whole
-program is [`examples/minimal.rs`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/minimal.rs); `cargo run --release
+program is [`examples/minimal.rs`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/minimal.rs); `cargo run --release
 --example minimal` runs it:
 
 ```rust
@@ -192,16 +199,16 @@ not, and each difference is one setting:
 | Your game has... | Set | Page |
 | --- | --- | --- |
 | A first- or third-person camera | Nothing: the defaults were made for it | |
-| A top-down orthographic camera (ARPG) | `GrassCamera { min_width_px: Some(2.0), .. }`, so blades stay at least 2 pixels wide | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
-| A high perspective camera (RTS, city builder) | `GrassCamera { radius_from_ground: true, min_width_px: Some(2.0), .. }`: grass is otherwise drawn within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Strategy cameras](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#strategy-cameras) |
-| Hills | `GrassGround::Heightmap` or `GrassGround::mesh`; a flat field lies at its transform's height and is buried under them | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md) |
-| Terrain built from code, or in chunks | `.with_ground_from_fn(&mut images, 0.5, height)`: the field samples your height function once | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
-| Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows, or `.with_density_from_fn` | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
-| Units that must stay visible | A shorter preset, or `GrassFieldOverrides::height_scale` | [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md#sizes), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/styles.md#how-tall-the-grass-grows) |
-| Wind that changes with the weather | Change the `GrassWind` resource, or drive the grass yourself | [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/wind.md) |
-| Characters or vehicles | `GrassInteractor`, or the `rapier`/`avian` feature | [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md) |
-| A loading screen | Spawn the field when the level is ready, or hidden | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#hide-a-field-or-leave-a-camera-out) |
-| Older or smaller GPUs | A `GrassSettings` tier below `HIGH` | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#pick-a-quality-tier) |
+| A top-down orthographic camera (ARPG) | `GrassCamera { min_width_px: Some(2.0), .. }`, so blades stay at least 2 pixels wide | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/settings.md#draw-differently-on-one-camera) |
+| A high perspective camera (RTS, city builder) | `GrassCamera { radius_from_ground: true, min_width_px: Some(2.0), .. }`: grass is otherwise drawn within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Strategy cameras](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/settings.md#strategy-cameras) |
+| Hills | `GrassGround::Heightmap` or `GrassGround::mesh`; a flat field lies at its transform's height and is buried under them | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md) |
+| Terrain built from code, or in chunks | `.with_ground_from_fn(&mut images, 0.5, height)`: the field samples your height function once | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
+| Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows, or `.with_density_from_fn` | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
+| Units that must stay visible | A shorter preset, or `GrassFieldOverrides::height_scale` | [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/presets.md#sizes), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/styles.md#how-tall-the-grass-grows) |
+| Wind that changes with the weather | Change the `GrassWind` resource, or drive the grass yourself | [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/wind.md) |
+| Characters or vehicles | `GrassInteractor`, or the `rapier`/`avian` feature | [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/trampling.md) |
+| A loading screen | Spawn the field when the level is ready, or hidden | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md#hide-a-field-or-leave-a-camera-out) |
+| Older or smaller GPUs | A `GrassSettings` tier below `HIGH` | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/settings.md#pick-a-quality-tier) |
 
 **Check it works** at the camera's nearest and farthest zoom, not only that
 the game runs. Grass that is buried under hills, out of the camera's reach or
@@ -209,7 +216,7 @@ growing in the sea still compiles and runs. Turn on the `debug` feature and
 `GrassDebugPlugin` to see each field's rectangle at the height it lies, and
 read `GrassStats` for what the GPU drew: `stats.gpu.total_blades()` is 0 when
 nothing is drawn. A camera that sees fields but is too far from all of them
-says so in the log. [Stats and debugging](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/tooling.md#see-what-grass-is-doing)
+says so in the log. [Stats and debugging](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/tooling.md#see-what-grass-is-doing)
 has the details.
 
 ## Physics engines: Rapier and Avian
@@ -224,21 +231,21 @@ strip. It follows the body's scale and rotation, and a disabled collider or
 a sensor flattens nothing.
 
 ```toml
-bevy_grass = { version = "0.20.5", features = ["rapier"] } # or "avian"
+bevy_grass = { version = "0.20.6", features = ["rapier"] } # or "avian"
 ```
 
 | Engine | Feature | Built against | Examples |
 | --- | --- | --- | --- |
-| Rapier | `rapier` | `bevy_rapier3d` 0.37 | [`rapier`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/rapier.rs), [`rapier_minimal`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/rapier_minimal.rs) |
-| Avian | `avian` | `avian3d` 0.8 | [`avian`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/avian.rs), [`avian_minimal`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/examples/avian_minimal.rs) |
+| Rapier | `rapier` | `bevy_rapier3d` 0.37 | [`rapier`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/rapier.rs), [`rapier_minimal`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/rapier_minimal.rs) |
+| Avian | `avian` | `avian3d` 0.8 | [`avian`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/avian.rs), [`avian_minimal`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/examples/avian_minimal.rs) |
 
 Run one with `cargo run --release --example rapier --features rapier`.
-[Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md#physics-colliders-rapier-and-avian) has the
+[Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/trampling.md#physics-colliders-rapier-and-avian) has the
 details, including how to plug in another engine.
 
 ## Features
 
-Each feature has a page in [`docs/`](https://github.com/GEMI/bevy-grass/tree/v0.20.5/docs) with full examples.
+Each feature has a page in [`docs/`](https://github.com/GEMI/bevy-grass/tree/v0.20.6/docs) with full examples.
 
 ### Quality and settings
 
@@ -247,7 +254,7 @@ shadows, and how much each camera's buffers hold. It has a preset per hardware
 tier (`COMPETITIVE`, `LOW`, `MEDIUM`, `HIGH`, `ULTRA`) for a graphics menu,
 and every setting, down to the level-of-detail distances and blade rows, can
 change at runtime. `GrassCamera` overrides some of them for one camera, such
-as a minimap. **[Quality and settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md)**
+as a minimap. **[Quality and settings](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/settings.md)**
 
 ### Styles and presets
 
@@ -257,7 +264,7 @@ and other plants mixed in as species, such as flowers, seed heads and ferns.
 Start from one of the 36 presets and change what you need; editing a style at
 runtime changes every field that uses it on the next frame, cheaply enough for
 a season blend. Styles also load from `.grass.ron` files that reload while the
-game runs. **[Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/styles.md)**, **[Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md)**
+game runs. **[Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/styles.md)**, **[Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/presets.md)**
 
 ### Terrain and visibility
 
@@ -267,14 +274,14 @@ paths, clearings and coastlines, and turn with their transform.
 `FarGrassMaterial` carries the grass colour and its gusts across the terrain
 past the last blade, so there is no seam. Fields and cameras follow Bevy's
 `Visibility` and `RenderLayers`, for split-screen and minimaps.
-**[Fields, terrain and visibility](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md)**
+**[Fields, terrain and visibility](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md)**
 
 ### Wind
 
 Three layers of wind (rolling gusts, per-blade sway and tip flutter), with the
 presets `CALM`, `BREEZE`, `GUSTY` and `STORM` and a multiplier for each layer.
 Or turn the built-in model off and drive the grass from your own weather.
-**[Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/wind.md)**
+**[Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/wind.md)**
 
 ### Trampling
 
@@ -282,7 +289,7 @@ Or turn the built-in model off and drive the grass from your own weather.
 grass springs back over about 1.5 s, leaving trails. A
 `GrassInteractorFootprint` flattens a whole box at once: under a moving
 vehicle the grass lies the way it drives, and only its sides push out. The
-cost is the same for 1 or 512 interactors. **[Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md)**
+cost is the same for 1 or 512 interactors. **[Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/trampling.md)**
 
 ### Editing and queries
 
@@ -292,14 +299,14 @@ goes, as a disc or, with a `GrassBrushFootprint`, a turned rectangle: a
 mower's deck, a vehicle's tracks, a fire, a path worn in by feet. `GrassRegrowth` lets a field
 grow back. `GrassSampler` reads density and blade height at any point on the
 CPU. Edits change the density mask and upload only the rows they touch.
-**[Editing and reading the grass](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/editing.md)**
+**[Editing and reading the grass](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/editing.md)**
 
 ### Shadows and rendering paths
 
 Grass receives shadows from every light and casts them for one directional
 light, marked with `GrassSun`. Its blades are thin, so the shadow cascades
 matter: the page has the recommended setup. Grass also draws into Bevy's
-prepass and deferred G-buffer. **[Shadows and rendering paths](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/rendering.md)**
+prepass and deferred G-buffer. **[Shadows and rendering paths](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/rendering.md)**
 
 ### Stats and debugging
 
@@ -307,7 +314,7 @@ prepass and deferred G-buffer. **[Shadows and rendering paths](https://github.co
 and rebuilds. The `debug` feature adds gizmos for fields, chunks, interactors
 and trample windows. Every type is reflected for scenes and inspectors, and
 public system sets let you order your systems against the grass.
-**[Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/tooling.md)**
+**[Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/tooling.md)**
 
 ## Examples
 
@@ -356,35 +363,35 @@ on:
 
 The trample pass with 512 interactors takes about 0.02 ms. For 240 FPS games,
 `GrassQuality::Competitive` is a tier checked against a 4.167 ms frame budget.
-[Performance notes](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/performance.md) has the method, the 240 Hz gate, and
+[Performance notes](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/performance.md) has the method, the 240 Hz gate, and
 every idea that was tried, kept or dropped.
 
 ## Documentation
 
-- Guides: [Quality and settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/styles.md),
-  [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md), [Fields, terrain and visibility](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md),
-  [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/wind.md), [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md),
-  [Editing and reading the grass](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/editing.md),
-  [Shadows and rendering paths](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/rendering.md),
-  [Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/tooling.md),
-  [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/web.md)
-- [API overview](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/api.md): every public type on one page. Everything a
+- Guides: [Quality and settings](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/settings.md), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/styles.md),
+  [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/presets.md), [Fields, terrain and visibility](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/terrain.md),
+  [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/wind.md), [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/trampling.md),
+  [Editing and reading the grass](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/editing.md),
+  [Shadows and rendering paths](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/rendering.md),
+  [Stats, debugging and tooling](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/tooling.md),
+  [Running in the browser](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/web.md)
+- [API overview](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/api.md): every public type on one page. Everything a
   game needs is in `bevy_grass::prelude`, and every item has rustdoc.
-- [How it works](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/design.md): what makes it fast, and what makes it look
+- [How it works](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/design.md): what makes it fast, and what makes it look
   like grass.
-- [Performance notes](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/performance.md) and [Testing](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/testing.md).
-- [Roadmap and scope](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/roadmap.md): what is next, how bevy_grass keeps up
+- [Performance notes](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/performance.md) and [Testing](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/testing.md).
+- [Roadmap and scope](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/roadmap.md): what is next, how bevy_grass keeps up
   with Bevy, and what it will not do.
-- [CHANGELOG](https://github.com/GEMI/bevy-grass/blob/v0.20.5/CHANGELOG.md), with what to write instead for each breaking
+- [CHANGELOG](https://github.com/GEMI/bevy-grass/blob/v0.20.6/CHANGELOG.md), with what to write instead for each breaking
   change.
 
 ## Roadmap
 
 We try to release for each Bevy minor version within two weeks of its
 release. Next are listings on Bevy Assets and awesome-bevy, then 1.0.
-[Roadmap and scope](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/roadmap.md) has the order, the version policy and
+[Roadmap and scope](https://github.com/GEMI/bevy-grass/blob/v0.20.6/docs/roadmap.md) has the order, the version policy and
 what bevy_grass will not do.
 
 ## License
 
-MIT. See [`LICENSE`](https://github.com/GEMI/bevy-grass/blob/v0.20.5/LICENSE).
+MIT. See [`LICENSE`](https://github.com/GEMI/bevy-grass/blob/v0.20.6/LICENSE).
