@@ -23,6 +23,12 @@ app.insert_resource(GrassWind {
 });
 ```
 
+There is one wind for the whole world, as there is one weather: every field
+sways in the same gusts, so two fields that meet never disagree at the seam.
+A field that should move less, in a courtyard, a canyon or a greenhouse,
+gets stiffer blades instead: `GrassBlade::stiffness` runs from 0 (soft) to 1,
+and a blade at 1 bends a quarter as far as one at 0, and sways faster.
+
 It is a resource, so weather can change it at any time:
 
 ```rust

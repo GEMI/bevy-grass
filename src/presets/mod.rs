@@ -98,3 +98,6 @@ impl GrassStyle {
         all_presets().map(|(name, style)| (name, style.clone()))
     }
 }
+
+#[cfg(test)]
+mod tests;

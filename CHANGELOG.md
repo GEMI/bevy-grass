@@ -45,6 +45,22 @@ names every field without `..default()` needs `lights: true` added.
   main pass's grass cost by 9–13% in perspective, with more ground showing
   between blades from 10 m. Set `mid_range_start: 0.2` for the old look.
 
+**Documentation**
+
+From the notes of two games that integrated bevy_grass, an RTS and an
+action game on a procedural island:
+
+- The README has a "Fit it to your game" table after the quick start: the
+  setting each kind of camera, ground and game needs, and its page.
+- [Presets](docs/presets.md#sizes) lists every preset's blade heights, its
+  tallest plant, density, spacing and the plants mixed in. A test keeps the
+  table equal to the constants (`BLESS_STYLES=1 cargo test` rewrites it).
+- [Styles](docs/styles.md#how-tall-the-grass-grows) puts the four ways to
+  change blade height side by side; [Wind](docs/wind.md) says why the wind
+  is global and how a sheltered field moves less; the quick start says the
+  scene's light already casts grass shadows; [Terrain](docs/terrain.md)
+  shows spawning a field behind a loading screen.
+
 **Internal**
 
 - The golden check also draws `MEADOW` through eight render paths

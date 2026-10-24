@@ -81,6 +81,34 @@ commands.spawn((
 The overrides are applied when the field's entries are built, so they cost
 nothing per frame, and changing one rewrites that field's entries only.
 
+## How tall the grass grows
+
+Blade height is set in four places, each for a different reach. Pick the
+narrowest one that does what you need:
+
+| To change the height... | Set | What it reaches |
+| --- | --- | --- |
+| of a look, wherever it is used | `blade.height` of the style (and of each species) | Every field that shares the style |
+| of one field | `GrassFieldOverrides::height_scale` | That field; the style stays shared |
+| in places within a field | the density mask's green channel | Each texel of the mask |
+| where the game cuts it, while it runs | `GrassEdit::mow`, or a `GrassBrush` with `GrassEditOp::Mow` | The grass under the edit, until restored or regrown |
+
+[Presets](presets.md#sizes) lists each preset's blade heights and its
+tallest plant. Units 2 m tall stand well above `MEADOW` (0.6 m at most); to
+keep grass under 0.4 m there as well, scale the field rather than editing the
+preset:
+
+```rust
+commands.spawn((
+    GrassField::new(Vec2::splat(800.0), GrassStyle::MEADOW, &mut styles),
+    GrassFieldOverrides { height_scale: 0.4 / 0.6, ..default() },
+));
+```
+
+A preset such as `GrassStyle::MEADOW` is a constant, and `GrassField::new`
+adds a copy of it; changing that copy in `Assets<GrassStyle>` changes the
+fields made from it and never the constant.
+
 ## Mix in flowers, seed heads and other plants
 
 Any style can carry other plants, each a `GrassSpecies`: a `GrassBlade` of its

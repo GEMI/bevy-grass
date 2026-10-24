@@ -149,6 +149,15 @@ commands.spawn((GrassField { size: Vec2::splat(64.0), style, ..default() },
 commands.spawn((Camera3d::default(), NoGrass));
 ```
 
+A field can be spawned at any time, not only at `Startup`. Behind a loading
+screen, spawn it when the level is ready, with a state's `OnEnter` rather
+than a system that checks a flag every frame, or spawn it with
+`Visibility::Hidden` and show it when the screen lifts:
+
+```rust
+app.add_systems(OnEnter(GameState::Playing), spawn_grass);
+```
+
 Layers 0 to 31 are supported. Every other 3D camera draws its own grass, with
 its own culling and level of detail; [`GrassCamera`](settings.md#draw-differently-on-one-camera)
 changes how much.

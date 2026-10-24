@@ -56,6 +56,7 @@ Eight of the 36 presets. [All of them are in docs/presets.md](https://github.com
 - [Installation](#installation)
 - [Platforms](#platforms)
 - [Quick start](#quick-start)
+- [Fit it to your game](#fit-it-to-your-game)
 - [Physics engines: Rapier and Avian](#physics-engines-rapier-and-avian)
 - [Features](#features)
 - [Examples](#examples)
@@ -167,7 +168,9 @@ fn setup(
 ```
 
 A field is a rectangle centred on its `Transform`, lying in the XZ plane. A
-scene needs a camera, a light and something to stand on, as here.
+scene needs a camera, a light and something to stand on, as here. The light
+casts the grass's shadows too: `GrassSun` is only for choosing one when there
+are several.
 `GrassField::new` adds the preset to `Assets<GrassStyle>` and returns the field
 in one call. A field built with `..default()` and no style waits for one: after
 a few frames it logs a warning naming the entity and how to give it one.
@@ -180,6 +183,24 @@ out what you do not use:
 ```rust
 app.add_plugins(GrassPlugins.build().disable::<FarGrassPlugin>());
 ```
+
+## Fit it to your game
+
+The quick start is a camera a few metres up over flat ground. Most games are
+not, and each difference is one setting:
+
+| Your game has... | Set | Page |
+| --- | --- | --- |
+| A first- or third-person camera | Nothing: the defaults were made for it | |
+| A top-down orthographic camera (ARPG) | `GrassCamera { min_width_px: Some(2.0), .. }`, so blades stay at least 2 pixels wide | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
+| A high perspective camera (RTS, city builder) | `GrassCamera::radius`: grass is drawn only within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
+| Hills | `GrassGround::Heightmap` or `GrassGround::mesh`; a flat field lies at its transform's height and is buried under them | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md) |
+| Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-a-heightmap-with-a-density-mask) |
+| Units that must stay visible | A shorter preset, or `GrassFieldOverrides::height_scale` | [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md#sizes), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/styles.md#how-tall-the-grass-grows) |
+| Wind that changes with the weather | Change the `GrassWind` resource, or drive the grass yourself | [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/wind.md) |
+| Characters or vehicles | `GrassInteractor`, or the `rapier`/`avian` feature | [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md) |
+| A loading screen | Spawn the field when the level is ready, or hidden | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#hide-a-field-or-leave-a-camera-out) |
+| Older or smaller GPUs | A `GrassSettings` tier below `HIGH` | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#pick-a-quality-tier) |
 
 ## Physics engines: Rapier and Avian
 
