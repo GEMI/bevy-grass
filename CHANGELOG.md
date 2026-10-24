@@ -38,6 +38,15 @@ jump each time they cross a repeat.
 
 **Added**
 
+- The web demo's panel has every public setting of the crate, built from
+  the types' `Reflect` data and their doc comments: `GrassSettings`,
+  `GrassStyle` with its species, `GrassWind` and its presets, `FarGrass`,
+  `GrassFieldOverrides`, `GrassRegrowth`, `GrassInteractor`, `GrassCamera`,
+  a `GrassBrush` on the left mouse button, `GrassDebug` and `GrassStats`.
+  Each section copies as Rust (only what differs from its tier or preset),
+  the style also as a `.grass.ron`, and a `.grass.ron` can be pasted in. The
+  address keeps the changes, so a link shares them. It replaces the
+  wind-strength slider.
 - `FarGrass::with_sheen(sheen)`, like `with_fade` and `with_area`: a struct
   literal with `..FarGrass::new(&style)` does not compile outside the crate,
   so setting the sheen took a variable.

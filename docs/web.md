@@ -6,7 +6,15 @@ path. This page covers what differs: what a browser needs, where it has been
 tested, and how fast it is.
 
 The [web demo](https://gemi.github.io/bevy-grass/) is a meadow with a quality
-switch and every preset. Its source is [`web/`](../web/).
+switch, every preset, and a panel with every public setting of the crate:
+`GrassSettings`, the style with its species, the wind, far grass, a field's
+overrides and regrowth, an interactor, `GrassCamera`, a `GrassBrush` the
+left mouse button paints with, and the debug view. The panel is built from
+the types' `Reflect` data, field docs included, so a new field appears in it
+without a change to the page; each section shows its settings as the Rust
+to paste into a game (and the style as a `.grass.ron`), and the page keeps
+the changes in its address, so a link shares them. Its source is
+[`web/`](../web/).
 
 ## Build a game for the browser
 

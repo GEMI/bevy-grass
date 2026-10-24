@@ -6,7 +6,9 @@
 //! browser than natively on the same GPU, for reasons not yet known (see
 //! `docs/web.md`); the page switches the tier and the preset, and natively
 //! 1 to 4 pick the tier and `[` and `]` step through the presets. WASD and
-//! the mouse fly the camera (hold the right button, or press M, to look).
+//! the mouse fly the camera (hold the right button, or press M, to look), and
+//! the left button paints with a `GrassBrush`. In the browser the page's panel
+//! tunes every public setting of grass, through `tune`.
 //!
 //! ```text
 //! cargo run -p bevy_grass_web --release        # natively
@@ -15,6 +17,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod page;
+mod tune;
 
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use bevy::light::CascadeShadowConfigBuilder;
@@ -22,6 +25,8 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::render::view::Msaa;
 use bevy_grass::prelude::*;
+
+use tune::{Brush, Tuning};
 
 /// The tiers the page offers, in its order.
 const QUALITIES: [(&str, GrassSettings); 4] = [
@@ -59,17 +64,30 @@ fn main() {
             ..default()
         }),
         GrassPlugins,
+        GrassDebugPlugin,
         FreeCameraPlugin,
     ))
     // The sky is the colour of the mist, so the far ground fades into it.
     .insert_resource(ClearColor(SKY))
     .insert_resource(QUALITIES[START_QUALITY].1)
+    // The debug view starts hidden; the page turns it on.
+    .insert_resource(tune::start_debug())
+    .insert_resource(Tuning {
+        wind: "BREEZE",
+        dirty: true,
+        ..default()
+    })
     .init_resource::<Requests>()
+    .init_resource::<Brush>()
     .add_systems(Startup, setup)
-    .add_systems(Update, (walk, keyboard, apply_requests).chain());
+    .add_systems(
+        Update,
+        (walk, keyboard, apply_requests, tune::apply_tuning, paint).chain(),
+    )
+    .add_systems(Last, tune::publish_tunables);
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Update, page::take_requests.before(apply_requests))
-        .add_systems(Last, page::publish_status);
+        .add_systems(Last, page::publish_status.after(tune::publish_tunables));
     app.run();
 }
 
@@ -81,19 +99,24 @@ struct Requests {
     quality: Option<usize>,
     /// A preset's name, as `GrassStyle::presets` gives it.
     preset: Option<&'static str>,
-    /// The wind's overall strength, 0 (still) to 1 (storm).
-    wind_strength: Option<f32>,
     /// Whether shadows are enabled.
     shadows: Option<bool>,
     /// The number of MSAA samples, 1, 2, 4 or 8.
     antialiasing: Option<u32>,
 }
 
-/// What a preset change rewrites, and what the demo shows now.
+/// What a preset change rewrites, what the page tunes, and what the demo
+/// shows now.
 #[derive(Resource, Debug)]
 struct Meadow {
     style: Handle<GrassStyle>,
     ground: Handle<FarGrassMaterial>,
+    /// The field, with its `GrassFieldOverrides` and `GrassRegrowth`.
+    field: Entity,
+    /// The walker's `GrassInteractor`.
+    walker: Entity,
+    /// The camera's `GrassCamera`.
+    camera: Entity,
     /// An index into `QUALITIES`.
     quality: usize,
     preset: &'static str,
@@ -125,20 +148,23 @@ fn setup(
     mut far_materials: ResMut<Assets<FarGrassMaterial>>,
     mut styles: ResMut<Assets<GrassStyle>>,
 ) {
-    commands.spawn((
-        Camera3d::default(),
-        Msaa::Sample4,
-        Transform::from_xyz(-6.0, 3.0, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
-        FreeCamera::default(),
-        DistanceFog {
-            color: SKY,
-            falloff: FogFalloff::Linear {
-                start: 40.0,
-                end: 220.0,
+    let camera = commands
+        .spawn((
+            Camera3d::default(),
+            GrassCamera::default(),
+            Msaa::Sample4,
+            Transform::from_xyz(-6.0, 3.0, 14.0).looking_at(Vec3::new(2.0, 0.0, 0.0), Vec3::Y),
+            FreeCamera::default(),
+            DistanceFog {
+                color: SKY,
+                falloff: FogFalloff::Linear {
+                    start: 40.0,
+                    end: 220.0,
+                },
+                ..default()
             },
-            ..default()
-        },
-    ));
+        ))
+        .id();
     commands.spawn((
         DirectionalLight {
             shadow_maps_enabled: true,
@@ -168,23 +194,35 @@ fn setup(
         MeshMaterial3d(ground.clone()),
     ));
     let style = styles.add(style);
-    // The meadow.
-    commands.spawn(GrassField {
-        size: Vec2::splat(MEADOW),
-        style: style.clone(),
-        ..default()
-    });
+    // The meadow. The overrides change nothing until the page tunes them;
+    // regrowth closes what the brush clears.
+    let field = commands
+        .spawn((
+            GrassField {
+                size: Vec2::splat(MEADOW),
+                style: style.clone(),
+                ..default()
+            },
+            GrassFieldOverrides::default(),
+            GrassRegrowth::default(),
+        ))
+        .id();
     // A 1.8 m capsule, the height of a person.
-    commands.spawn((
-        Walker,
-        GrassInteractor::default(),
-        Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
-        MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
-        Transform::from_xyz(WALK_RADIUS, 0.9, 0.0),
-    ));
+    let walker = commands
+        .spawn((
+            Walker,
+            GrassInteractor::default(),
+            Mesh3d(meshes.add(Capsule3d::new(0.25, 1.3))),
+            MeshMaterial3d(materials.add(Color::srgb(0.15, 0.32, 0.75))),
+            Transform::from_xyz(WALK_RADIUS, 0.9, 0.0),
+        ))
+        .id();
     commands.insert_resource(Meadow {
         style,
         ground,
+        field,
+        walker,
+        camera,
         quality: START_QUALITY,
         preset: name,
         shadows: true,
@@ -236,7 +274,7 @@ fn apply_requests(
     mut styles: ResMut<Assets<GrassStyle>>,
     mut far_materials: ResMut<Assets<FarGrassMaterial>>,
     mut windows: Query<&mut Window>,
-    mut wind: ResMut<GrassWind>,
+    mut tuning: ResMut<Tuning>,
     mut lights: Query<&mut DirectionalLight>,
     mut cameras: Query<&mut Msaa, With<Camera3d>>,
 ) {
@@ -246,13 +284,9 @@ fn apply_requests(
     let Requests {
         quality,
         preset: name,
-        wind_strength,
         shadows,
         antialiasing,
     } = std::mem::take(&mut *requests);
-    if let Some(strength) = wind_strength {
-        wind.strength = strength;
-    }
     if let Some(enabled) = shadows.filter(|enabled| *enabled != meadow.shadows) {
         for mut light in &mut lights {
             light.shadow_maps_enabled = enabled;
@@ -275,6 +309,7 @@ fn apply_requests(
     if let Some(quality) = quality.filter(|at| *at != meadow.quality) {
         *settings = QUALITIES[quality].1;
         meadow.quality = quality;
+        tuning.bump();
     }
     if let Some((name, style)) = name.filter(|name| *name != meadow.preset).and_then(preset) {
         if let Some(mut ground) = far_materials.get_mut(&meadow.ground) {
@@ -284,11 +319,62 @@ fn apply_requests(
             *meadow_style = style;
         }
         meadow.preset = name;
+        tuning.bump();
     }
     for mut window in &mut windows {
         window.title = format!(
             "bevy_grass: {} at {}",
             meadow.preset, QUALITIES[meadow.quality].0
+        );
+    }
+}
+
+/// Marks the brush entity, there while the left mouse button is held.
+#[derive(Component, Debug)]
+struct Painting;
+
+/// Paints with the page's brush where the left mouse button holds the
+/// cursor over the ground.
+fn paint(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    brush: Res<Brush>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut painting: Query<(Entity, &mut Transform, &mut GrassBrush), With<Painting>>,
+    mut gizmos: Gizmos,
+) {
+    let ground = buttons
+        .pressed(MouseButton::Left)
+        .then(|| {
+            let cursor = windows.iter().find_map(Window::cursor_position)?;
+            let (camera, transform) = cameras.iter().next()?;
+            let ray = camera.viewport_to_world(transform, cursor).ok()?;
+            let distance = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))?;
+            Some(ray.get_point(distance))
+        })
+        .flatten();
+    match (ground, painting.single_mut()) {
+        (Some(point), Ok((_, mut transform, mut current))) => {
+            transform.translation = point;
+            if *current != brush.0 {
+                *current = brush.0;
+            }
+        }
+        (Some(point), Err(_)) => {
+            commands.spawn((Painting, brush.0, Transform::from_translation(point)));
+        }
+        (None, Ok((entity, ..))) => commands.entity(entity).despawn(),
+        (None, Err(_)) => {}
+    }
+    if let Some(point) = ground {
+        gizmos.circle(
+            Isometry3d::new(
+                point + Vec3::Y * 0.05,
+                Quat::from_rotation_arc(Vec3::Z, Vec3::Y),
+            ),
+            brush.0.radius,
+            Color::WHITE,
         );
     }
 }
