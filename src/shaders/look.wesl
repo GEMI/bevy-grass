@@ -133,11 +133,16 @@ const MAX_SPREAD: f32 = 0.18;
 /// through about 60° inside a pixel, and a narrow sheen sampled once there
 /// lit single pixels white as the blade swayed. `normal` is the
 /// interpolated, unflipped vertex normal: a two-sided face's flip would read
-/// as a turn.
+/// as a turn. Only with sheen (`GRASS_SHEEN`): a matte blade has no narrow
+/// lobe to tame, and the derivatives cost about 5% of grass cost.
 fn normal_spread(normal: vec3<f32>) -> f32 {
+    var spread = 0.0;
+@if(GRASS_SHEEN) {
     let dx = dpdx(normal);
     let dy = dpdy(normal);
-    return min(0.5 * (dot(dx, dx) + dot(dy, dy)), MAX_SPREAD);
+    spread = min(0.5 * (dot(dx, dx) + dot(dy, dy)), MAX_SPREAD);
+}
+    return spread;
 }
 
 /// The blade's surface for Bevy's lighting (`grass_pbr_input`). `normal` is

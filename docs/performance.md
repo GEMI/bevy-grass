@@ -641,6 +641,22 @@ A look fix, measured to check its cost: from a strategy camera the gusts showed 
 
 The far sheen now fades as the camera looks down on the ground, and `far.wesl` skips the gust sample where the sheen would change the colour by under 0.4%: under the blades, and nearly everywhere seen from a strategy camera. The bench draws no `FarGrassMaterial`, so this is not in the numbers; it is one or two texture reads per ground pixel, about 0.02 ms at 1080p on the T1200 at most, a look change rather than a saving.
 
+## The blinking fixes, and 0.20.6 against 0.20.5 (October 24, 2026)
+
+Two look fixes, measured to check their cost: the sheen's specular antialiasing with its reflectance cap (`fd3d7b7`), and `@invariant` blade positions in the main pass and the prepass (`42e0085`). `tools/bench_ab.py`, T1200, four interleaved rounds per pass, both scenes, against `61923f6` (main before the fixes), as a share of grass cost at p50:
+
+| Variant | DEMO ARPG GAME | Perspective |
+| --- | --- | --- |
+| Sheen fix alone, as first written | +4.3% | +6.0% |
+| Both fixes, without `@invariant` | +5.0% | +5.0% |
+| Both fixes (n = 8) | +4.2% | +6.7% |
+| Both, antialiasing only with `GRASS_SHEEN` (shipped) | +1.0% | +3.0% |
+| ...with the bench's `--sheen`, against `61923f6 --sheen` | +4.2% | −0.6% |
+
+`@invariant` costs nothing measurable. The antialiasing's two derivatives and square roots cost about 5%, and as first written every style paid them, though the bench's style has no sheen and a matte blade (roughness 0.7) has no narrow lobe to tame. Compiled only with `GRASS_SHEEN`, matte styles are back within the noise (+3.4% and +1.2% at p95), and a style with sheen pays about 4% at DEMO ARPG GAME's camera for not flashing white. The goldens are identical with and without the gate. **Kept.**
+
+Against 0.20.5 (`v0.20.5`, same rounds), `61923f6` is 20.7% of grass cost faster in perspective and 1.3% faster at DEMO ARPG GAME's camera at p50 (18.2% and 2.4% at p95), mostly the mid-range thinning from 10 m (`mid_range_start`).
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.
