@@ -621,7 +621,7 @@ The perspective main pass was slower in all six rounds, by 0.014 to 0.063 ms, ab
 
 A feature, not a lever: `GrassCamera::radius_from_ground` takes the camera's height above the ground off every distance the reach, thinning and LOD bands use, and thins by `(radius / (radius + height))²` so a raised camera keeps about the same number of blades. Off by default, it adds a uniform field and a few uniform operations per chunk and blade in `generate.wesl`, with an offset of 0 and a thinning of exactly 1. The 36 preset goldens and the render-path goldens match pixel for pixel.
 
-**The default path.** `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `59720cd` against the change: +0.1% (DEMO ARPG GAME) and +0.8% (perspective) of grass cost at p50, −1.5% and +1.0% at p95, all within the noise. **Kept.**
+**The default path.** `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `820825f` against the change: +0.1% (DEMO ARPG GAME) and +0.8% (perspective) of grass cost at p50, −1.5% and +1.0% at p95, all within the noise. **Kept.**
 
 **The feature itself,** in the new `rts_camera` example (800 m map, High, `MEADOW` at 0.6 height, `min_width_px` 2, 1920 × 1080 on the T1200; grass is the main pass less the no-grass 0.81 ms):
 
