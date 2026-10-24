@@ -22,6 +22,12 @@ fn hud(stats: Res<GrassStats>) {
 }
 ```
 
+`stats.gpu.total_blades()` adds the three levels of detail up: once
+`stats.gpu.readings` is above 0, it is 0 only when nothing was drawn, which
+makes it the check for a smoke test or a screenshot script. Blades hidden
+under terrain still count, so for grass in the wrong place, look at the
+gizmos below.
+
 The same numbers are Bevy diagnostics, for `LogDiagnosticsPlugin` or an
 overlay: `grass/blades/near`, `/mid`, `/far`, `grass/visible_slices`,
 `grass/overflows`, `grass/table_rebuilds` and `grass/rebuild_time` (ms), as

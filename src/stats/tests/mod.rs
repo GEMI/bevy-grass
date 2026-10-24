@@ -119,3 +119,13 @@ fn the_stats_are_quiet_for_change_detection_when_nothing_changed() {
         app.update();
     }
 }
+
+#[test]
+fn total_blades_adds_every_level_of_detail_without_overflowing() {
+    let stats = GpuStats {
+        blades: [3, 4, u32::MAX],
+        ..GpuStats::default()
+    };
+    assert_eq!(stats.total_blades(), 7 + u64::from(u32::MAX));
+    assert_eq!(GpuStats::default().total_blades(), 0);
+}

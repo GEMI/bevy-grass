@@ -101,6 +101,30 @@ pub struct GpuStats {
     pub readings: u64,
 }
 
+impl GpuStats {
+    /// Blades generated in the latest reading, every level of detail together.
+    ///
+    /// The quickest check that grass is drawing at all, for a smoke test or a
+    /// screenshot script: once [`readings`](GpuStats::readings) is above 0,
+    /// a camera that sees grass makes this above 0 too. Blades hidden under
+    /// terrain count as well, so a flat field buried by hills still shows
+    /// here; the `debug` feature's field gizmos show where it lies.
+    ///
+    /// ```no_run
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// fn check_grass(stats: Res<GrassStats>) {
+    ///     if stats.gpu.readings > 0 && stats.gpu.total_blades() == 0 {
+    ///         warn!("no grass drawn: is the field hidden, on other layers, or out of reach?");
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    pub fn total_blades(&self) -> u64 {
+        self.blades.iter().map(|&blades| u64::from(blades)).sum()
+    }
+}
+
 /// The names of grass's [`Diagnostic`]s, for `DiagnosticsStore::get` and
 /// `LogDiagnosticsPlugin`.
 ///

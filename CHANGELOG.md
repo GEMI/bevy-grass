@@ -24,6 +24,10 @@ names every field without `..default()` needs `lights: true` added.
 
 **Added**
 
+- `GpuStats::total_blades()`, the blades of every level of detail together:
+  `stats.gpu.total_blades() == 0` after the first reading means nothing was
+  drawn. The README's new "Check it works" paragraph points to it and to the
+  debug gizmos, which show a field buried under hills.
 - A warning, once per camera, when a perspective camera has had grass fields
   in view for two seconds and all of them were beyond its grass radius, so
   it drew nothing. The radius is a distance from the camera itself, so a

@@ -202,6 +202,15 @@ not, and each difference is one setting:
 | A loading screen | Spawn the field when the level is ready, or hidden | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#hide-a-field-or-leave-a-camera-out) |
 | Older or smaller GPUs | A `GrassSettings` tier below `HIGH` | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#pick-a-quality-tier) |
 
+**Check it works** at the camera's nearest and farthest zoom, not only that
+the game runs. Grass that is buried under hills, out of the camera's reach or
+growing in the sea still compiles and runs. Turn on the `debug` feature and
+`GrassDebugPlugin` to see each field's rectangle at the height it lies, and
+read `GrassStats` for what the GPU drew: `stats.gpu.total_blades()` is 0 when
+nothing is drawn. A camera that sees fields but is too far from all of them
+says so in the log. [Stats and debugging](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/tooling.md#see-what-grass-is-doing)
+has the details.
+
 ## Physics engines: Rapier and Avian
 
 bevy_grass supports both Bevy physics engines,
