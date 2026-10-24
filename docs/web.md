@@ -102,6 +102,16 @@ the device's largest one, which is at least 128 MiB. A 4096 × 4096 heightmap is
 warning and draws nothing until they shrink. Unlike the checks above, this
 one depends on the fields, so `GrassSupport` does not show it.
 
+## Antialiasing
+
+WebGPU supports MSAA with 1 or 4 samples only. `Msaa::Sample2` and
+`Msaa::Sample8` are errors in every browser, and Bevy stops rendering at
+the first one, so the window goes black with or without grass. Grass checks
+each camera's `Msaa` against what the device supports and, for a count it
+does not, logs one warning and uses the most samples below it that the
+device has: 8x becomes 4x, 2x becomes off. Offer only Off and 4x in a web
+build's settings menu.
+
 ## Shadows
 
 Grass casts shadows only on a device with the optional `depth-clip-control`

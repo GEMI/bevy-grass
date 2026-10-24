@@ -85,6 +85,13 @@ jump each time they cross a repeat.
 
 **Fixed**
 
+- A camera asking for an MSAA sample count the GPU does not support no
+  longer turns the window black. Bevy stops rendering at the first
+  unsupported count, and WebGPU supports only 1 and 4 samples, so
+  `Msaa::Sample2` and `Msaa::Sample8` stopped every browser. Grass now logs
+  one warning naming the camera and uses the most samples below it that the
+  device has (8x becomes 4x, 2x becomes off). The web demo offers only Off
+  and 4x.
 - With a depth prepass (which SSAO, depth of field, outlines and contact
   shadows need), a few blades a frame flashed the clear colour, often a
   pale sky blue, all over the screen. The main pass draws a blade only where

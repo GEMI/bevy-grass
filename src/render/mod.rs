@@ -6,12 +6,13 @@ mod compute;
 mod extract;
 #[cfg(test)]
 mod gpu_test;
+mod msaa;
 pub(crate) mod platform;
 pub(crate) mod resources;
 mod shadows;
 pub(crate) mod view;
 
-use bevy::app::{App, Plugin};
+use bevy::app::{App, Plugin, PostUpdate};
 use bevy::core_pipeline::core_3d::Opaque3d;
 use bevy::core_pipeline::deferred::Opaque3dDeferred;
 use bevy::core_pipeline::prepass::Opaque3dPrepass;
@@ -36,7 +37,9 @@ impl Plugin for GrassRenderPlugin {
         // The stats the render world reads back go to the main world through
         // this shared handle.
         let readings = app.world().resource::<crate::stats::GpuReadings>().clone();
-        app.init_resource::<GrassSupport>();
+        app.init_resource::<GrassSupport>()
+            .init_resource::<msaa::MsaaSupport>()
+            .add_systems(PostUpdate, msaa::fit_msaa);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -107,10 +110,11 @@ impl Plugin for GrassRenderPlugin {
             &device.limits(),
             &resources::GrassLayouts::new(),
         );
+        let msaa = msaa::MsaaSupport::of(adapter);
         if !support.is_supported() {
             warn!("bevy_grass: no grass is drawn on this GPU: {support}. See GrassSupport.");
         }
-        app.insert_resource(support);
+        app.insert_resource(support).insert_resource(msaa);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app.insert_resource(support);
         }
