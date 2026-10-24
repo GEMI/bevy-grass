@@ -8,7 +8,7 @@ import package::shaders::bevy_bridge::{
 };
 import package::shaders::blade::{blade_ref, blade_vertex, current_eye, fields};
 import package::shaders::look::{
-    blade_look, blade_style, look_terms, unpack_look, blade_surface, transmitted, toon,
+    blade_look, blade_style, look_terms, unpack_look, normal_spread, blade_surface, transmitted, toon,
 };
 
 struct VertexOutput {
@@ -63,7 +63,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @locatio
     let lit_side = select(normal, -normal, backlit);
     let look = unpack_look(in.look_color, in.look_terms);
     let pbr_input = grass_pbr_input(
-        blade_surface(look, lit_side, in.position, in.world_position, view_is_orthographic()),
+        blade_surface(
+            look,
+            lit_side,
+            normal_spread(in.world_normal),
+            in.position,
+            in.world_position,
+            view_is_orthographic(),
+        ),
     );
 
     let lit = grass_lit(pbr_input);

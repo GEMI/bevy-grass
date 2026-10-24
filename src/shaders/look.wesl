@@ -117,21 +117,47 @@ fn unpack_look(color: vec4<f32>, terms: vec4<f32>) -> Look {
     return look;
 }
 
+/// The highest reflectance a blade is given. Bevy raises a surface's
+/// reflectance at grazing angles (`f90`) to full at about 0.355, and a blade
+/// that swayed into the mirror angle of a low sun then flashed white for a
+/// frame. At 0.3 the grazing reflectance stays near 0.7.
+const GLINT_REFLECTANCE: f32 = 0.3;
+
+/// The most `normal_spread` widens the sheen, as a squared GGX roughness:
+/// enough to tame a blade a pixel wide without turning near blades matte.
+const MAX_SPREAD: f32 = 0.18;
+
+/// How far the blade's normal turns across one pixel, as a squared GGX
+/// roughness to widen the sheen by (Tokuyoshi and Kaplanyan's specular
+/// antialiasing). A blade a pixel or two wide turns its rounded normal
+/// through about 60° inside a pixel, and a narrow sheen sampled once there
+/// lit single pixels white as the blade swayed. `normal` is the
+/// interpolated, unflipped vertex normal: a two-sided face's flip would read
+/// as a turn.
+fn normal_spread(normal: vec3<f32>) -> f32 {
+    let dx = dpdx(normal);
+    let dy = dpdy(normal);
+    return min(0.5 * (dot(dx, dx) + dot(dy, dy)), MAX_SPREAD);
+}
+
 /// The blade's surface for Bevy's lighting (`grass_pbr_input`). `normal` is
-/// the side being lit.
+/// the side being lit; `spread` is `normal_spread`.
 fn blade_surface(
     look: Look,
     normal: vec3<f32>,
+    spread: f32,
     frag_coord: vec4<f32>,
     world_position: vec4<f32>,
     is_orthographic: bool,
 ) -> GrassSurface {
     // With sheen, the upper blade is glossier and reflects more, so wind
     // waves show as a moving sheen. Without, the whole blade is a matte leaf.
+    // The sheen's lobe is widened by `spread` (squared roughnesses add).
+    let alpha = (0.7 - 0.25 * look.sheen) * (0.7 - 0.25 * look.sheen);
     return GrassSurface(
         look.color.rgb,
-        0.7 - 0.25 * look.sheen,
-        0.25 + 0.45 * look.sheen,
+        sqrt(sqrt(min(alpha * alpha + spread, 1.0))),
+        min(0.25 + 0.45 * look.sheen, GLINT_REFLECTANCE),
         look.occlusion,
         normal,
         frag_coord,

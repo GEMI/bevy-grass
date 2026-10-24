@@ -19,7 +19,7 @@ import package::shaders::bevy_bridge::{
 };
 
 @if(DEFERRED_PREPASS)
-import package::shaders::look::{blade_look, look_terms, unpack_look, blade_surface, transmitted};
+import package::shaders::look::{blade_look, look_terms, unpack_look, normal_spread, blade_surface, transmitted};
 @if(DEFERRED_PREPASS)
 import package::shaders::bevy_bridge::{grass_pbr_input, grass_gbuffer, DEFERRED_LIGHTING_PASS_ID};
 
@@ -109,7 +109,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var look = unpack_look(in.look_color, in.look_terms);
     look.color = vec4<f32>(look.color.rgb * select(vec3<f32>(1.0), transmitted(look.color), backlit), look.color.a);
     out.deferred = grass_gbuffer(grass_pbr_input(
-        blade_surface(look, lit_side, in.position, in.world_position, view_is_orthographic()),
+        blade_surface(
+            look,
+            lit_side,
+            normal_spread(in.world_normal),
+            in.position,
+            in.world_position,
+            view_is_orthographic(),
+        ),
     ));
     out.deferred_lighting_pass_id = DEFERRED_LIGHTING_PASS_ID;
 }

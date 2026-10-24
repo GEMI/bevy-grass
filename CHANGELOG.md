@@ -85,6 +85,16 @@ jump each time they cross a repeat.
 
 **Fixed**
 
+- Blades with sheen (`GrassBlade::specular`, 0.3 in `MEADOW`) flashed white
+  for a frame, a few at a time all over the screen, when the sun was low and
+  in front of the camera: a blade a pixel or two wide that swayed into the
+  sun's mirror angle caught a glint hundreds of times its usual brightness,
+  which bloom spread. The sheen now widens where a blade's normal turns
+  within a pixel (specular antialiasing), and a blade's reflectance stops at
+  0.3, below where Bevy's grazing reflectance reaches full. Looking into a
+  low sun, `MEADOW` flashes about 0.2 pixels a frame instead of 36. Elsewhere
+  the look is unchanged to the eye; the goldens differ by a mean of at most
+  0.5 of 255, and the forward and deferred paths change alike.
 - Seen from a strategy camera, the gusts rolled across the field in squares.
   The gust texture repeats every `gust_scale` metres (25 m in `BREEZE`), and
   from 100 m up dozens of repeats show at once, in a grid along the world's
