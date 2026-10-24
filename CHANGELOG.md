@@ -52,6 +52,13 @@ names every field without `..default()` needs `lights: true` added.
   it can the wind. The renderer reads the frame instead of querying Bevy's
   lights, so Bevy's light types are read in one place.
 
+**Fixed**
+
+- `GrassSampler` reported grass where the ground has a hole, past the edge
+  of a `GrassGround::Mesh` or where a height function gave no height, while
+  the GPU draws none there. Its `density` is now 0 there, so footsteps and
+  stealth checks agree with what is drawn.
+
 **Changed**
 
 - The mid-range thinning (`mid_range_density`, half the blades, the rest

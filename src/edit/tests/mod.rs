@@ -1069,3 +1069,27 @@ fn a_box_brush_with_a_rate_works_where_it_stands() {
     assert!((after - (start - 0.5)).abs() < 0.03, "{start} then {after}");
     assert_eq!(density(&mut app, Vec2::new(0.0, 1.5)), 1.0, "outside");
 }
+
+#[test]
+fn the_sampler_finds_no_grass_where_the_ground_has_a_hole() {
+    let mut app = app();
+    let style = style(&mut app, GrassStyle::MEADOW);
+    let world = app.world_mut();
+    let field = GrassField {
+        size: Vec2::splat(32.0),
+        style,
+        ..Default::default()
+    }
+    // The sea on the −X half, as an island's height function gives it.
+    .with_ground_from_fn(&mut world.resource_mut::<Assets<Image>>(), 0.5, |point| {
+        if point.x < 0.0 { f32::NAN } else { 1.0 }
+    });
+    world.spawn((field, GlobalTransform::IDENTITY));
+    settle(&mut app);
+    assert_eq!(density(&mut app, Vec2::new(-8.0, 0.0)), 0.0, "the sea");
+    assert_eq!(density(&mut app, Vec2::new(8.0, 0.0)), 1.0, "the land");
+    // The GPU leaves out a blade if any texel its ground blends is a hole,
+    // so the shore is bare within a cell of the first hole.
+    assert_eq!(density(&mut app, Vec2::new(0.2, 0.0)), 0.0);
+    assert_eq!(density(&mut app, Vec2::new(0.8, 0.0)), 1.0);
+}

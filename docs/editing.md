@@ -155,7 +155,7 @@ A `GrassSample` has:
 | Field | Meaning |
 | --- | --- |
 | `field` | The field's entity: read its `GrassField` for the style, to pick a footstep sound |
-| `density` | How much of the field's grass grows here, 0 to 1: the mask, edits and the style's bare patches |
+| `density` | How much of the field's grass grows here, 0 to 1: the mask, edits and the style's bare patches; 0 where the ground has a hole (past a mesh's edge, or a height function's `NaN`) |
 | `blades_per_m2` | The style's density (with `GrassFieldOverrides::density_scale`) times `density` |
 | `height_scale` | The mask's height with edits: below 1 where it was mowed |
 | `height` | A typical blade's height here, in metres |

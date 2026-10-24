@@ -40,6 +40,7 @@ use bevy::transform::components::{GlobalTransform, Transform};
 use crate::api::GrassField;
 use crate::fields::{FieldFrame, FieldSlot, FieldTables, TablesDirty};
 use crate::gpu_layout::NO_MAP;
+use crate::ground::HOLE;
 use crate::packed::{self, PackedImages};
 use crate::shader_model::{bare_noise, gust_noise_table, hash2, unit};
 use crate::{GrassStats, GrassSystems};
@@ -602,7 +603,20 @@ impl GrassSampler<'_> {
         } else {
             1.0
         };
-        let density = mask.x * bare;
+        // No blade grows where the ground has a hole: past a mesh's edge, or
+        // where a height function gave no height.
+        let ground = if entry.placement.w != NO_MAP
+            && ground_is_hole(
+                &self.tables.heights,
+                entry.placement.w,
+                entry.map_sizes.zw(),
+                uv,
+            ) {
+            0.0
+        } else {
+            1.0
+        };
+        let density = mask.x * bare * ground;
         Some(GrassSample {
             field: slot.entity,
             density,
@@ -634,6 +648,25 @@ fn sample_mask(words: &[u32], offset: u32, size: UVec2, uv: Vec2) -> Vec2 {
     let top = at(base.x, base.y).lerp(at(next.x, base.y), t.x);
     let bottom = at(base.x, next.y).lerp(at(next.x, next.y), t.x);
     top.lerp(bottom, t.y)
+}
+
+/// Whether the ground of a heightmap has a hole at `uv`: any of the four
+/// texels the bilinear sample reads is one. The hole test of `ground_height`
+/// in `generate.wesl`, its twin.
+fn ground_is_hole(heights: &[f32], offset: u32, size: UVec2, uv: Vec2) -> bool {
+    let texels = size.as_vec2();
+    let p = (uv * texels - 0.5).clamp(Vec2::ZERO, texels - 1.0);
+    let base = p.floor().as_uvec2();
+    let next = (base + 1).min(size - 1);
+    let at = |x: u32, y: u32| heights[(offset + y * size.x + x) as usize];
+    [
+        at(base.x, base.y),
+        at(next.x, base.y),
+        at(base.x, next.y),
+        at(next.x, next.y),
+    ]
+    .into_iter()
+    .any(|height| height < HOLE * 0.5)
 }
 
 /// Texel `index` of a packed mask: red and green.
