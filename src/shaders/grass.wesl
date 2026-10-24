@@ -12,7 +12,11 @@ import package::shaders::look::{
 };
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    /// Invariant, as in `grass_prepass`: behind a depth prepass this pass
+    /// draws only where its depth equals the prepass's, and a blade the
+    /// compiler rounded differently here left a hole the clear colour showed
+    /// through, flashing on a few blades a frame.
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @location(1) world_normal: vec3<f32>,
     /// The blade's `Look`, packed by `look.wesl`.

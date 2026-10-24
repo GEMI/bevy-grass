@@ -115,3 +115,22 @@ fn the_prepass_compiles_in_every_look_term_but_toon_shading() {
         );
     }
 }
+
+#[test]
+fn the_main_pass_and_the_prepass_place_blades_identically() {
+    // Behind a depth prepass the main pass draws only where its depth equals
+    // the prepass's. Without `@invariant` the two shaders may round a blade's
+    // position differently, and the clear colour flashes through the holes.
+    for (name, source) in [
+        ("grass.wesl", include_str!("../../../shaders/grass.wesl")),
+        (
+            "grass_prepass.wesl",
+            include_str!("../../../shaders/grass_prepass.wesl"),
+        ),
+    ] {
+        assert!(
+            source.contains("@builtin(position) @invariant position: vec4<f32>,"),
+            "{name}'s clip position is not @invariant"
+        );
+    }
+}

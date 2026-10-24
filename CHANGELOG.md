@@ -85,6 +85,15 @@ jump each time they cross a repeat.
 
 **Fixed**
 
+- With a depth prepass (which SSAO, depth of field, outlines and contact
+  shadows need), a few blades a frame flashed the clear colour, often a
+  pale sky blue, all over the screen. The main pass draws a blade only where
+  its depth equals the prepass's, and the two shaders were free to round a
+  blade's position differently; where the main pass came out a hair
+  farther, neither the blade nor the ground behind it was drawn. Both now
+  mark the position `@invariant`, so they place blades identically. In a
+  game scene, 21 such pixels a frame became none. The goldens differ by a
+  mean of at most 0.7 of 255 as blade edges move by a rounding step.
 - Blades with sheen (`GrassBlade::specular`, 0.3 in `MEADOW`) flashed white
   for a frame, a few at a time all over the screen, when the sun was low and
   in front of the camera: a blade a pixel or two wide that swayed into the

@@ -24,7 +24,9 @@ import package::shaders::look::{blade_look, look_terms, unpack_look, normal_spre
 import package::shaders::bevy_bridge::{grass_pbr_input, grass_gbuffer, DEFERRED_LIGHTING_PASS_ID};
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    /// Invariant, so the depth written here is bit for bit the main pass's
+    /// (see `grass.wesl`).
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)
     @location(1) world_normal: vec3<f32>,
