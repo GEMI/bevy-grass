@@ -74,6 +74,7 @@ commands.spawn((
         tint: Some(Color::srgb(1.3, 1.1, 0.7)), // multiplies root and tip colours
         height_scale: 0.6,
         density_scale: 0.5,
+        wind_scale: 0.5,                        // in the lee of a wall
     },
 ));
 ```

@@ -1111,7 +1111,12 @@ fn look_entry(
             look.width,
             style.density * overrides.density_scale.max(0.0),
         ),
-        motion: Vec4::new(look.lean, look.stiffness, 0.0, look.root_occlusion),
+        motion: Vec4::new(
+            look.lean,
+            look.stiffness,
+            1.0 - overrides.wind_scale.max(0.0),
+            look.root_occlusion,
+        ),
         root_color: (root.truncate() * tint).extend(root.w),
         // The tip colour's alpha carries the translucency.
         tip_color: (tip.truncate() * tint).extend(look.translucency),

@@ -237,6 +237,7 @@ impl GrassField {
 ///         tint: Some(Color::srgb(1.3, 1.1, 0.7)),
 ///         height_scale: 0.6,
 ///         density_scale: 0.5,
+///         ..default()
 ///     },
 /// ));
 /// # }
@@ -257,6 +258,11 @@ pub struct GrassFieldOverrides {
     /// Multiplies the height of every blade, and the height multiplier of
     /// the density map still applies on top. Below 0 is 0.
     pub height_scale: f32,
+    /// Multiplies how far the wind moves every blade: 0 is still, 0.3 a
+    /// courtyard or a greenhouse, above 1 a windswept ridge. The wind itself
+    /// stays one for the world ([`GrassWind`](crate::GrassWind)), so the gusts still roll across
+    /// the field in step with its neighbours, only weaker. Below 0 is 0.
+    pub wind_scale: f32,
 }
 
 impl Default for GrassFieldOverrides {
@@ -265,6 +271,7 @@ impl Default for GrassFieldOverrides {
             tint: None,
             density_scale: 1.0,
             height_scale: 1.0,
+            wind_scale: 1.0,
         }
     }
 }

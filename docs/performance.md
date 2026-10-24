@@ -633,6 +633,8 @@ A feature, not a lever: `GrassCamera::radius_from_ground` takes the camera's hei
 
 The first two keep the density of a camera standing on the ground, but a raised camera sees ground that grows with the square of its height, so blades, cost and overflows grow with it. The shipped variant draws as many blades at 200 m as at 40, wider; from about 100 m a blade is a pixel or two tall and the field reads as texture, blending into `FarGrassMaterial`. `GrassCamera::density_scale` buys density back on GPUs that can afford it.
 
+**`GrassFieldOverrides::wind_scale`**, measured the same way against `9d3c248`: one multiply per blade in `generate.wesl` and per full-detail vertex in `blade.wesl`, +0.3% (DEMO ARPG GAME) and −0.5% (perspective) of grass cost at p50, +0.2% and +0.8% at p95, within the noise; goldens identical. **Kept.**
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

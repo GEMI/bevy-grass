@@ -134,7 +134,7 @@ fn blade_vertex(blade: BladeRef, eye: BladeEye) -> BladeVertex {
     // Flutter: a small, fast shiver near the tip of full-detail blades.
     if blade.lod == 0u {
         let time = select(frame.time, frame.previous_time, eye.previous);
-        point += across * wind_flutter(wind, instance.seed, t, height, time);
+        point += across * wind_flutter(wind, instance.seed, t, height, time) * (1.0 - field.motion.z);
     }
 
     // Widen blades narrower than the camera's minimum on-screen width, keeping

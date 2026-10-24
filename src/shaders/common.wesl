@@ -96,7 +96,8 @@ struct Field {
     extent: vec4<f32>,
     /// x: shortest, y: tallest, z: width, w: density.
     shape: vec4<f32>,
-    /// x: lean, y: stiffness, w: root occlusion.
+    /// x: lean, y: stiffness, z: how much less the wind moves the field's
+    /// blades (1 - its wind scale), w: root occlusion.
     motion: vec4<f32>,
     root_color: vec4<f32>,
     tip_color: vec4<f32>,

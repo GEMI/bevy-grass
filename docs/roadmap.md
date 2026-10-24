@@ -19,7 +19,8 @@ of its release**. The port comes first, whatever else is in progress.
   [Porting to a new Bevy](porting.md) lists every place grass touches Bevy's
   renderer and the order to port them in.
 - New fields in the design types (`GrassStyle`, `GrassBlade`,
-  `GrassSettings`, `GrassShadows`, `GrassPlugin`) arrive in a minor release
+  `GrassSettings`, `GrassShadows`, `GrassPlugin`, `GrassCamera`,
+  `GrassFieldOverrides`) arrive in a minor release
   only, which is breaking anyway, and the CHANGELOG says what to add. Write
   their literals with `..default()` (or `..GrassSettings::HIGH`, a preset)
   and a new field never breaks your code. They are not `#[non_exhaustive]`,

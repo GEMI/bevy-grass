@@ -412,7 +412,8 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     // A trampled blade lies down away from what pushed it, and the wind moves
     // it less the flatter it lies.
     let push = trample_push(root.xz);
-    let calm = 1.0 - min(length(push), 1.0);
+    // Flattened blades and sheltered fields move less.
+    let calm = (1.0 - min(length(push), 1.0)) * (1.0 - look.motion.z);
     blade.bend = wind_bend(wind, root.xz, seed_unit, look.motion.y, frame.time, false, gust_texture, gust_sampler) * calm + push;
     blade.previous_bend = wind_bend(wind, root.xz, seed_unit, look.motion.y, frame.previous_time, true, gust_texture, gust_sampler) * calm + push;
 

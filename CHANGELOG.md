@@ -26,8 +26,14 @@ names every field without `..default()` needs `lights: true` added.
 literal that names every field without `..default()` needs
 `radius_from_ground: false` added.
 
+`GrassFieldOverrides` has a new field, `wind_scale` (1 by default). A literal
+that names every field without `..default()` needs `wind_scale: 1.0` added.
+
 **Added**
 
+- `GrassFieldOverrides::wind_scale`: one field moves less in the shared
+  wind, or more: a courtyard, a greenhouse, a windswept ridge. The gusts
+  stay in step with the fields around it. The tip flutter scales with it.
 - `GrassCamera::radius_from_ground`, for strategy and city-builder cameras:
   the radius is measured from the ground below the camera, so grass reaches
   the same distance across the ground at any zoom, thinned for the camera's

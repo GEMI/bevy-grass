@@ -952,9 +952,12 @@ fn a_field_can_differ_from_its_style_without_a_style_of_its_own() {
             tint: Some(Color::linear_rgb(2.0, 1.0, 0.5)),
             density_scale: 0.5,
             height_scale: 0.5,
+            wind_scale: 0.25,
         });
     app.update();
     let now = entry_of(&app, changed);
+    assert_eq!(before.motion.z, 0.0, "the full wind");
+    assert_eq!(now.motion.z, 0.75, "a quarter of the wind");
     let blade = GrassStyle::MEADOW.blade;
     assert_eq!(now.shape.x, blade.height.x * 0.5);
     assert_eq!(now.shape.y, blade.height.y * 0.5);
@@ -1007,10 +1010,12 @@ fn a_field_can_differ_from_its_style_without_a_style_of_its_own() {
             tint: None,
             density_scale: -1.0,
             height_scale: -3.0,
+            wind_scale: -2.0,
         });
     app.update();
     let clamped = entry_of(&app, changed);
     assert_eq!((clamped.shape.y, clamped.shape.w), (0.0, 0.0));
+    assert_eq!(clamped.motion.z, 1.0, "no wind, not a wind backwards");
 }
 
 #[test]
@@ -1173,6 +1178,7 @@ fn building_incrementally_gives_exactly_what_building_from_scratch_gives() {
             tint: Some(Color::srgb(1.2, 1.0, 0.6)),
             density_scale: 0.5,
             height_scale: 1.5,
+            wind_scale: 0.5,
         });
     check(&mut app, "overrides added");
     app.world_mut()
