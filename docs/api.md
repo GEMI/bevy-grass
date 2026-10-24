@@ -40,7 +40,7 @@ material in [Fields, terrain and visibility](terrain.md#keep-the-grass-colour-pa
 | `GrassDiagnostics` | Diagnostic paths | `grass/blades/near`, `mid`, `far`, `grass/visible_slices`, `grass/overflows`, `grass/table_rebuilds`, `grass/rebuild_time` |
 | `GrassDebugPlugin`, `GrassDebug` | Plugin, resource (feature `debug`) | Gizmos for fields, chunks, interactors, footprints and trample windows |
 | `GrassSun` | Component | On a directional light: the one grass casts shadows for, and a deferred camera treats as the sun. Without it, the first shadow-casting one |
-| `GrassCamera` | Component | On a camera: overrides `radius`, `density_scale`, `min_width_px` and `shadows` of `GrassSettings` for that camera (each an `Option`; `None` follows the resource) |
+| `GrassCamera` | Component | On a camera: overrides `radius`, `density_scale`, `min_width_px` and `shadows` of `GrassSettings` for that camera (each an `Option`; `None` follows the resource), and `radius_from_ground` measures the radius from the ground below the camera, for [strategy cameras](settings.md#strategy-cameras) |
 | `NoGrass` | Component | On a camera: draw no grass there (a shorthand for a `RenderLayers` that shares none with any field) |
 
 ## Editing and queries

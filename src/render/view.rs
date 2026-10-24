@@ -23,7 +23,7 @@ use crate::api::{GrassCamera, NoGrass};
 use crate::fields::{has_unsupported_layer, layer_mask};
 use crate::shader_model::DistanceLod;
 use crate::stats::GpuReadings;
-use crate::trample;
+use crate::{reach, trample};
 
 /// Bytes per instance.
 const INSTANCE_SIZE: u64 = 16;
@@ -63,6 +63,10 @@ pub(crate) struct ViewUniformData {
     pub layers: u32,
     /// Narrowest a blade is drawn, in pixels.
     pub min_width_px: f32,
+    /// Metres taken off every distance to the camera before the radius,
+    /// the thinning and the levels of detail apply
+    /// (`GrassCamera::radius_from_ground`).
+    pub distance_offset: f32,
     pub bucket_base: UVec4,
     pub bucket_capacity: UVec4,
     pub bucket_lod: UVec4,
@@ -328,9 +332,16 @@ pub(crate) fn prepare_views(
         };
         // The resource's settings, with this camera's own over them.
         let settings = &extracted.settings.for_camera(camera);
+        let offset = reach::distance_offset(
+            camera,
+            view.world_from_view.translation(),
+            view.clip_from_view.w_axis.w == 1.0,
+            &extracted.tables,
+        );
         let mut data = view_uniform(
             view,
             settings,
+            offset,
             &buffers.capacities,
             extracted
                 .shadow_light
@@ -345,7 +356,15 @@ pub(crate) fn prepare_views(
                  to 31, so the others are ignored."
             );
         }
-        update_trample(&mut buffers, &mut data, view, settings, &extracted, &queue);
+        update_trample(
+            &mut buffers,
+            &mut data,
+            view,
+            settings,
+            offset,
+            &extracted,
+            &queue,
+        );
         buffers.uniform.set(data);
         buffers.uniform.write_buffer(&device, &queue);
         buffers.readback_interval = settings.readback_interval;
@@ -357,6 +376,7 @@ pub(crate) fn prepare_views(
 fn view_uniform(
     view: &ExtractedView,
     settings: &GrassSettings,
+    distance_offset: f32,
     capacities: &[u32; 3],
     shadow_light: Option<Vec3>,
 ) -> ViewUniformData {
@@ -376,7 +396,7 @@ fn view_uniform(
     let extent = if orthographic {
         settings.orthographic_extent
     } else {
-        settings.radius + 16.0
+        settings.radius + distance_offset + 16.0
     };
     let height_range = extent.max(MIN_HEIGHT_RANGE);
     let step = 2.0 * extent / 65_535.0;
@@ -413,6 +433,7 @@ fn view_uniform(
         interactor_count: 0,
         layers: 1,
         min_width_px: settings.min_width_px,
+        distance_offset,
         bucket_base,
         bucket_capacity: UVec4::new(capacities[0], capacities[1], capacities[2], 0),
         bucket_lod,
@@ -441,12 +462,17 @@ fn update_trample(
     data: &mut ViewUniformData,
     view: &ExtractedView,
     settings: &GrassSettings,
+    distance_offset: f32,
     extracted: &ExtractedGrass,
     queue: &RenderQueue,
 ) {
     let cell = settings.trample_cell_size;
     let center = trample::focus(
-        &trample::TrampleView::new(&view.world_from_view, &view.clip_from_view, settings.radius),
+        &trample::TrampleView::new(
+            &view.world_from_view,
+            &view.clip_from_view,
+            settings.radius + distance_offset,
+        ),
         cell,
         &extracted.tables,
     );

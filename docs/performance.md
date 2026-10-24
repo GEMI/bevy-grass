@@ -617,6 +617,22 @@ A refactor, measured to check it costs nothing: the steps of [Production cleanup
 
 The perspective main pass was slower in all six rounds, by 0.014 to 0.063 ms, about 0.9% of its grass cost: likely real and likely `bevy_bridge.wesl`, whose step alone measured +0.019 ms there, though the shaders compute the same values. It is under the 3% bar and does not show in the frame. **Kept.**
 
+## Strategy cameras: `radius_from_ground` (October 24, 2026)
+
+A feature, not a lever: `GrassCamera::radius_from_ground` takes the camera's height above the ground off every distance the reach, thinning and LOD bands use, and thins by `(radius / (radius + height))²` so a raised camera keeps about the same number of blades. Off by default, it adds a uniform field and a few uniform operations per chunk and blade in `generate.wesl`, with an offset of 0 and a thinning of exactly 1. The 36 preset goldens and the render-path goldens match pixel for pixel.
+
+**The default path.** `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `59720cd` against the change: +0.1% (DEMO ARPG GAME) and +0.8% (perspective) of grass cost at p50, −1.5% and +1.0% at p95, all within the noise. **Kept.**
+
+**The feature itself,** in the new `rts_camera` example (800 m map, High, `MEADOW` at 0.6 height, `min_width_px` 2, 1920 × 1080 on the T1200; grass is the main pass less the no-grass 0.81 ms):
+
+| Variant | 40 m up | 120 m | 200 m |
+| --- | --- | --- | --- |
+| Reach and bands offset, nothing else | 181k blades, 4.0 ms | 409k, 4.4 ms | 815k, overflows High's buffers |
+| ...LOD by the real distance as well | 181k, 2.8 ms | 409k, all in LOD 2, overflows its 300k | 815k, overflows |
+| ...and thinned for the height (shipped) | 92k, 1.5 ms | 85k, 0.5 ms | 91k, 0.2 ms |
+
+The first two keep the density of a camera standing on the ground, but a raised camera sees ground that grows with the square of its height, so blades, cost and overflows grow with it. The shipped variant draws as many blades at 200 m as at 40, wider; from about 100 m a blade is a pixel or two tall and the field reads as texture, blending into `FarGrassMaterial`. `GrassCamera::density_scale` buys density back on GPUs that can afford it.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

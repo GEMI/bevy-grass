@@ -363,6 +363,18 @@ pub struct GrassCamera {
     /// Overrides [`GrassSettings::shadows`](crate::GrassSettings::shadows): which blades this camera's
     /// view casts shadows for.
     pub shadows: Option<GrassShadows>,
+    /// Measures the grass radius from the ground below the camera instead of
+    /// from the camera, for strategy and city-builder cameras that zoom.
+    ///
+    /// A perspective camera draws grass within the radius of itself, so one
+    /// 150 m above the ground draws none at a radius of 100 m. With this
+    /// set, a camera `h` metres above the ground draws grass out to
+    /// `h + radius` metres, and thins it and lowers its detail as a camera
+    /// standing on the ground would over `radius`: zooming in and out
+    /// keeps the same band of grass. Blades are still sized for the
+    /// screen by their real distance (see `min_width_px`). Orthographic
+    /// cameras ignore the radius, and this. `false` by default.
+    pub radius_from_ground: bool,
 }
 
 /// Marks a camera that should not draw grass (minimaps, UI cameras). A

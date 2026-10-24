@@ -193,7 +193,7 @@ not, and each difference is one setting:
 | --- | --- | --- |
 | A first- or third-person camera | Nothing: the defaults were made for it | |
 | A top-down orthographic camera (ARPG) | `GrassCamera { min_width_px: Some(2.0), .. }`, so blades stay at least 2 pixels wide | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
-| A high perspective camera (RTS, city builder) | `GrassCamera::radius`: grass is drawn only within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
+| A high perspective camera (RTS, city builder) | `GrassCamera { radius_from_ground: true, min_width_px: Some(2.0), .. }`: grass is otherwise drawn within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Strategy cameras](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#strategy-cameras) |
 | Hills | `GrassGround::Heightmap` or `GrassGround::mesh`; a flat field lies at its transform's height and is buried under them | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md) |
 | Terrain built from code, or in chunks | `.with_ground_from_fn(&mut images, 0.5, height)`: the field samples your height function once | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
 | Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows, or `.with_density_from_fn` | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
@@ -327,6 +327,7 @@ cargo run --release --example meadow
 | `variation` | A wild style with each kind of variation switched on and off: P plants, T tufts and bare patches, B blade shape, C colour (`--walk` sends a person through it) |
 | `forest_floor` | The four forest-floor presets side by side |
 | `arpg_camera` | A top-down orthographic camera, a walking hero and monsters trampling the grass |
+| `rts_camera` | A strategy camera that zooms from 15 to 200 m over an 800 m map, with `radius_from_ground` and tanks trampling the grass (`--height`, F to compare) |
 | `avian`, `rapier` | Physics bodies trampling a meadow: a capsule character, a vehicle, a crate scaled to 2.5 m and a thrown log (`--features avian` or `--features rapier`) |
 | `avian_minimal`, `rapier_minimal` | The shortest physics integration: one capsule and one large box |
 | `mesh_terrain` | A meadow on rolling hills built as a mesh, turned 30°: `GrassGround::mesh` |

@@ -433,10 +433,17 @@ fn draw_debug(
             .cameras
             .iter()
             .map(|(transform, camera, grass_camera)| {
+                let clip_from_view = camera.clip_from_view();
+                let offset = crate::reach::distance_offset(
+                    grass_camera,
+                    transform.translation(),
+                    clip_from_view.w_axis.w == 1.0,
+                    &tables,
+                );
                 TrampleView::new(
                     transform,
-                    &camera.clip_from_view(),
-                    settings.for_camera(grass_camera).radius,
+                    &clip_from_view,
+                    settings.for_camera(grass_camera).radius + offset,
                 )
             }),
     );

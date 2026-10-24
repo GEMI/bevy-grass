@@ -150,6 +150,15 @@ impl DistanceLod {
     }
 }
 
+/// The share of blades a view `offset` metres above the ground keeps with
+/// `GrassCamera::radius_from_ground`, for a grass `radius`: the square of
+/// `radius / (radius + offset)`, so the number of blades stays about the
+/// same at any height. The WESL twin is `height_thinning`.
+pub(crate) fn height_thinning(radius: f32, offset: f32) -> f32 {
+    let share = radius / (radius + offset);
+    share * share
+}
+
 /// Width multiplier that keeps coverage constant as density thins: blades
 /// widen by the inverse square root of the density drop, at most `max` times
 /// (2.5 by default). The WESL twin is `coverage_width`.

@@ -115,6 +115,21 @@ pub(crate) fn nearest_seen(
         .min_by(f32::total_cmp)
 }
 
+/// How far the distances a camera draws grass by are measured from beyond
+/// the camera: its height above the ground with
+/// [`GrassCamera::radius_from_ground`], else 0.
+pub(crate) fn distance_offset(
+    camera: Option<&GrassCamera>,
+    position: Vec3,
+    orthographic: bool,
+    tables: &FieldTables,
+) -> f32 {
+    if orthographic || !camera.is_some_and(|camera| camera.radius_from_ground) {
+        return 0.0;
+    }
+    (position.y - tables.ground_below(Vec2::new(position.x, position.z))).max(0.0)
+}
+
 /// Adds the check to the app.
 pub(crate) fn plugin(app: &mut bevy::app::App) {
     app.add_systems(
@@ -164,8 +179,9 @@ fn warn_out_of_reach(
         {
             continue;
         }
-        let radius = settings.for_camera(grass_camera).radius;
         let position = transform.translation();
+        let radius = settings.for_camera(grass_camera).radius
+            + distance_offset(grass_camera, position, false, &tables);
         let nearest = nearest_seen(&boxes.1, frustum, layer_mask(layers), position);
         let Some(distance) = nearest.filter(|distance| *distance >= radius) else {
             out_of_reach.remove(&entity);
@@ -179,8 +195,8 @@ fn warn_out_of_reach(
                 "bevy_grass: the camera {entity} sees grass fields, but the nearest is \
                  {distance:.0} m away, beyond its grass radius of {radius:.0} m, so it draws \
                  no grass. Grass is drawn within the radius of the camera itself; for a \
-                 camera high above the ground, raise GrassCamera::radius (see \
-                 docs/settings.md, \"Draw differently on one camera\")."
+                 camera high above the ground, set GrassCamera::radius_from_ground (see \
+                 docs/settings.md, \"Strategy cameras\")."
             );
         }
     }

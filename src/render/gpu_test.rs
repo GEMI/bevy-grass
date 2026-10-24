@@ -187,10 +187,11 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
         if !box_visible(&view.planes, lo, hi) {
             continue;
         }
-        let nearest = camera.clamp(lo, hi).distance(camera);
+        let nearest = (camera.clamp(lo, hi).distance(camera) - view.distance_offset).max(0.0);
         if nearest >= view.radius {
             continue;
         }
+        let thinning = mirror::height_thinning(view.radius, view.distance_offset);
         let layout = ChunkLayout {
             tiles_per_side: field.placement.y,
             tile_size: field.extent.w,
@@ -198,7 +199,7 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
         };
         let chunk_keep = mirror::keep_fraction(
             field.shape.w,
-            view.density_scale * lod_table.falloff(nearest),
+            view.density_scale * lod_table.falloff(nearest) * thinning,
             &layout,
         );
         for index in 0..layout.candidates_needed(chunk_keep) {
@@ -215,7 +216,7 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             let at = field.world_of(local);
             let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
-            let falloff = lod_table.falloff(distance);
+            let falloff = lod_table.falloff((distance - view.distance_offset).max(0.0)) * thinning;
             if candidate.rank
                 >= mirror::keep_fraction(field.shape.w, view.density_scale * falloff, &layout)
             {

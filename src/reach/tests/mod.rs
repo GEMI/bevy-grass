@@ -120,3 +120,29 @@ fn a_field_out_of_view_or_on_other_layers_is_not_seen() {
     assert_eq!(nearest_seen(&boxes, &down, 1 << 1, position), None);
     assert!(nearest_seen(&boxes, &down, 1, position).is_some());
 }
+
+#[test]
+fn the_distance_offset_is_the_height_above_the_ground_when_asked_for() {
+    let tables = tables_for(&[(Vec2::splat(64.0), Transform::from_xyz(0.0, 2.0, 0.0))]);
+    let rts = GrassCamera {
+        radius_from_ground: true,
+        ..Default::default()
+    };
+    let high = Vec3::new(5.0, 152.0, 5.0);
+    assert_eq!(distance_offset(Some(&rts), high, false, &tables), 150.0);
+    // Off the field, the field's own height stands in for the ground.
+    let beside = Vec3::new(500.0, 52.0, 0.0);
+    assert_eq!(distance_offset(Some(&rts), beside, false, &tables), 50.0);
+    // Below the ground there is nothing to take off.
+    assert_eq!(
+        distance_offset(Some(&rts), Vec3::new(0.0, -5.0, 0.0), false, &tables),
+        0.0
+    );
+    // Not asked for, or orthographic (which ignores the radius): nothing.
+    assert_eq!(distance_offset(None, high, false, &tables), 0.0);
+    assert_eq!(
+        distance_offset(Some(&GrassCamera::default()), high, false, &tables),
+        0.0
+    );
+    assert_eq!(distance_offset(Some(&rts), high, true, &tables), 0.0);
+}

@@ -154,3 +154,31 @@ fn gpu_a_field_with_a_mask_and_a_heightmap_reads_its_heights() {
         "every blade stands on the ground, 2 m above the field's 0.5"
     );
 }
+
+/// A camera raised with `radius_from_ground` thins, culls and picks detail
+/// blade for blade as the CPU mirror does: distances less its height for the
+/// reach and the thinning, its height thinning on top, and the real distance
+/// for the level of detail.
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_raised_camera_matches_the_cpu_mirror() {
+    use crate::api::GrassCamera;
+
+    let mut app = headless_app();
+    let camera = app
+        .world_mut()
+        .query_filtered::<Entity, With<Camera3d>>()
+        .single(app.world())
+        .unwrap();
+    app.world_mut().entity_mut(camera).insert((
+        Transform::from_xyz(3.0, 40.5, 40.0).looking_at(Vec3::new(3.0, 0.5, -4.0), Vec3::Y),
+        GrassCamera {
+            radius_from_ground: true,
+            ..default()
+        },
+    ));
+    wait_for_grass(&mut app);
+    let (view, _) = view_after(&mut app, 1);
+    assert_eq!(view.distance_offset, 40.0);
+    generation_matches_the_cpu_mirror_in(app, crate::GrassSettings::HIGH);
+}

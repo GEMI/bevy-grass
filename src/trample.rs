@@ -40,7 +40,9 @@ pub(crate) struct TrampleView {
     /// The view's direction through the middle of the screen's bottom edge,
     /// for a perspective camera; `None` for an orthographic one.
     pub bottom: Option<Vec3>,
-    /// The camera's grass radius: no grass, so no trampling, beyond it.
+    /// The camera's grass radius, measured from the camera (its
+    /// `GrassCamera::radius_from_ground` offset included): no grass, so no
+    /// trampling, beyond it.
     pub radius: f32,
 }
 
@@ -108,9 +110,7 @@ pub(crate) fn focus(view: &TrampleView, cell: f32, tables: &FieldTables) -> Vec2
             position.xz()
         };
     };
-    let under = tables
-        .highest_ground_at(position.xz())
-        .unwrap_or(first_ground);
+    let under = tables.ground_below(position.xz());
     let ahead = view.forward.xz().normalize_or_zero();
     if ahead == Vec2::ZERO || bottom.y > -1e-3 {
         return position.xz();

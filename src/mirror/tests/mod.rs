@@ -438,3 +438,15 @@ fn every_cell_of_a_window_has_its_own_slot() {
     assert!(!in_trample_window(IVec2::new(256, 0), IVec2::ZERO));
     assert!(!in_trample_window(IVec2::new(0, -1), IVec2::ZERO));
 }
+
+#[test]
+fn a_raised_view_keeps_the_same_number_of_blades_at_any_height() {
+    assert_eq!(height_thinning(100.0, 0.0), 1.0, "a view on the ground");
+    assert_eq!(height_thinning(100.0, 100.0), 0.25);
+    // The ground in view grows with the square of the height over the
+    // radius; the share kept falls by as much.
+    for offset in [50.0f32, 200.0, 1000.0] {
+        let ground = (100.0 + offset) * (100.0 + offset);
+        assert!((height_thinning(100.0, offset) * ground - 100.0 * 100.0).abs() < 1e-2);
+    }
+}

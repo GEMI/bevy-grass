@@ -16,7 +16,7 @@
 
 import package::shaders::common::{
     Frame, View, Field, Chunk, LodTable, BladeData, TILE_POINTS, NO_MAP, WIDTH_RANGE, TAU,
-    LOD_VERTEX_STRIDE, hash, hash2, unit, density_falloff, select_lod, coverage_width, pack,
+    LOD_VERTEX_STRIDE, hash, hash2, unit, density_falloff, height_thinning, select_lod, coverage_width, pack,
     trample_unpack, trample_slot, in_trample_window,
 };
 import package::shaders::wind::{Wind, wind_bend};
@@ -166,11 +166,11 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
     var falloff = 1.0;
     if !is_orthographic() {
         let nearest = clamp(view.camera_position.xyz, lo, hi);
-        let d = distance(nearest, view.camera_position.xyz);
+        let d = max(distance(nearest, view.camera_position.xyz) - view.distance_offset, 0.0);
         if d >= view.radius {
             return;
         }
-        falloff = density_falloff(view, d);
+        falloff = density_falloff(view, d) * height_thinning(view);
     }
     let tile_size = field.extent.w;
     let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
@@ -345,7 +345,10 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
     var distance_to_eye = 0.0;
     if !is_orthographic() {
         distance_to_eye = distance(root, view.camera_position.xyz);
-        falloff = density_falloff(view, distance_to_eye);
+        // A raised view thins as if it stood on the ground below it, and
+        // for its height; its blades' detail still follows their distance.
+        let from_ground = max(distance_to_eye - view.distance_offset, 0.0);
+        falloff = density_falloff(view, from_ground) * height_thinning(view);
     }
     var bare = 1.0;
     if field.tufts.z >= 0.0 {

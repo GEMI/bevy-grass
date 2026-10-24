@@ -124,6 +124,18 @@ impl FieldTables {
     }
 }
 
+impl FieldTables {
+    /// The ground below `point` (world X and Z) as [`highest_ground_at`]
+    /// finds it, or, outside every field, the first field's height, or 0.
+    ///
+    /// [`highest_ground_at`]: FieldTables::highest_ground_at
+    pub(crate) fn ground_below(&self, point: Vec2) -> f32 {
+        self.highest_ground_at(point)
+            .or_else(|| self.fields.first().map(|field| field.min_corner.y))
+            .unwrap_or(0.0)
+    }
+}
+
 /// What one mask in the tables is. An image keeps its key when it is edited,
 /// so a field's first edit does not move anything in the tables; a field
 /// without an image gets a mask of its own on its first edit.

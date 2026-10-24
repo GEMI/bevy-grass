@@ -22,8 +22,18 @@ uploaded `GrassWindFrame` to a shader of its own copies its fields into a
 `GrassPlugin` has a new field, `lights` (`true` by default). A literal that
 names every field without `..default()` needs `lights: true` added.
 
+`GrassCamera` has a new field, `radius_from_ground` (`false` by default). A
+literal that names every field without `..default()` needs
+`radius_from_ground: false` added.
+
 **Added**
 
+- `GrassCamera::radius_from_ground`, for strategy and city-builder cameras:
+  the radius is measured from the ground below the camera, so grass reaches
+  the same distance across the ground at any zoom, thinned for the camera's
+  height so the number of blades, and the cost, stay about the same. The
+  new `rts_camera` example and [Strategy cameras](docs/settings.md#strategy-cameras)
+  show the setup and its costs. Off by default; nothing changes without it.
 - `GrassField::with_ground_from_fn(&mut images, cell_size, height)` and
   `GrassField::with_density_from_fn(&mut images, cell_size, density)`: a
   field on terrain built from code, from the function that built it. Each is

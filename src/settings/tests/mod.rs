@@ -106,6 +106,7 @@ fn a_camera_overrides_only_what_it_names() {
         density_scale: Some(0.4),
         min_width_px: Some(3.0),
         shadows: Some(GrassShadows::Off),
+        radius_from_ground: false,
     };
     let seen = settings.for_camera(Some(&minimap));
     assert_eq!(seen.radius, 30.0);

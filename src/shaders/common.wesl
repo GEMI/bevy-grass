@@ -64,6 +64,9 @@ struct View {
     layers: u32,
     /// Narrowest a blade is drawn, in pixels.
     min_width_px: f32,
+    /// Metres taken off every distance to the camera before the radius, the
+    /// thinning and the levels of detail apply (`radius_from_ground`).
+    distance_offset: f32,
     bucket_base: vec4<u32>,
     bucket_capacity: vec4<u32>,
     /// The LOD each bucket's blades are drawn with.
@@ -176,6 +179,16 @@ fn distance_thinning(view: View, distance: f32) -> f32 {
         return mix(view.lod_density.x, view.lod_density.y, clamp((distance - view.lod2_start) / (edge - view.lod2_start), 0.0, 1.0));
     }
     return mix(view.lod_density.y, 0.0, clamp((distance - edge) / max(view.radius - edge, 1e-4), 0.0, 1.0));
+}
+
+/// The share of blades a view raised by `distance_offset` keeps
+/// (`radius_from_ground`): the ground it sees grows with the square of its
+/// height, so the blades thin by as much and widen to cover, and their
+/// number stays about the same at any height. 1 when the offset is 0. Twin
+/// of `mirror::height_thinning`.
+fn height_thinning(view: View) -> f32 {
+    let share = view.radius / (view.radius + view.distance_offset);
+    return share * share;
 }
 
 /// Twin of `DistanceLod::lod`.

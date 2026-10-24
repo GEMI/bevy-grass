@@ -144,9 +144,74 @@ property of the camera, not of the grass, which is why it is not in
 A perspective camera draws grass only within `radius` of the camera itself,
 in 3D: a camera 150 m above the ground reaches none at High's 100 m, however
 wide its blades. `min_width_px` helps blades that are drawn but thin, not
-blades beyond the radius. When a camera has had fields in view for two
-seconds and every one was out of reach, the log says so, once, with the
-distance and the radius.
+blades beyond the radius; a camera that zooms out that far wants
+`radius_from_ground` ([Strategy cameras](#strategy-cameras)). When a camera
+has had fields in view for two seconds and every one was out of reach, the
+log says so, once, with the distance and the radius.
+
+## Strategy cameras
+
+A strategy or city-builder camera looks down on the grass from tens or
+hundreds of metres, and zooms. Four settings make grass work there:
+
+```rust
+app.add_plugins(GrassPlugins.set(GrassPlugin {
+    settings: GrassSettings {
+        // The trample window follows the ground in view; 1 m cells make it
+        // 256 m across instead of 64.
+        trample_cell_size: 1.0,
+        ..GrassSettings::HIGH
+    },
+    ..default()
+}));
+
+commands.spawn((
+    Camera3d::default(),
+    GrassCamera {
+        // Grass reaches `radius` across the ground, at any height.
+        radius_from_ground: true,
+        // Blades at least 2 pixels wide, however far.
+        min_width_px: Some(2.0),
+        ..default()
+    },
+    // ...your camera controller, such as bevy_rts_camera's `RtsCamera`.
+));
+```
+
+- **`radius_from_ground`** measures the radius from the ground below the
+  camera: a camera `h` metres up draws grass out to `h + radius` metres, and
+  thins it and lowers its detail over that distance as a camera standing on
+  the ground would over `radius`. The ground in view grows with the square
+  of the height, so the blades also thin by `(radius / (radius + h))²` and
+  widen to cover: the number of blades stays about the same at any zoom,
+  and so does the cost. `GrassCamera::density_scale` buys density back where
+  the GPU allows.
+- **`min_width_px`**: from 100 m a 1 cm blade is a tenth of a pixel. Two
+  pixels keeps it visible.
+- **`trample_cell_size`**: the trample window moves onto the ground the
+  camera shows (see [Trampling](trampling.md)), but at 0.25 m cells it is
+  64 m across, less than such a camera sees.
+- **The ground.** Past the grass, `FarGrassMaterial` carries its colour and
+  gusts ([Terrain](terrain.md#keep-the-grass-colour-past-the-last-blade)).
+  Seen from above, the soil shows between the blades more than from the
+  side: a soil close to the roots' colour keeps the field green.
+
+[`examples/rts_camera.rs`](../examples/rts_camera.rs) is an 800 m map with
+tanks under such a camera; F switches `radius_from_ground` off to compare.
+Its costs on an NVIDIA T1200 laptop GPU at 1920 × 1080, High, `MEADOW` at
+0.6 height, pitched 35° to 55° below the horizon:
+
+| Camera height | Blades | Grass in the main pass |
+| --- | --- | --- |
+| 15 m | 63,000 | 1.9 ms |
+| 40 m | 92,000 | 1.5 ms |
+| 120 m | 85,000 | 0.5 ms |
+| 200 m | 91,000 | 0.2 ms |
+| 40 m, without `radius_from_ground` | 49,000, ending halfway up the screen | 0.8 ms |
+
+From about 100 m a blade is a pixel or two tall and the field reads as
+texture; that is what the far-grass material is for, and the blades fade
+into it.
 
 Every other 3D camera draws its own grass, with its own culling and level of
 detail. To leave a camera out, or draw some fields on some cameras only, see

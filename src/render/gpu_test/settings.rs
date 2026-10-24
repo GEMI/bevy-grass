@@ -409,3 +409,47 @@ fn gpu_the_rows_of_a_blade_are_a_setting_and_the_meshes_follow_it() {
     view_after(&mut app, 4);
     assert_eq!(draw_index_counts(&mut app), [39, 15, 3]);
 }
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_a_high_camera_draws_grass_measured_from_the_ground() {
+    use crate::api::GrassCamera;
+
+    let mut app = headless_app();
+    wait_for_grass(&mut app);
+    let camera = app
+        .world_mut()
+        .query_filtered::<Entity, With<Camera3d>>()
+        .single(app.world())
+        .unwrap();
+    // A strategy camera 150 m above the field (its ground is at 0.5 m),
+    // beyond High's 100 m radius: no grass.
+    *app.world_mut().get_mut::<Transform>(camera).unwrap() =
+        Transform::from_xyz(3.0, 150.5, 60.0).looking_at(Vec3::new(3.0, 0.5, -4.0), Vec3::Y);
+    let (view, blades) = view_after(&mut app, 4);
+    assert_eq!(view.distance_offset, 0.0);
+    assert_eq!(blades, 0, "every blade is beyond the radius");
+
+    // Measured from the ground below, the radius reaches the field again.
+    app.world_mut().entity_mut(camera).insert(GrassCamera {
+        radius_from_ground: true,
+        ..default()
+    });
+    let (view, blades) = view_after(&mut app, 4);
+    assert_eq!(
+        view.distance_offset, 150.0,
+        "the camera's height above the ground"
+    );
+    assert!(blades > 1_000, "{blades} blades");
+    // The positions are stored over the longer reach, so every root
+    // decodes inside the field.
+    let field = Rect::from_center_size(Vec2::new(3.0, -4.0), Vec2::new(70.0, 50.0));
+    let roots = gpu_bends(&mut app);
+    assert!(!roots.is_empty());
+    for (root, _) in roots {
+        assert!(
+            field.inflate(0.1).contains(root),
+            "{root} is outside the field"
+        );
+    }
+}
