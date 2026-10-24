@@ -195,7 +195,8 @@ not, and each difference is one setting:
 | A top-down orthographic camera (ARPG) | `GrassCamera { min_width_px: Some(2.0), .. }`, so blades stay at least 2 pixels wide | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
 | A high perspective camera (RTS, city builder) | `GrassCamera::radius`: grass is drawn only within `radius` of the camera itself, 100 m at High, so a camera 150 m up draws none | [Settings](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/settings.md#draw-differently-on-one-camera) |
 | Hills | `GrassGround::Heightmap` or `GrassGround::mesh`; a flat field lies at its transform's height and is buried under them | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md) |
-| Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-a-heightmap-with-a-density-mask) |
+| Terrain built from code, or in chunks | `.with_ground_from_fn(&mut images, 0.5, height)`: the field samples your height function once | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
+| Water, roads or cliffs inside the field | A density mask, red 0 where no grass grows, or `.with_density_from_fn` | [Terrain](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/terrain.md#grow-grass-on-terrain-built-from-code) |
 | Units that must stay visible | A shorter preset, or `GrassFieldOverrides::height_scale` | [Presets](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/presets.md#sizes), [Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/styles.md#how-tall-the-grass-grows) |
 | Wind that changes with the weather | Change the `GrassWind` resource, or drive the grass yourself | [Wind](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/wind.md) |
 | Characters or vehicles | `GrassInteractor`, or the `rapier`/`avian` feature | [Trampling](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/trampling.md) |
@@ -260,8 +261,9 @@ game runs. **[Styles](https://github.com/GEMI/bevy-grass/blob/v0.20.5/docs/style
 
 ### Terrain and visibility
 
-Fields grow on flat ground, a heightmap or a terrain mesh, with a density
-mask for paths and clearings, and turn with their transform.
+Fields grow on flat ground, a heightmap, a terrain mesh or the height
+function that built your terrain, with a density mask (or function) for
+paths, clearings and coastlines, and turn with their transform.
 `FarGrassMaterial` carries the grass colour and its gusts across the terrain
 past the last blade, so there is no seam. Fields and cameras follow Bevy's
 `Visibility` and `RenderLayers`, for split-screen and minimaps.
@@ -328,6 +330,7 @@ cargo run --release --example meadow
 | `avian`, `rapier` | Physics bodies trampling a meadow: a capsule character, a vehicle, a crate scaled to 2.5 m and a thrown log (`--features avian` or `--features rapier`) |
 | `avian_minimal`, `rapier_minimal` | The shortest physics integration: one capsule and one large box |
 | `mesh_terrain` | A meadow on rolling hills built as a mesh, turned 30°: `GrassGround::mesh` |
+| `code_terrain` | An island built from a height function in 16 chunk meshes, with one field over it from the same function, bare on the beach and the cliff |
 | `editing` | Paint with the mouse (clear, mow, grow, restore), a mower and a walker with `GrassBrush`es, a cleared plot, regrowth, and `GrassSampler` reading the grass under the cursor |
 | `custom_wind` | The built-in wind turned off and a `Weather` resource driving the grass |
 | `passes` | Grass with SSAO (`--ssao`), TAA (`--taa`) and deferred rendering (`--deferred`), and the prepass textures (`--show depth\|normals\|motion`) |

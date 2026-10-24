@@ -1411,3 +1411,29 @@ fn every_look_term_has_a_definition_a_shader_and_a_setting_that_asks_for_it() {
         "a shader names a GRASS_ definition that no look term emits, or a term has no shader"
     );
 }
+
+#[test]
+fn a_field_on_a_ground_from_a_function_stands_on_it() {
+    let mut app = app();
+    let style = app
+        .world_mut()
+        .resource_mut::<Assets<GrassStyle>>()
+        .add(GrassStyle::MEADOW);
+    let world = app.world_mut();
+    let field = GrassField {
+        size: Vec2::splat(64.0),
+        style,
+        ..Default::default()
+    }
+    .with_ground_from_fn(&mut world.resource_mut::<Assets<Image>>(), 0.5, |point| {
+        if point.x < 0.0 { 1.0 } else { 7.0 }
+    });
+    world.spawn((field, GlobalTransform::from_xyz(0.0, 2.0, 0.0)));
+    settle(&mut app);
+    let tables = app.world().resource::<FieldTables>();
+    // Ground heights are metres above the field's own height. (A chunk's
+    // range reaches a texel into its neighbours, so the chunks beside the
+    // step at x = 0 both reach 9.)
+    assert_eq!(tables.highest_ground_at(Vec2::new(-24.0, 0.0)), Some(3.0));
+    assert_eq!(tables.highest_ground_at(Vec2::new(24.0, 0.0)), Some(9.0));
+}

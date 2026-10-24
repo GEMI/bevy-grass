@@ -7,10 +7,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use bevy::asset::AssetId;
+use bevy::asset::{AssetId, RenderAssetUsages};
 use bevy::color::LinearRgba;
 use bevy::ecs::prelude::*;
 use bevy::image::Image;
+use bevy::math::UVec2;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 /// The packed form of every image a field uses as a mask or a heightmap.
 #[derive(Resource, Debug, Default)]
@@ -92,6 +94,30 @@ fn pack_mask(image: &Image) -> Vec<u32> {
         words.push(low);
     }
     words
+}
+
+/// `densities` as a density mask image, `texels` across: red the density,
+/// green 1 (full height), kept on the CPU only, which is all a mask needs.
+pub(crate) fn density_image(densities: &[f32], texels: UVec2) -> Image {
+    let data = densities
+        .iter()
+        .flat_map(|&density| {
+            // NaN is no grass, like a density of 0.
+            let density = if density.is_nan() { 0.0 } else { density };
+            [(density.clamp(0.0, 1.0) * 255.0).round() as u8, u8::MAX]
+        })
+        .collect();
+    Image::new(
+        Extent3d {
+            width: texels.x,
+            height: texels.y,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rg8Unorm,
+        RenderAssetUsages::MAIN_WORLD,
+    )
 }
 
 /// A heightmap's red channel, normalized.

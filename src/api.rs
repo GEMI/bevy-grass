@@ -118,6 +118,106 @@ impl GrassField {
     pub fn from_preset(size: Vec2, preset: GrassStyle, styles: &mut Assets<GrassStyle>) -> Self {
         Self::new(size, preset, styles)
     }
+
+    /// This field on the ground `height` gives, for terrain built from code.
+    ///
+    /// A game whose terrain comes from a height function, or is cut into
+    /// many meshes, or keeps no CPU copy of its meshes, gives the field the
+    /// same function instead of a heightmap file or a
+    /// [`GrassGround::Mesh`]. It is called once at the centre of each cell
+    /// of `cell_size` metres (at most 4096 cells per side) and the heights
+    /// go into a heightmap added to `images`, so nothing runs per frame; set
+    /// [`size`](GrassField::size) first.
+    ///
+    /// - **The point** is in metres from the field's centre along its X and
+    ///   Z, before the transform's scale. For a field neither turned nor
+    ///   scaled, that is world X and Z minus the field's translation.
+    /// - **The height** is in metres above the field's own height (its
+    ///   transform's Y). One that is not finite, such as `f32::NAN`, is no
+    ///   ground: nothing grows within a cell of it, which makes coastlines,
+    ///   holes and the edge of an island.
+    ///
+    /// ```no_run
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// # fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>, mut images: ResMut<Assets<Image>>) {
+    /// fn hills(point: Vec2) -> f32 {
+    ///     3.0 * (point.x * 0.07).sin() * (point.y * 0.05).cos()
+    /// }
+    /// commands.spawn(
+    ///     GrassField::new(Vec2::splat(256.0), GrassStyle::MEADOW, &mut styles)
+    ///         .with_ground_from_fn(&mut images, 0.5, hills),
+    /// );
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_ground_from_fn(
+        self,
+        images: &mut Assets<Image>,
+        cell_size: f32,
+        mut height: impl FnMut(Vec2) -> f32,
+    ) -> Self {
+        let texels = crate::ground::texels(self.size, cell_size);
+        let heights = crate::ground::sample(self.size, texels, |point| {
+            let h = height(point);
+            if h.is_finite() {
+                h
+            } else {
+                crate::ground::HOLE
+            }
+        });
+        Self {
+            ground: GrassGround::Heightmap {
+                image: images.add(crate::ground::heights_image(&heights, texels)),
+                // The heights are metres already.
+                height_scale: 1.0,
+            },
+            ..self
+        }
+    }
+
+    /// This field with the density `density` gives, 0 (bare) to 1 (full):
+    /// no grass in the sea, on roads, on cliffs or inside buildings,
+    /// without painting a mask.
+    ///
+    /// Called once at the centre of each cell of `cell_size` metres (at most
+    /// 4096 cells per side), at the same points as
+    /// [`GrassField::with_ground_from_fn`], so the two can read the same
+    /// terrain. The densities go into a mask added to `images` and set as
+    /// [`density_map`](GrassField::density_map), at full blade height; a
+    /// `NaN` is 0. The mask can be edited afterwards like any other (see
+    /// [`GrassEdit`](crate::GrassEdit)).
+    ///
+    /// ```no_run
+    /// # use bevy::prelude::*;
+    /// # use bevy_grass::prelude::*;
+    /// # fn setup(mut commands: Commands, mut styles: ResMut<Assets<GrassStyle>>, mut images: ResMut<Assets<Image>>) {
+    /// # fn island(point: Vec2) -> f32 { 10.0 - point.length() * 0.1 }
+    /// const SEA_LEVEL: f32 = 0.0;
+    /// commands.spawn(
+    ///     GrassField::new(Vec2::splat(256.0), GrassStyle::MEADOW, &mut styles)
+    ///         .with_ground_from_fn(&mut images, 0.5, island)
+    ///         // Nothing below the tide line, and thinning up the beach.
+    ///         .with_density_from_fn(&mut images, 0.5, |point| {
+    ///             ((island(point) - SEA_LEVEL) / 0.5).clamp(0.0, 1.0)
+    ///         }),
+    /// );
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_density_from_fn(
+        self,
+        images: &mut Assets<Image>,
+        cell_size: f32,
+        density: impl FnMut(Vec2) -> f32,
+    ) -> Self {
+        let texels = crate::ground::texels(self.size, cell_size);
+        let densities = crate::ground::sample(self.size, texels, density);
+        Self {
+            density_map: Some(images.add(crate::packed::density_image(&densities, texels))),
+            ..self
+        }
+    }
 }
 
 /// Changes how one field looks without a style asset of its own: "this

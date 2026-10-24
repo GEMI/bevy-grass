@@ -24,6 +24,13 @@ names every field without `..default()` needs `lights: true` added.
 
 **Added**
 
+- `GrassField::with_ground_from_fn(&mut images, cell_size, height)` and
+  `GrassField::with_density_from_fn(&mut images, cell_size, density)`: a
+  field on terrain built from code, from the function that built it. Each is
+  sampled once into a heightmap or a mask, so terrain in chunk meshes, or
+  meshes kept only on the GPU, needs no heightmap file and no field per
+  chunk. A height that is not finite leaves no ground, for coastlines. The
+  new `code_terrain` example is an island in 16 chunks with one field.
 - `GpuStats::total_blades()`, the blades of every level of detail together:
   `stats.gpu.total_blades() == 0` after the first reading means nothing was
   drawn. The README's new "Check it works" paragraph points to it and to the

@@ -41,6 +41,45 @@ blade height. The images are read on the CPU when the field changes, so keep
 their CPU copy (Bevy's default for loaded images).
 `ImageLoaderSettings` is `bevy::image::ImageLoaderSettings`.
 
+## Grow grass on terrain built from code
+
+Terrain made by a height function, cut into many chunk meshes, or kept only
+on the GPU needs neither a heightmap file nor a mesh: give the field the
+same function. A density function keeps grass out of the sea, off roads and
+off cliffs, with no mask to paint:
+
+```rust
+fn setup(
+    mut commands: Commands,
+    mut styles: ResMut<Assets<GrassStyle>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    commands.spawn(
+        GrassField::new(Vec2::splat(240.0), GrassStyle::MEADOW, &mut styles)
+            // Metres above the field's own height; NaN is no ground at all.
+            .with_ground_from_fn(&mut images, 0.5, |point| island.height(point))
+            // 0 bare to 1 full: nothing below the tide line or on cliffs.
+            .with_density_from_fn(&mut images, 0.5, |point| {
+                let dry = (island.height(point) - SEA_LEVEL).clamp(0.0, 1.0);
+                if island.slope(point) > 0.85 { 0.0 } else { dry }
+            }),
+    );
+}
+```
+
+Each function is called once at the centre of every cell of `cell_size`
+metres (at most 4096 cells per side), when the field is made, and the
+results become a heightmap and a mask in `Assets<Image>`: from then on the
+field is an ordinary heightmap field, with no cost per frame and no copy of
+your terrain kept. The point is in metres from the field's centre along its
+X and Z, so for a field at the origin, unturned and unscaled, it is world X
+and Z. Set the field's `size` before calling them. A height that is not
+finite leaves no ground, and nothing grows within a cell of it, as past the
+edge of a mesh. The mask can be edited afterwards like any other.
+
+[`examples/code_terrain.rs`](../examples/code_terrain.rs) is an island in 16
+chunk meshes with one field over all of it, bare on the beach and the cliff.
+
 ## Grow grass on a mesh
 
 For terrain that is a mesh, put the field on the terrain's own entity and
@@ -86,9 +125,13 @@ field waits for the mesh to load, so it never appears at the wrong height.
 - **What can be baked.** Triangle lists and strips with `Float32x3`
   positions, kept on the CPU (`RenderAssetUsages::MAIN_WORLD`, which loaded
   and built meshes have by default). A mesh that cannot be baked draws no
-  grass and logs one warning.
+  grass and logs one warning. Games often drop the CPU copy of meshes they
+  build to save memory (`RenderAssetUsages::RENDER_WORLD`); for those, grow
+  the grass from the function that built them instead
+  ([above](#grow-grass-on-terrain-built-from-code)).
 - **Several meshes.** One field per mesh; a terrain cut into tiles gets a
-  field on each tile.
+  field on each tile, or, when the tiles come from code, one field over all
+  of them from the same function.
 
 [`examples/mesh_terrain.rs`](../examples/mesh_terrain.rs) builds rolling
 hills and grows a meadow on them.

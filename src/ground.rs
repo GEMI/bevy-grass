@@ -173,9 +173,24 @@ fn edge(a: Vec3, b: Vec3, p: Vec3) -> f32 {
     (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
 }
 
+/// `value` at the centre of every texel of a map `texels` across, over a
+/// field of `size`, laid out like a heightmap (first row at −Z). The points
+/// are in metres from the field's centre, along its X and Z.
+pub(crate) fn sample<T>(size: Vec2, texels: UVec2, mut value: impl FnMut(Vec2) -> T) -> Vec<T> {
+    let cell = size / texels.as_vec2();
+    let mut values = Vec::with_capacity((texels.x * texels.y) as usize);
+    for j in 0..texels.y {
+        for i in 0..texels.x {
+            let point = (Vec2::new(i as f32, j as f32) + 0.5) * cell - size * 0.5;
+            values.push(value(point));
+        }
+    }
+    values
+}
+
 /// `heights` as an image the heightmap path reads: one `R32Float` texel each,
 /// kept on the CPU only.
-fn heights_image(heights: &[f32], texels: UVec2) -> Image {
+pub(crate) fn heights_image(heights: &[f32], texels: UVec2) -> Image {
     Image::new(
         Extent3d {
             width: texels.x,
