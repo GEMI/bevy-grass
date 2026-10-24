@@ -13,6 +13,11 @@
 
 import package::shaders::wind::{Wind, wind_gust};
 
+/// A sheen that changes the colour by less than this share, under one 8-bit
+/// step at any brightness, is not drawn, and the gust texture is not read:
+/// under the blades, and seen from high above.
+const SHEEN_UNSEEN: f32 = 0.004;
+
 /// Mirrors `FarGrassUniform` in Rust.
 struct FarGrass {
     /// rgb: the grass's colour from afar, linear; w: how far the ground
@@ -47,8 +52,16 @@ fn grass_far_color(
         amount *= smoothstep(0.0, soft, min(inside.x, inside.y));
     }
     // The gust texture the blades bend by, scrolled the same way: where a
-    // gust presses the grass down its paler, sunlit side shows.
-    let gust = wind_gust(far.wind, gusts, gust_sampler, world_position.xz);
-    let sheen = 1.0 + far.fade.z * far.wind.strength * (1.4 * gust * gust - 0.35);
+    // gust presses the grass down its paler, sunlit side shows. It shows
+    // where the grass is seen at a glancing angle, and hardly at all from
+    // above, where a strategy camera would see a pattern painted on bare
+    // ground.
+    let glancing = 1.0 - normalize(eye - world_position).y;
+    let depth = far.fade.z * far.wind.strength * glancing * glancing;
+    var sheen = 1.0;
+    if depth * amount > SHEEN_UNSEEN {
+        let gust = wind_gust(far.wind, gusts, gust_sampler, world_position.xz);
+        sheen = 1.0 + depth * (1.4 * gust * gust - 0.35);
+    }
     return mix(ground, far.color.rgb * sheen, amount);
 }

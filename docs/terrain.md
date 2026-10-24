@@ -208,10 +208,11 @@ thing, with its shader beside it.
 | --- | --- |
 | `FarGrassMaterial` | `ExtendedMaterial<StandardMaterial, FarGrass>` for terrain, forward and deferred |
 | `FarGrassPlugin` | Registers the material. Part of `GrassPlugins` |
-| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1), `area: Option<Rect>`. Its wind follows `GrassWindFrame`, the same frame the blades read |
+| `FarGrass` | `color`, `amount` (0–1), `fade: Option<Vec2>` (where the tint starts and is full; `None` follows `GrassSettings::radius`), `sheen` (gusts brighten it, 0–1, where the ground is seen at a glancing angle; little from above), `area: Option<Rect>`. Its wind follows `GrassWindFrame`, the same frame the blades read |
 | `FarGrass::new(&style)` | Colour from the style; the fade follows the grass radius, also when it changes |
 | `.with_fade(Vec2)` | A fade of your own, whatever the radius |
 | `.with_area(rect)` | Only inside this world-XZ rectangle |
+| `.with_sheen(f32)` | Another sheen; 0 for far grass without gusts |
 | `FarGrassUniform` | The material's GPU data, for a terrain material of your own |
 | `FarGrass::uniform(&wind, &settings)` | That data with this frame's wind and grass radius |
 | `FarGrass::GUSTS` | The gust texture `grass_far_color` reads |

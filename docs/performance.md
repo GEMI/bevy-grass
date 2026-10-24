@@ -635,6 +635,12 @@ The first two keep the density of a camera standing on the ground, but a raised 
 
 **`GrassFieldOverrides::wind_scale`**, measured the same way against `9d3c248`: one multiply per blade in `generate.wesl` and per full-detail vertex in `blade.wesl`, +0.3% (DEMO ARPG GAME) and −0.5% (perspective) of grass cost at p50, +0.2% and +0.8% at p95, within the noise; goldens identical. **Kept.**
 
+## Gusts without a grid, far sheen from the side (October 24, 2026)
+
+A look fix, measured to check its cost: from a strategy camera the gusts showed as squares, the gust texture repeating every `gust_scale` metres. `wind_gust` now samples the texture a second time, turned and larger, so two samples per `wind_bend` call instead of one: four per blade in `generate.wesl`, with last frame's bend. `tools/bench_ab.py`, T1200, four interleaved rounds, both scenes, `a89266f` against the change: −0.3% (DEMO ARPG GAME) and +1.0% (perspective) of grass cost at p50, −0.2% and +0.2% at p95, within the noise. **Kept;** the developer accepted the look.
+
+The far sheen now fades as the camera looks down on the ground, and `far.wesl` skips the gust sample where the sheen would change the colour by under 0.4%: under the blades, and nearly everywhere seen from a strategy camera. The bench draws no `FarGrassMaterial`, so this is not in the numbers; it is one or two texture reads per ground pixel, about 0.02 ms at 1080p on the T1200 at most, a look change rather than a saving.
+
 ## Levers not yet tried
 
 In expected order of effect. The main pass is the cost (see "After G6"): rasterizing and shading thin blades at 4× MSAA, with the shadow lookup about a fifth of it. The no-look-change levers are exhausted on the T1200; what is left trades the look or is a game setting.

@@ -171,9 +171,10 @@ impl Default for GrassWind {
 /// `gust_offset` and `previous_gust_offset` are how far the gust texture has
 /// scrolled, in repeats, now and a frame ago. Motion vectors compare the two,
 /// so a custom source moves both together: [`advance`](Self::advance) does,
-/// or leave both at zero for a fixed gust pattern. The built-in model
-/// accumulates them the same way in `wind/clock.rs`, which keeps them
-/// continuous when the wind changes speed or direction.
+/// or leave both at zero for a fixed gust pattern. A source that keeps them
+/// itself wraps them at 256 repeats, not 1. The built-in model accumulates
+/// them the same way in `wind/clock.rs`, which keeps them continuous when
+/// the wind changes speed or direction.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Resource, Default, Debug, PartialEq)]
 pub struct GrassWindFrame {
@@ -185,7 +186,8 @@ pub struct GrassWindFrame {
     /// Size of a gust, in metres.
     pub gust_scale: f32,
     /// How far the gusts have scrolled, in repeats of the gust texture,
-    /// wrapped to `[0, 1)`.
+    /// wrapped to `[0, 256)`. The shaders' second layer of gusts needs the
+    /// wrap at 256 to scroll without a jump; [`advance`](Self::advance) keeps it.
     pub gust_offset: Vec2,
     /// The same one frame ago, for motion vectors.
     pub previous_gust_offset: Vec2,
@@ -249,7 +251,7 @@ impl GrassWindFrame {
         );
         self.previous_gust_offset = self.gust_offset;
         self.gust_offset = (self.gust_offset.as_dvec2() + step)
-            .rem_euclid(DVec2::ONE)
+            .rem_euclid(DVec2::splat(clock::GUST_WRAP))
             .as_vec2();
     }
 }

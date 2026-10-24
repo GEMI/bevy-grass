@@ -69,7 +69,10 @@ pub struct FarGrass {
     /// [`GrassSettings::radius`], starting at half of it and full at 95%,
     /// where the blades have thinned out. Set it to override.
     pub fade: Option<Vec2>,
-    /// How much gusts brighten the far grass, 0 (not at all) to 1.
+    /// How much gusts brighten the far grass, 0 (not at all) to 1. Like the
+    /// sheen of real grass, it shows where the ground is seen at a glancing
+    /// angle and fades as the camera looks down on it, so a strategy camera
+    /// sees little of it.
     pub sheen: f32,
     /// Where grass grows, in world X and Z. `None`: everywhere the material
     /// is.
@@ -118,6 +121,13 @@ impl FarGrass {
             fade: Some(fade),
             ..self
         }
+    }
+
+    /// The same far grass, with gusts brightening it by `sheen` (see
+    /// [`FarGrass::sheen`]); 0 is a far field without gusts.
+    #[must_use]
+    pub fn with_sheen(self, sheen: f32) -> Self {
+        Self { sheen, ..self }
     }
 
     /// The same far grass, only inside `area` (world X and Z): usually the

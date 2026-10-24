@@ -78,7 +78,8 @@ numbers.
    blades in rank order instead of reshuffling them. Detail levels change
    blade by blade inside a dithered band.
 6. **Three layers of wind.** Rolling gusts from a noise texture that scrolls
-   across the world. Each blade also sways at its own phase and at a
+   across the world, sampled twice, the second turned and larger, so the
+   gusts do not repeat in a grid when seen from high above. Each blade also sways at its own phase and at a
    frequency set by its stiffness, so neighbours never move in lockstep. Near
    tips get a small flutter. `GrassWind::sway`, `sway_speed`, `flutter` and
    `gust_contrast` turn each layer up or down.
@@ -108,7 +109,9 @@ numbers.
     flatten as one shape: the grass under a moving vehicle lies the way it
     drives, and only its sides push out.
 15. **No seam at the horizon.** `FarGrassMaterial` turns the ground the grass
-    colour as the blades thin out, with the same gusts rolling across it.
+    colour as the blades thin out, with the same gusts rolling across it,
+    seen at a glancing angle as on real grass, and fading out seen from
+    above.
 16. **Works with post-processing.** Exact motion vectors for TAA, depth and
     normals for SSAO, and a deferred path.
 17. **Toon option.** `STYLIZED`, `CEL_FIELD`, `COZY_PASTEL` and `toon_bands`

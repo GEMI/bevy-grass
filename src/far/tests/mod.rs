@@ -26,6 +26,11 @@ fn a_terrain_of_your_own_gets_what_far_grass_material_uploads() {
         "the fade follows the radius"
     );
     assert_eq!(uniform.area, Vec4::new(-10.0, -20.0, 30.0, 40.0));
+    assert_eq!(uniform.fade.z, 0.3, "the sheen of `FarGrass::new`");
+    assert_eq!(
+        far.clone().with_sheen(0.0).uniform(&wind, &settings).fade.z,
+        0.0
+    );
 
     // A radius out of range is the radius the blades are drawn with.
     let nonsense = GrassSettings {

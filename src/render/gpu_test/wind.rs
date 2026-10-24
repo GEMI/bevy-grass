@@ -139,3 +139,62 @@ fn gpu_a_field_moves_by_its_own_wind_scale() {
         );
     }
 }
+
+#[test]
+#[ignore = "needs a GPU: cargo test -- --ignored gpu"]
+fn gpu_the_gusts_do_not_repeat_every_gust_scale() {
+    // One repeat of the gust texture is `gust_scale` metres. With one layer
+    // of gusts, blades that far apart bent alike, and a camera high above
+    // saw the field in squares of that size.
+    const SCALE: f32 = 6.0;
+    const CELLS_PER_SCALE: i32 = 12;
+    let mut app = headless_app();
+    // No sway, so a blade's bend is the gusts at its root.
+    app.insert_resource(GrassWind {
+        gust_scale: SCALE,
+        sway: 0.0,
+        ..GrassWind::BREEZE
+    });
+    wait_for_grass(&mut app);
+    for _ in 0..4 {
+        app.update();
+    }
+    // The mean bend of the blades in each cell of a grid.
+    let mut cells = HashMap::<(i32, i32), (f32, u32)>::new();
+    for (root, bend) in gpu_bends(&mut app) {
+        let cell = (root * CELLS_PER_SCALE as f32 / SCALE).floor().as_ivec2();
+        let entry = cells.entry((cell.x, cell.y)).or_default();
+        entry.0 += bend.length();
+        entry.1 += 1;
+    }
+    let mean = |cell: &(i32, i32)| {
+        cells
+            .get(cell)
+            .filter(|(_, count)| *count >= 4)
+            .map(|(sum, count)| sum / *count as f32)
+    };
+    // Cells one gust scale apart along X and along Z.
+    let pairs: Vec<(f32, f32)> = cells
+        .keys()
+        .flat_map(|&(x, z)| {
+            [(x + CELLS_PER_SCALE, z), (x, z + CELLS_PER_SCALE)].map(|other| ((x, z), other))
+        })
+        .filter_map(|(cell, other)| Some((mean(&cell)?, mean(&other)?)))
+        .collect();
+    assert!(pairs.len() > 200, "{} pairs of cells", pairs.len());
+    let n = pairs.len() as f32;
+    let (ma, mb) = pairs
+        .iter()
+        .fold((0.0, 0.0), |(a, b), (x, y)| (a + x / n, b + y / n));
+    let (mut cov, mut va, mut vb) = (0.0, 0.0, 0.0);
+    for (a, b) in &pairs {
+        cov += (a - ma) * (b - mb);
+        va += (a - ma) * (a - ma);
+        vb += (b - mb) * (b - mb);
+    }
+    let correlation = cov / (va * vb).sqrt();
+    assert!(
+        correlation < 0.75,
+        "{correlation}: blades a gust scale apart bend alike"
+    );
+}

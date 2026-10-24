@@ -29,8 +29,18 @@ literal that names every field without `..default()` needs
 `GrassFieldOverrides` has a new field, `wind_scale` (1 by default). A literal
 that names every field without `..default()` needs `wind_scale: 1.0` added.
 
+`GrassWindFrame::gust_offset` and `previous_gust_offset` now wrap at 256
+repeats of the gust texture instead of 1, for the second layer of gusts (see
+Fixed). A custom wind that calls `GrassWindFrame::advance`, or leaves the
+offsets at zero, needs no change. One that wraps the offsets itself wraps
+them at 256 (`rem_euclid(Vec2::splat(256.0))`); wrapped at 1, the gusts
+jump each time they cross a repeat.
+
 **Added**
 
+- `FarGrass::with_sheen(sheen)`, like `with_fade` and `with_area`: a struct
+  literal with `..FarGrass::new(&style)` does not compile outside the crate,
+  so setting the sheen took a variable.
 - `FarGrass::uniform(&wind, &settings)` and `FarGrass::GUSTS`: what a
   terrain material of the game's own needs to call `grass_far_color` from
   its shader, the far grass `FarGrassMaterial` draws. Before, its uniform
@@ -75,6 +85,19 @@ that names every field without `..default()` needs `wind_scale: 1.0` added.
 
 **Fixed**
 
+- Seen from a strategy camera, the gusts rolled across the field in squares.
+  The gust texture repeats every `gust_scale` metres (25 m in `BREEZE`), and
+  from 100 m up dozens of repeats show at once, in a grid along the world's
+  axes. The gusts are now two layers of it, the second turned 36.8° and 1.17
+  times as large, moving together; the sum does not repeat. Gusts keep their
+  size, speed and depth, but their shapes change, and so do the goldens.
+- `FarGrassMaterial`'s gust sheen, the paler undersides of bent grass, now
+  shows where the ground is seen at a glancing angle and fades as the camera
+  looks down on it, as on real grass. From a strategy camera the far ground
+  showed gust patterns with no grass in sight, and through the gaps between
+  blades. Ground-level views are unchanged (the `meadow` example differs by
+  at most 2 of 255). Where the sheen would change the colour by less than
+  0.4%, the gust texture is not read.
 - A perspective camera high above the ground, a strategy game's, kept its
   trample window (64 m across) centred under itself, while the ground it
   showed began 65 m or more ahead, so units in view flattened no grass. The

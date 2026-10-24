@@ -2,21 +2,31 @@
 //! without a jump when the wind changes speed or direction.
 //!
 //! The shaders sample a repeating noise texture scrolled along the wind. How
-//! far it has scrolled is the sum of each frame's step, kept as a fraction of
-//! the texture (which repeats), so it is exact however long the game runs, and
-//! stays continuous when the wind's speed or direction changes. Time
-//! multiplied by a speed would jump at every change.
+//! far it has scrolled is the sum of each frame's step, wrapped every
+//! [`GUST_WRAP`] repeats of the texture, so it is exact however long the game
+//! runs, and stays continuous when the wind's speed or direction changes.
+//! Time multiplied by a speed would jump at every change.
 
 use bevy::ecs::resource::Resource;
 use bevy::math::{DVec2, Vec2};
 
 use super::{GrassWind, GrassWindFrame};
 
+/// How far the gust offsets run before they wrap, in repeats of the gust
+/// texture. The WESL twin is `GUST_WRAP` in `wind.wesl`.
+///
+/// The shaders turn a second layer of gusts by a matrix in steps of 1/256,
+/// so a wrap must move it by whole repeats: a multiple of 256. A wrap at 1
+/// would make that layer jump each time the gusts crossed a repeat. A larger
+/// one costs precision: an f32 below 256 resolves 1/30 000 of a repeat, under a
+/// hundredth of a texel of the 256-texel texture.
+pub(super) const GUST_WRAP: f64 = 256.0;
+
 /// What the built-in wind is told about the gusts this frame.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub(super) struct WindClock {
     /// How far the gusts have scrolled, in repeats of the gust texture,
-    /// wrapped to `[0, 1)`.
+    /// wrapped to `[0, GUST_WRAP)`.
     gust_offset: Vec2,
     /// The same one frame ago, wrapped the same way.
     previous_gust_offset: Vec2,
@@ -28,9 +38,11 @@ impl WindClock {
     /// Moves the gusts `delta` seconds along `wind`.
     pub(super) fn advance(&mut self, delta: f64, wind: &GrassWind) {
         let step = gust_step(wind.direction, wind.gust_speed, wind.gust_scale, delta);
-        self.gust = (self.gust + step).rem_euclid(DVec2::ONE);
+        self.gust = (self.gust + step).rem_euclid(DVec2::splat(GUST_WRAP));
         self.gust_offset = self.gust.as_vec2();
-        self.previous_gust_offset = (self.gust - step).rem_euclid(DVec2::ONE).as_vec2();
+        self.previous_gust_offset = (self.gust - step)
+            .rem_euclid(DVec2::splat(GUST_WRAP))
+            .as_vec2();
     }
 
     /// This frame's shader values.
@@ -79,10 +91,12 @@ mod tests {
         let mut clock = WindClock::default();
         for _ in 0..(3600 * 60 + 120) {
             clock.advance(1.0 / 60.0, &wind);
-            // The texture repeats, so only differences modulo 1 count.
+            // Only differences modulo the wrap count. An f32 below the wrap
+            // resolves 3e-5 of a repeat.
+            let half = DVec2::splat(GUST_WRAP / 2.0);
             let moved = (clock.gust_offset - clock.previous_gust_offset).as_dvec2();
-            let moved = (moved + DVec2::splat(0.5)).rem_euclid(DVec2::ONE) - DVec2::splat(0.5);
-            assert!((moved - step).length() < 1e-5, "{moved} vs {step}");
+            let moved = (moved + half).rem_euclid(DVec2::splat(GUST_WRAP)) - half;
+            assert!((moved - step).length() < 1e-4, "{moved} vs {step}");
         }
     }
 

@@ -2,7 +2,9 @@
 
 The built-in wind has three layers: rolling gusts from a noise texture that
 scrolls across the world, a sway of each blade at its own phase, and a small
-flutter of near tips. `GrassWind` drives it, and the far-grass material
+flutter of near tips. The gusts sample the texture twice, the second sample
+turned and larger, so they do not repeat in a grid even from a strategy
+camera high above the field. `GrassWind` drives it, and the far-grass material
 follows the same gusts.
 
 ## Pick and tune a wind
@@ -69,7 +71,9 @@ are the grass shader's parameters, not a general description of wind: the
 gusts are a noise texture scrolled along the wind, and
 `GrassWindFrame::advance(delta, gust_speed)` scrolls it the way the built-in
 model does, continuously when the speed or direction changes, so your source
-does not have to. Put the
+does not have to. A source that scrolls the offsets itself wraps them at
+256 repeats, not 1: the turned sample moves by whole repeats only at
+multiples of 256. Put the
 system in
 `GrassWindSystems::Sample` so the blades and the far-grass material read the
 same frame. The built-in model remains available by itself as
