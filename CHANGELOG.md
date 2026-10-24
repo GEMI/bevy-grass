@@ -54,6 +54,13 @@ names every field without `..default()` needs `lights: true` added.
 
 **Fixed**
 
+- A perspective camera high above the ground, a strategy game's, kept its
+  trample window (64 m across) centred under itself, while the ground it
+  showed began 65 m or more ahead, so units in view flattened no grass. The
+  window now moves ahead onto the nearest ground in view, never past where
+  grass is drawn. It moves only once that ground is about 11 m away (a sixth
+  of the window), so first- and third-person cameras keep the window around
+  themselves as before, and the trail behind a walker with it.
 - `GrassSampler` reported grass where the ground has a hole, past the edge
   of a `GrassGround::Mesh` or where a height function gave no height, while
   the GPU draws none there. Its `density` is now 0 there, so footsteps and

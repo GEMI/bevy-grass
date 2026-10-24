@@ -22,7 +22,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::app::{App, Plugin, PostUpdate};
-use bevy::camera::{Camera3d, Projection};
+use bevy::camera::{Camera, Camera3d};
 use bevy::color::Color;
 use bevy::color::palettes::css;
 use bevy::ecs::prelude::*;
@@ -37,10 +37,11 @@ use bevy::reflect::std_traits::ReflectDefault;
 use bevy::transform::components::GlobalTransform;
 
 use crate::api::{
-    GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass, interactor_offsets,
+    GrassCamera, GrassInteractor, GrassInteractorFootprint, GrassInteractorSpread, NoGrass,
+    interactor_offsets,
 };
 use crate::fields::{CHUNK_SIZE, FieldTables};
-use crate::trample;
+use crate::trample::{self, TrampleView};
 use crate::{GrassSettings, GrassSystems};
 
 /// Adds the grass debug gizmos. Toggle what they show with [`GrassDebug`].
@@ -225,10 +226,10 @@ pub(crate) fn interactor_shapes(
     shapes
 }
 
-/// The trample window of each camera `(position, forward, orthographic)`:
-/// where it really is, by the same functions the renderer uses.
+/// The trample window of each camera: where it really is, by the same
+/// functions the renderer uses.
 pub(crate) fn trample_shapes(
-    cameras: impl Iterator<Item = (Vec3, Vec3, bool)>,
+    cameras: impl Iterator<Item = TrampleView>,
     tables: &FieldTables,
     cell: f32,
 ) -> Vec<Shape> {
@@ -237,8 +238,8 @@ pub(crate) fn trample_shapes(
         .first()
         .map_or(0.0, |field| field.min_corner.y);
     cameras
-        .map(|(position, forward, orthographic)| {
-            let center = trample::focus(position, forward, orthographic, tables);
+        .map(|view| {
+            let center = trample::focus(&view, cell, tables);
             let origin = trample::window_origin(center, cell);
             Shape::Rect {
                 min: origin.as_vec2() * cell,
@@ -347,7 +348,7 @@ pub(crate) fn shapes(
     settings: &GrassSettings,
     tables: &FieldTables,
     interactors: impl Iterator<Item = (Vec3, f32, f32)>,
-    cameras: impl Iterator<Item = (Vec3, Vec3, bool)>,
+    cameras: impl Iterator<Item = TrampleView>,
 ) -> Vec<Shape> {
     let mut shapes = Vec::new();
     if !debug.enabled {
@@ -397,7 +398,11 @@ struct DebugQueries<'w, 's> {
     cameras: Query<
         'w,
         's,
-        (&'static GlobalTransform, &'static Projection),
+        (
+            &'static GlobalTransform,
+            &'static Camera,
+            Option<&'static GrassCamera>,
+        ),
         (With<Camera3d>, Without<NoGrass>),
     >,
 }
@@ -424,13 +429,16 @@ fn draw_debug(
                     (at, interactor.radius, interactor.strength)
                 })
             }),
-        queries.cameras.iter().map(|(transform, projection)| {
-            (
-                transform.translation(),
-                transform.forward().as_vec3(),
-                matches!(projection, Projection::Orthographic(_)),
-            )
-        }),
+        queries
+            .cameras
+            .iter()
+            .map(|(transform, camera, grass_camera)| {
+                TrampleView::new(
+                    transform,
+                    &camera.clip_from_view(),
+                    settings.for_camera(grass_camera).radius,
+                )
+            }),
     );
     if debug.enabled && debug.interactors {
         shapes.extend(footprint_shapes(queries.footprints.iter().map(

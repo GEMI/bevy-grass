@@ -66,17 +66,106 @@ fn the_window_contains_its_centre_with_room_on_every_side() {
     assert_eq!(window_side(2.0), 512.0);
 }
 
+/// A 45° perspective camera at `position` looking at `target`, drawing grass
+/// within `radius`.
+fn perspective(position: Vec3, target: Vec3, radius: f32) -> TrampleView {
+    use bevy::camera::{CameraProjection, PerspectiveProjection};
+    let transform = Transform::from_translation(position).looking_at(target, Vec3::Y);
+    let clip_from_view = PerspectiveProjection::default().get_clip_from_view();
+    TrampleView::new(&GlobalTransform::from(transform), &clip_from_view, radius)
+}
+
+/// How far ahead of the camera, along its view on the ground, the window
+/// centres.
+fn shift(view: &TrampleView) -> f32 {
+    let ahead = view.forward.xz().normalize_or_zero();
+    (focus(view, CELL, &FieldTables::default()) - view.position.xz()).dot(ahead)
+}
+
 #[test]
 fn an_orthographic_camera_centres_the_window_on_the_ground_it_sees() {
     let forward = Vec3::new(1.0, -1.0, 0.0).normalize();
     let position = Vec3::new(-40.0, 40.0, 5.0);
-    let center = focus(position, forward, true, &FieldTables::default());
+    let view = TrampleView {
+        position,
+        forward,
+        bottom: None,
+        radius: 100.0,
+    };
+    let center = focus(&view, CELL, &FieldTables::default());
     assert!(center.distance(Vec2::new(0.0, 5.0)) < 1e-3, "{center}");
-    // A perspective camera stands where it is.
-    assert_eq!(
-        focus(position, forward, false, &FieldTables::default()),
-        position.xz()
+}
+
+#[test]
+fn a_camera_that_stands_in_its_grass_keeps_the_window_around_it() {
+    // First person, looking ahead, at the horizon and down at the feet;
+    // third person behind a character; a perspective ARPG camera 20 m up.
+    let views = [
+        perspective(Vec3::new(3.0, 1.7, 4.0), Vec3::new(3.0, 1.7, -10.0), 100.0),
+        perspective(Vec3::new(3.0, 1.7, 4.0), Vec3::new(3.0, 1.6, -500.0), 100.0),
+        perspective(Vec3::new(3.0, 1.7, 4.0), Vec3::new(3.0, 0.0, 3.0), 100.0),
+        perspective(Vec3::new(0.0, 3.0, 6.0), Vec3::new(0.0, 1.0, 0.0), 100.0),
+        perspective(Vec3::new(0.0, 20.0, 15.0), Vec3::ZERO, 100.0),
+    ];
+    for view in views {
+        assert_eq!(
+            focus(&view, CELL, &FieldTables::default()),
+            view.position.xz(),
+            "{view:?}"
+        );
+    }
+}
+
+#[test]
+fn a_high_camera_moves_the_window_onto_the_ground_it_shows() {
+    // A strategy camera 60 m up, pitched 20° down, with a radius that
+    // reaches past what it sees: the bottom of the screen meets the ground
+    // about 65 m ahead, outside a window around the camera (32 m each way).
+    let pitch = 20f32.to_radians();
+    let position = Vec3::new(0.0, 60.0, 0.0);
+    let target = position + Vec3::new(0.0, -pitch.sin(), -pitch.cos());
+    let view = perspective(position, target, 400.0);
+    let bottom = view.bottom.unwrap();
+    let near = position.y / -bottom.y * bottom.xz().length();
+    assert!((near - 65.5).abs() < 1.0, "{near}");
+    let ahead = shift(&view);
+    let half = window_side(CELL) * 0.5;
+    assert!(
+        ahead - half < near && near < ahead + half,
+        "the nearest ground in view, {near} m ahead, is in the window at {ahead} m"
     );
+    assert!(
+        ahead - half > near - half * 0.5,
+        "and most of the window is in view, not behind its bottom edge"
+    );
+
+    // With High's 100 m radius, grass reaches 80 m across the ground from
+    // 60 m up; the window does not go past it.
+    let view = perspective(position, target, 100.0);
+    assert_eq!(shift(&view), 80.0 - half);
+
+    // Out of reach altogether, the window stays.
+    let view = perspective(position, target, 50.0);
+    assert_eq!(shift(&view), 0.0);
+}
+
+#[test]
+fn the_window_moves_continuously_as_a_camera_climbs() {
+    // An RTS zoom: no jump in where trampling shows.
+    let mut previous = 0.0;
+    for step in 0..=200 {
+        let height = 1.0 + step as f32 * 0.5;
+        let position = Vec3::new(0.0, height, 0.0);
+        let view = perspective(position, position + Vec3::new(0.0, -0.4, -1.0), 400.0);
+        let ahead = shift(&view);
+        assert!(ahead >= previous, "{height} m: {ahead} after {previous}");
+        assert!(
+            ahead - previous < 3.0,
+            "{height} m: {ahead} after {previous}"
+        );
+        previous = ahead;
+    }
+    assert!(previous > 100.0, "{previous}");
 }
 
 #[test]

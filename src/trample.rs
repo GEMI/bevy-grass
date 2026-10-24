@@ -10,7 +10,7 @@
 //! slots whose world cell has just come into the window, and trails stay in
 //! world space.
 
-use bevy::math::{IVec2, Mat3, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use bevy::math::{IVec2, Mat3, Mat4, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use bevy::transform::components::GlobalTransform;
 
 use crate::GrassInteractorFootprint;
@@ -32,30 +32,111 @@ pub(crate) fn window_origin(center: Vec2, cell: f32) -> IVec2 {
     (center / cell).floor().as_ivec2() - IVec2::splat(TEXELS / 2)
 }
 
-/// The point the trample window centres on, in world XZ.
-///
-/// A perspective camera stands in its grass, so the window centres on it. An
-/// orthographic camera looks at the ground from far away (DEMO ARPG GAME's from
-/// 40 m), so the window centres where its view direction meets the ground:
-/// the ray is intersected with the height of the chunk below it, three times,
-/// which converges on any terrain smooth over a chunk.
-pub(crate) fn focus(
-    position: Vec3,
-    forward: Vec3,
-    orthographic: bool,
-    tables: &FieldTables,
-) -> Vec2 {
-    if !orthographic || forward.y > -1e-3 {
-        return position.xz();
+/// What decides where a camera's trample window sits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TrampleView {
+    pub position: Vec3,
+    pub forward: Vec3,
+    /// The view's direction through the middle of the screen's bottom edge,
+    /// for a perspective camera; `None` for an orthographic one.
+    pub bottom: Option<Vec3>,
+    /// The camera's grass radius: no grass, so no trampling, beyond it.
+    pub radius: f32,
+}
+
+impl TrampleView {
+    /// The view of a camera at `world_from_view` with the projection
+    /// `clip_from_view`, drawing grass within `radius`.
+    pub(crate) fn new(
+        world_from_view: &GlobalTransform,
+        clip_from_view: &Mat4,
+        radius: f32,
+    ) -> Self {
+        let orthographic = clip_from_view.w_axis.w == 1.0;
+        // A point on the near plane, through the middle of the bottom edge.
+        let bottom = (!orthographic).then(|| {
+            let edge = clip_from_view
+                .inverse()
+                .project_point3(Vec3::new(0.0, -1.0, 1.0));
+            world_from_view
+                .affine()
+                .transform_vector3(edge)
+                .normalize_or_zero()
+        });
+        Self {
+            position: world_from_view.translation(),
+            forward: world_from_view.forward().as_vec3(),
+            bottom,
+            radius,
+        }
     }
-    let mut ground = tables
+}
+
+/// The point the trample window centres on, in world XZ, for a window of
+/// `cell`-metre cells.
+///
+/// An orthographic camera looks at the ground from far away (DEMO ARPG
+/// GAME's from 40 m), so the window centres where its view direction meets
+/// the ground.
+///
+/// A perspective camera usually stands in its grass, and then the window
+/// centres on it, so the trail behind a walker stays when the camera turns.
+/// A camera high above the ground cannot see the ground below it, and the
+/// grass it shows (and the units trampling it) can be further away than half
+/// the window: a strategy camera 60 m up and pitched 20° down sees no ground
+/// nearer than 65 m. So the window moves ahead of the camera, by
+/// `3 · near − half`, where `near` is how far ahead the bottom of the screen
+/// meets the ground and `half` is half the window. That is 0 until the
+/// nearest visible ground is a sixth of the window away (11 m by default),
+/// which no first- or third-person camera reaches, and grows fast after it;
+/// it stops once the window's back edge is a quarter of the window behind
+/// the nearest visible ground, and never moves the window past where grass
+/// is drawn.
+///
+/// Rays meet the ground at the height of the chunk below, found three
+/// times, which converges on any terrain smooth over a chunk.
+pub(crate) fn focus(view: &TrampleView, cell: f32, tables: &FieldTables) -> Vec2 {
+    let position = view.position;
+    let first_ground = tables
         .fields
         .first()
         .map_or(0.0, |field| field.min_corner.y);
+    let Some(bottom) = view.bottom else {
+        return if view.forward.y < -1e-3 {
+            ground_hit(position, view.forward, first_ground, tables)
+        } else {
+            position.xz()
+        };
+    };
+    let under = tables
+        .highest_ground_at(position.xz())
+        .unwrap_or(first_ground);
+    let ahead = view.forward.xz().normalize_or_zero();
+    if ahead == Vec2::ZERO || bottom.y > -1e-3 {
+        return position.xz();
+    }
+    let near = (ground_hit(position, bottom, under, tables) - position.xz())
+        .dot(ahead)
+        .max(0.0);
+    let half = window_side(cell) * 0.5;
+    let height = (position.y - under).max(0.0);
+    let reach = (view.radius * view.radius - height * height)
+        .max(0.0)
+        .sqrt();
+    let shift = (3.0 * near - half)
+        .min(near + 0.75 * half)
+        .min(reach - half)
+        .max(0.0);
+    position.xz() + ahead * shift
+}
+
+/// Where the ray from `position` along `direction` (which points down)
+/// meets the ground, starting from the height `ground`, in world XZ.
+fn ground_hit(position: Vec3, direction: Vec3, mut ground: f32, tables: &FieldTables) -> Vec2 {
     let mut point = position.xz();
     for _ in 0..3 {
-        let along = (ground - position.y) / forward.y;
-        point = (position + forward * along).xz();
+        let along = (ground - position.y) / direction.y;
+        point = (position + direction * along).xz();
         if let Some(height) = chunk_height_at(tables, point) {
             ground = height;
         }

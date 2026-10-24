@@ -9,6 +9,23 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::transform::components::Transform;
 
 use super::*;
+
+/// A camera at `position` looking along `forward`, perspective (45°) or
+/// orthographic, with High's radius.
+fn camera_at(position: Vec3, forward: Vec3, orthographic: bool) -> TrampleView {
+    use bevy::camera::{CameraProjection, OrthographicProjection, PerspectiveProjection};
+    let transform = Transform::from_translation(position).looking_to(forward, Vec3::Y);
+    let clip_from_view = if orthographic {
+        OrthographicProjection::default_3d().get_clip_from_view()
+    } else {
+        PerspectiveProjection::default().get_clip_from_view()
+    };
+    TrampleView::new(
+        &GlobalTransform::from(transform),
+        &clip_from_view,
+        GrassSettings::HIGH.radius,
+    )
+}
 use crate::api::{GrassField, GrassGround};
 use crate::style::GrassStyle;
 
@@ -226,7 +243,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     // A perspective camera stands in its window.
     let position = Vec3::new(100.0, 1.7, -30.0);
     let window = trample_shapes(
-        [(position, Vec3::NEG_Z, false)].into_iter(),
+        [camera_at(position, Vec3::NEG_Z, false)].into_iter(),
         &tables,
         GrassSettings::HIGH.trample_cell_size,
     );
@@ -244,7 +261,7 @@ fn a_trample_window_is_where_the_renderer_puts_it() {
     let high = Vec3::new(0.0, 40.0, 40.0);
     let forward = Vec3::new(0.0, -1.0, -1.0).normalize();
     let window = trample_shapes(
-        [(high, forward, true)].into_iter(),
+        [camera_at(high, forward, true)].into_iter(),
         &tables,
         GrassSettings::HIGH.trample_cell_size,
     );
@@ -263,7 +280,7 @@ fn the_gizmos_follow_the_settings_that_move_the_limits() {
     let tables = FieldTables::default();
     // Cells of 50 cm make a window of 128 m.
     let window = trample_shapes(
-        [(Vec3::new(10.0, 1.7, 10.0), Vec3::NEG_Z, false)].into_iter(),
+        [camera_at(Vec3::new(10.0, 1.7, 10.0), Vec3::NEG_Z, false)].into_iter(),
         &tables,
         0.5,
     );
@@ -302,7 +319,7 @@ fn the_toggles_decide_what_is_shown() {
         true,
     );
     let tables = tables(&mut app);
-    let camera = || [(Vec3::new(0.0, 1.7, 0.0), Vec3::NEG_Z, false)].into_iter();
+    let camera = || [camera_at(Vec3::new(0.0, 1.7, 0.0), Vec3::NEG_Z, false)].into_iter();
     let bunny = || [(Vec3::ZERO, 0.6, 1.0)].into_iter();
     let count =
         |debug: GrassDebug| shapes(&debug, &GrassSettings::HIGH, &tables, bunny(), camera()).len();

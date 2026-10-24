@@ -444,14 +444,12 @@ fn update_trample(
     extracted: &ExtractedGrass,
     queue: &RenderQueue,
 ) {
-    let orthographic = view.clip_from_view.w_axis.w == 1.0;
+    let cell = settings.trample_cell_size;
     let center = trample::focus(
-        view.world_from_view.translation(),
-        view.world_from_view.forward().as_vec3(),
-        orthographic,
+        &trample::TrampleView::new(&view.world_from_view, &view.clip_from_view, settings.radius),
+        cell,
         &extracted.tables,
     );
-    let cell = settings.trample_cell_size;
     let origin = trample::window_origin(center, cell);
     // Before the first frame, and when the cells change size, every slot
     // counts as newly in the window, which clears it.

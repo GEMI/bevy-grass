@@ -28,8 +28,15 @@ defaults of `GrassSettings`, and each can be changed (see
 - **Count** (`max_interactors`). A camera stamps that many, the ones nearest
   to it first.
 - **Distance, 64 m** (`trample_cell_size`, 256 cells across). Each camera
-  tracks a 64 × 64 m square of ground around what it looks at; interactors
-  outside it do nothing. Cells of 0.5 m make the window 128 m.
+  tracks a 64 × 64 m square of ground; interactors outside it do nothing.
+  Cells of 0.5 m make the window 128 m. A first- or third-person camera keeps
+  the square around itself, so a trail stays behind a walker when the camera
+  turns. An orthographic camera centres it where it looks. A perspective
+  camera high above the ground, an RTS's, moves it ahead onto the ground it
+  shows, never past where grass is drawn: from 60 m up the nearest visible
+  ground can be 65 m away. A strategy camera that shows more ground than the
+  window covers wants bigger cells, 0.5 or 1 m; trails are coarser, which
+  from that height does not show.
 - **Recovery, 1.5 s** (`trample_recovery`). How long flattened grass takes to
   stand again.
 - **Height.** Interaction is horizontal, so a bird flying over the meadow
