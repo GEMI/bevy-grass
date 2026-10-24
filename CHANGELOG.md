@@ -24,6 +24,11 @@ names every field without `..default()` needs `lights: true` added.
 
 **Added**
 
+- A warning, once per camera, when a perspective camera has had grass fields
+  in view for two seconds and all of them were beyond its grass radius, so
+  it drew nothing. The radius is a distance from the camera itself, so a
+  strategy camera high above the ground drew no grass at all, and nothing in
+  the log said why. The check is one box test per camera and field a frame.
 - `GrassWindFrame::advance(delta, gust_speed)` scrolls the gusts along the
   frame's direction, as the built-in wind does, so a custom wind source no
   longer has to work out the gust texture's scrolling itself. The

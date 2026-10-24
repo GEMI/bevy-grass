@@ -141,6 +141,13 @@ blades are thin on screen, so it asks for `min_width_px: Some(2.0)`. That is a
 property of the camera, not of the grass, which is why it is not in
 `GrassStyle`.
 
+A perspective camera draws grass only within `radius` of the camera itself,
+in 3D: a camera 150 m above the ground reaches none at High's 100 m, however
+wide its blades. `min_width_px` helps blades that are drawn but thin, not
+blades beyond the radius. When a camera has had fields in view for two
+seconds and every one was out of reach, the log says so, once, with the
+distance and the radius.
+
 Every other 3D camera draws its own grass, with its own culling and level of
 detail. To leave a camera out, or draw some fields on some cameras only, see
 [Hide a field, or leave a camera out](terrain.md#hide-a-field-or-leave-a-camera-out).

@@ -58,6 +58,7 @@ mod mirror;
 mod packed;
 mod physics;
 mod presets;
+mod reach;
 mod render;
 mod settings;
 mod shader_model;
@@ -297,6 +298,7 @@ impl Plugin for GrassPlugin {
             )
             .add_plugins(render::GrassRenderPlugin { shaders });
         physics::plugin(app);
+        reach::plugin(app);
         sun::configure_light_systems(app);
         if self.wind {
             app.add_plugins(GrassWindPlugin);
