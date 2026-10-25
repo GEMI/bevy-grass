@@ -93,6 +93,8 @@ bevy = { version = "0.20", default-features = false, features = [
 ] }
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Property tests: invariants across hundreds of random inputs per run.
+proptest = "1"
 
 # The examples reload `.grass.ron` files when they are saved. Bevy's file
 # watcher is a `compile_error!` on wasm, so it is native only.

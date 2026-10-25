@@ -1,3 +1,5 @@
+use proptest::prelude::*;
+
 use super::*;
 
 const CHUNK: f32 = 16.0;
@@ -448,5 +450,74 @@ fn a_raised_view_keeps_the_same_number_of_blades_at_any_height() {
     for offset in [50.0f32, 200.0, 1000.0] {
         let ground = (100.0 + offset) * (100.0 + offset);
         assert!((height_thinning(100.0, offset) * ground - 100.0 * 100.0).abs() < 1e-2);
+    }
+}
+
+proptest! {
+    #[test]
+    fn lerp_stays_within_its_endpoints(
+        a in -1e6f32..1e6,
+        b in -1e6f32..1e6,
+        t in -1.0f32..2.0,
+    ) {
+        let result = lerp(a, b, t);
+        let low = a.min(b);
+        let high = a.max(b);
+        let tolerance = 1e-5 * high.abs().max(low.abs()).max(1.0);
+        prop_assert!(result >= low - tolerance);
+        prop_assert!(result <= high + tolerance);
+    }
+
+    #[test]
+    fn lerp_hits_its_endpoints(
+        a in -1e6f32..1e6,
+        b in -1e6f32..1e6,
+    ) {
+        let tolerance = 1e-5 * a.abs().max(b.abs()).max(1.0);
+        prop_assert!((lerp(a, b, 0.0) - a).abs() <= tolerance);
+        prop_assert!((lerp(a, b, 1.0) - b).abs() <= tolerance);
+    }
+
+    #[test]
+    fn quantize_dequantize_round_trips(
+        value in 0.0f32..=1.0,
+        bits in 1u32..=16,
+    ) {
+        let max = ((1u64 << bits) - 1) as f32;
+        let back = dequantize(quantize(value, bits), bits);
+        prop_assert!((back - value).abs() <= 0.5 / max + 1e-6);
+    }
+
+    #[test]
+    fn pack_bend_round_trips(
+        bend in -1.0f32..=1.0,
+        delta in -0.06f32..=0.05,
+    ) {
+        let previous = bend + delta;
+        let (now, back) = unpack_bend(pack_bend(bend, previous));
+        prop_assert!((now - bend).abs() <= 1.0 / 4095.0 + 1e-6);
+        prop_assert!((back - previous).abs() <= 0.005);
+    }
+
+    #[test]
+    fn coverage_width_stays_between_one_and_max(
+        falloff in 0.0f32..=1.0,
+        max in 1.0f32..=10.0,
+    ) {
+        let width = coverage_width(falloff, max);
+        prop_assert!(width >= 1.0);
+        prop_assert!(width <= max);
+    }
+
+    #[test]
+    fn keep_fraction_is_a_share(
+        density in -1000.0f32..=1000.0,
+        scale in -10.0f32..=10.0,
+        chunk_size in 0.1f32..=1000.0,
+        layout_density in 0.0f32..=1000.0,
+    ) {
+        let layout = ChunkLayout::for_density(chunk_size, layout_density);
+        let keep = keep_fraction(density, scale, &layout);
+        prop_assert!((0.0..=1.0).contains(&keep));
     }
 }

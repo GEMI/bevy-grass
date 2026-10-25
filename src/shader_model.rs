@@ -354,6 +354,8 @@ pub(crate) fn gust_noise(size: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     #[test]
@@ -381,5 +383,51 @@ mod tests {
         let noise = gust_noise(64);
         assert_eq!(noise.iter().min(), Some(&0));
         assert_eq!(noise.iter().max(), Some(&255));
+    }
+
+    proptest! {
+        #[test]
+        fn unit_is_in_the_unit_interval(h in any::<u32>()) {
+            let value = unit(h);
+            prop_assert!((0.0..1.0).contains(&value), "{h} -> {value}");
+        }
+
+        #[test]
+        fn toroidal_distance_is_symmetric(
+            ax in -1e6f32..1e6,
+            ay in -1e6f32..1e6,
+            bx in -1e6f32..1e6,
+            by in -1e6f32..1e6,
+        ) {
+            let a = Vec2::new(ax, ay);
+            let b = Vec2::new(bx, by);
+            prop_assert_eq!(
+                toroidal_distance_squared(a, b),
+                toroidal_distance_squared(b, a)
+            );
+        }
+
+        #[test]
+        fn toroidal_distance_is_never_negative(
+            ax in -1e6f32..1e6,
+            ay in -1e6f32..1e6,
+            bx in -1e6f32..1e6,
+            by in -1e6f32..1e6,
+        ) {
+            let a = Vec2::new(ax, ay);
+            let b = Vec2::new(bx, by);
+            prop_assert!(toroidal_distance_squared(a, b) >= 0.0);
+        }
+
+        #[test]
+        fn chunk_layout_tile_size_is_positive(
+            chunk_size in 0.001f32..10_000.0,
+            density in 0.0f32..100_000.0,
+        ) {
+            let layout = ChunkLayout::for_density(chunk_size, density);
+            prop_assert!(layout.tile_size > 0.0);
+            prop_assert!(layout.tiles_per_side >= 1);
+            prop_assert!(layout.candidate_density > 0.0);
+        }
     }
 }

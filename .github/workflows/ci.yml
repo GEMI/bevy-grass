@@ -111,6 +111,34 @@ jobs:
         with:
           baseline-rev: origin/${{ github.base_ref }}
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Measure coverage, gated at 50% lines and regions
+        run: |
+          cargo +nightly llvm-cov --branch --all-features \
+            --fail-under-lines 50 --fail-under-regions 50 \
+            --html --output-dir coverage
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage/
+
   # Every preset rendered headless by a software rasterizer, which draws the
   # same on every machine, and compared with tests/golden/<renderer>/. The
   # first run on a new renderer has no goldens: take the captures from the

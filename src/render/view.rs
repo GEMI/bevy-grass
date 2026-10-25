@@ -373,6 +373,17 @@ pub(crate) fn prepare_views(
     }
 }
 
+/// The raw view values `view_uniform` reads from `ExtractedView`, grouped so
+/// the math can be tested without constructing a Bevy view.
+struct ViewParts {
+    world_from_view: Mat4,
+    clip_from_view: Mat4,
+    clip_from_world: Option<Mat4>,
+    viewport: UVec4,
+    position: Vec3,
+    forward: Vec3,
+}
+
 fn view_uniform(
     view: &ExtractedView,
     settings: &GrassSettings,
@@ -380,14 +391,33 @@ fn view_uniform(
     capacities: &[u32; 3],
     shadow_light: Option<Vec3>,
 ) -> ViewUniformData {
-    let world_from_view = view.world_from_view.to_matrix();
-    let clip_from_world = view
+    let parts = ViewParts {
+        world_from_view: view.world_from_view.to_matrix(),
+        clip_from_view: view.clip_from_view,
+        clip_from_world: view.clip_from_world,
+        viewport: view.viewport,
+        position: view.world_from_view.translation(),
+        forward: view.world_from_view.forward().as_vec3(),
+    };
+    view_uniform_from_parts(&parts, settings, distance_offset, capacities, shadow_light)
+}
+
+/// The pure math behind [`view_uniform`], split out so tests can feed it raw
+/// matrices without a Bevy view.
+fn view_uniform_from_parts(
+    parts: &ViewParts,
+    settings: &GrassSettings,
+    distance_offset: f32,
+    capacities: &[u32; 3],
+    shadow_light: Option<Vec3>,
+) -> ViewUniformData {
+    let clip_from_world = parts
         .clip_from_world
-        .unwrap_or_else(|| view.clip_from_view * world_from_view.inverse());
-    let orthographic = view.clip_from_view.w_axis.w == 1.0;
-    let position = view.world_from_view.translation();
-    let forward = view.world_from_view.forward().as_vec3();
-    let pixel_scale = 2.0 / (view.clip_from_view.x_axis.x * view.viewport.z.max(1) as f32);
+        .unwrap_or_else(|| parts.clip_from_view * parts.world_from_view.inverse());
+    let orthographic = parts.clip_from_view.w_axis.w == 1.0;
+    let position = parts.position;
+    let forward = parts.forward;
+    let pixel_scale = 2.0 / (parts.clip_from_view.x_axis.x * parts.viewport.z.max(1) as f32);
 
     let lod = DistanceLod::from_settings(settings);
     // Positions are quantized to 16 bits over ±extent around an origin that

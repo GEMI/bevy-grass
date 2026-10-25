@@ -151,4 +151,25 @@ mod tests {
         assert_eq!(frame.gust_offset, clock.gust_offset);
         assert_eq!(frame.previous_gust_offset, clock.previous_gust_offset);
     }
+
+    #[test]
+    fn gust_step_handles_zero_and_tiny_values() {
+        // A zero direction blows along +X.
+        let step = gust_step(Vec2::ZERO, 2.0, 4.0, 1.0);
+        assert!(step.x > 0.0 && step.y == 0.0);
+        // A tiny but non-zero direction is normalized, not treated as zero.
+        let tiny = gust_step(Vec2::splat(1e-4), 2.0, 4.0, 1.0);
+        assert!(tiny.length() > 0.0);
+        assert!(tiny.is_finite());
+        // A zero or negative gust scale clamps to 0.01 m.
+        let zero_scale = gust_step(Vec2::X, 2.0, 0.0, 1.0);
+        let negative_scale = gust_step(Vec2::X, 2.0, -1.0, 1.0);
+        assert_eq!(zero_scale, negative_scale);
+        // The clamp is 0.01 f32, so compare in f64 against that exact value.
+        let expected = 2.0 / f64::from(0.01f32);
+        assert!((zero_scale.x - expected).abs() < 1e-9);
+        // A negative delta scrolls backward.
+        let backward = gust_step(Vec2::X, 2.0, 4.0, -1.0);
+        assert!(backward.x < 0.0);
+    }
 }
