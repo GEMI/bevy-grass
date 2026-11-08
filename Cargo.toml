@@ -93,13 +93,15 @@ bevy = { version = "0.20", default-features = false, features = [
 ] }
 # The golden-image check reads and writes PNGs; the version Bevy uses.
 image = { version = "0.25", default-features = false, features = ["png"] }
-# Property tests: invariants across hundreds of random inputs per run.
-proptest = "1"
 
 # The examples reload `.grass.ron` files when they are saved. Bevy's file
 # watcher is a `compile_error!` on wasm, so it is native only.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 bevy = { version = "0.20", default-features = false, features = ["file_watcher"] }
+# Property tests: invariants across hundreds of random inputs per run. Native
+# only: proptest's `rand` needs getrandom's `wasm_js` on wasm, and its `fork`
+# feature pulls in wait-timeout, which has no wasm32 build.
+proptest = "1"
 
 # In the browser the examples render through WebGPU; `webgpu` overrides the
 # `webgl2` that `3d` turns on, and the crate does not support WebGL2.
